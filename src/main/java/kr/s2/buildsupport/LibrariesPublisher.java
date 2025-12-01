@@ -34,66 +34,83 @@ import org.gradle.api.publish.maven.MavenPublication;
 public class LibrariesPublisher {
 
     /**
-     * 허용된 Classifier 목록과 구분자 규칙
-     * <p>
-     * 각 규칙은 [classifier명, 구분자] 형식으로 정의됩니다.
-     * </p>
-     * <p>
-     * 예: for_bcprov classifier는 밑줄(_)로 구분
-     * </p>
-     */
-    private static final String[][] ALLOWED_CLASSIFIERS = {
-            {"for_bcprov", "_"}
-    };
-
-    /**
-     * libs 디렉토리의 JAR 파일들을 스캔하여 Maven Publication으로 등록
+     * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록
      *
      * <p>
      * 처리 과정:
      * </p>
      * <ol>
-     * <li>libs 디렉토리의 모든 .jar 파일 스캔</li>
+     * <li>지정된 디렉토리들의 모든 파일을 스캔</li>
      * <li>파일명에서 classifier, 아티팩트명, 버전 추출</li>
      * <li>동일한 artifactId:version을 가진 파일들을 그룹화</li>
      * <li>각 그룹을 Maven Publication으로 등록</li>
      * </ol>
      *
-     * @param project Gradle 프로젝트 객체
-     * @param libsDir libs 디렉토리 (서드파티 JAR 파일들이 위치한 디렉토리)
+     * @param project            Gradle 프로젝트 객체
+     * @param fileScanRules      스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", ".jar"}, {"libs", ".war"}})
+     * @param allowedClassifiers 허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
      */
-    public static void registerPublications(Project project, File libsDir) {
-        if (!libsDir.exists() || !libsDir.isDirectory()) {
-            System.out.println("⚠️  [LibsPublishHelper] libs directory not found: " + libsDir.getAbsolutePath());
+    public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers) {
+        // artifactId:version을 키로 하는 아티팩트 맵
+        Map<String, List<ArtifactItem>> artifactsMap = new HashMap<>();
+
+        // 모든 파일을 수집
+        List<File> allFiles = new ArrayList<>();
+
+        // 각 스캔 규칙에 따라 파일 수집
+        if (fileScanRules != null && fileScanRules.length > 0) {
+            for (String[] rule : fileScanRules) {
+                if (rule == null || rule.length < 2)
+                    continue;
+
+                String dirPath = rule[0];
+                String extension = rule[1];
+
+                File scanDir = new File(dirPath);
+                if (!scanDir.exists() || !scanDir.isDirectory()) {
+                    System.out.println("⚠️  [LibsPublishHelper] directory not found: " + scanDir.getAbsolutePath());
+                    continue;
+                }
+
+                // 지정된 확장자로 파일 필터링
+                File[] files = scanDir.listFiles((dir, name) -> name.endsWith(extension));
+
+                if (files != null) {
+                    for (File file : files) {
+                        allFiles.add(file);
+                    }
+                }
+            }
+        }
+
+        if (allFiles.isEmpty()) {
+            System.out.println("⚠️  [LibsPublishHelper] No files found to publish");
             return;
         }
 
-        // artifactId:version을 키로 하는 아티팩트 맵
-        Map<String, List<ArtifactItem>> artifactsMap = new HashMap<>();
-        File[] files = libsDir.listFiles((dir, name) -> name.endsWith(".jar"));
-
-        if (files == null)
-            return;
-
-        // 각 JAR 파일 처리
-        for (File jarFile : files) {
+        // 각 파일 처리
+        for (File jarFile : allFiles) {
             String fileName = jarFile.getName();
-            String baseName = fileName.substring(0, fileName.length() - 4); // remove .jar
+            // 파일 확장자 제거 (마지막 . 이후)
+            int lastDot = fileName.lastIndexOf('.');
+            String baseName = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
             String distClassifier = null;
 
-            // Classifier 규칙 적용
-            for (String[] rule : ALLOWED_CLASSIFIERS) {
-                String clf = rule[0];
-                String sep = rule[1];
-                String pattern = sep + clf;
+            if (allowedClassifiers != null && allowedClassifiers.length > 0) {
+                // Classifier 규칙 적용
+                for (String[] rule : allowedClassifiers) {
+                    String clf = rule[0];
+                    String sep = rule[1];
+                    String pattern = sep + clf;
 
-                if (baseName.endsWith(pattern)) {
-                    String before = baseName.substring(0, baseName.length() - pattern.length());
-                    VersionInfo verCheck = extractVersion(before);
-                    if (verCheck.hasVersion) {
-                        baseName = before;
-                        distClassifier = clf;
-                        break;
+                    if (baseName.endsWith(pattern)) {
+                        String before = baseName.substring(0, baseName.length() - pattern.length());
+                        VersionInfo verCheck = extractVersion(before);
+                        if (verCheck.hasVersion) {
+                            baseName = before;
+                            distClassifier = clf;
+                            break;
+                        }
                     }
                 }
             }
