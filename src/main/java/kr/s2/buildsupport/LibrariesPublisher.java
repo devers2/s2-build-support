@@ -46,11 +46,32 @@ public class LibrariesPublisher {
      * <li>각 그룹을 Maven Publication으로 등록</li>
      * </ol>
      *
+     * @param project             Gradle 프로젝트 객체
+     * @param fileScanRules       스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", ".jar"}, {"libs", ".war"}})
+     * @param allowedClassifiers  허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
+     * @param exceptionalVersions 예외적인 버전 형태 배열
+     *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
+     *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
+     */
+    public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
+        registerPublicationsInternal(project, fileScanRules, allowedClassifiers, exceptionalVersions);
+    }
+
+    /**
+     * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록 (예외 버전 없음)
+     *
      * @param project            Gradle 프로젝트 객체
-     * @param fileScanRules      스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", ".jar"}, {"libs", ".war"}})
-     * @param allowedClassifiers 허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
+     * @param fileScanRules      스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태)
+     * @param allowedClassifiers 허용된 classifier 규칙 배열
      */
     public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers) {
+        registerPublicationsInternal(project, fileScanRules, allowedClassifiers, null);
+    }
+
+    /**
+     * 내부 구현: 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록
+     */
+    private static void registerPublicationsInternal(Project project, String[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
         // artifactId:version을 키로 하는 아티팩트 맵
         Map<String, List<ArtifactItem>> artifactsMap = new HashMap<>();
 
@@ -105,7 +126,7 @@ public class LibrariesPublisher {
 
                     if (baseName.endsWith(pattern)) {
                         String before = baseName.substring(0, baseName.length() - pattern.length());
-                        VersionInfo verCheck = extractVersion(before);
+                        VersionInfo verCheck = extractVersion(before, exceptionalVersions);
                         if (verCheck.hasVersion) {
                             baseName = before;
                             distClassifier = clf;
@@ -116,7 +137,7 @@ public class LibrariesPublisher {
             }
 
             // 버전 정보 추출 및 아티팩트 ID 생성
-            VersionInfo verInfo = extractVersion(baseName);
+            VersionInfo verInfo = extractVersion(baseName, exceptionalVersions);
             String distArtifactId = toMavenArtifactId(verInfo.baseName);
             String distVersion = verInfo.version != null ? verInfo.version : project.getVersion().toString();
 
@@ -212,31 +233,87 @@ public class LibrariesPublisher {
     }
 
     /**
-     * 파일명에서 버전 정보를 추출
+     * 파일명에서 버전 정보를 추출 (예외 버전 형태 없음)
      *
      * <p>
      * 파일명 패턴: {baseName}[-_]{version}
      * </p>
      * <p>
-     * 예: bcprov-jdk18on-1.78 -&gt; baseName: bcprov-jdk18on, version: 1.78
+     * 예: bcprov-1.78 -&gt; baseName: bcprov, version: 1.78 (일반 패턴)
      * </p>
      *
      * @param fileName 버전을 추출할 파일명 (.jar 확장자 제외)
      * @return VersionInfo 객체 (baseName, version, hasVersion 포함)
      */
     public static VersionInfo extractVersion(String fileName) {
+        return extractVersion(fileName, null);
+    }
+
+    /**
+     * 파일명에서 버전 정보를 추출
+     *
+     * <p>
+     * 파일명 패턴: {baseName}[-_]{version}
+     * </p>
+     * <p>
+     * 일반적인 버전 패턴: 숫자로 시작하고 숫자, 점(.), 대시(-), 플러스(+)로만 구성
+     * </p>
+     * <p>
+     * 예외적인 버전: exceptionalVersions 배열에 정의된 문자열
+     * </p>
+     * <p>
+     * 예:
+     * </p>
+     * <ul>
+     * <li>bcprov-1.78 -&gt; baseName: bcprov, version: 1.78 (일반 패턴 매칭)</li>
+     * <li>bcprov-jdk18on-1.78 -&gt; baseName: bcprov-jdk18on, version: 1.78 (일반 패턴 맨저 매칭)</li>
+     * <li>bcprov-jdk18on -&gt; baseName: bcprov, version: jdk18on (jdk18on이 예외 버전에 포함된 경우)</li>
+     * </ul>
+     *
+     * @param fileName            버전을 추출할 파일명 (.jar 확장자 제외)
+     * @param exceptionalVersions 예외적인 버전 형태 배열
+     *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
+     *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
+     * @return VersionInfo 객체 (baseName, version, hasVersion 포함)
+     */
+    public static VersionInfo extractVersion(String fileName, String[] exceptionalVersions) {
         if (fileName == null || fileName.trim().isEmpty()) {
             return new VersionInfo("", null, false);
         }
 
-        // 버전 패턴: 숫자로 시작하는 버전 문자열
-        Pattern pattern = Pattern.compile("^(.+?)[-_]([0-9][A-Za-z0-9._\\+-]+)$");
-        Matcher m = pattern.matcher(fileName);
+        String trimmedFileName = fileName.trim();
 
-        if (m.matches()) {
-            return new VersionInfo(m.group(1).trim(), m.group(2), true);
+        // 1단계: 일반적인 버전 패턴 (숫자, 점, 대시, 플러스만 포함)
+        // 패턴: 숫자로 시작하고 숫자, 점(.), 대시(-), 플러스(+)로만 구성된 버전
+        Pattern standardPattern = Pattern.compile("^(.+?)[-_]([0-9][0-9.+\\-]+)$");
+        Matcher standardMatcher = standardPattern.matcher(trimmedFileName);
+
+        if (standardMatcher.matches()) {
+            String baseName = standardMatcher.group(1).trim();
+            String version = standardMatcher.group(2);
+            return new VersionInfo(baseName, version, true);
         }
-        return new VersionInfo(fileName.trim(), null, false);
+
+        // 2단계: 예외적인 버전 패턴 처리
+        if (exceptionalVersions != null && exceptionalVersions.length > 0) {
+            // 파일명을 역순으로 토큰화하여 예외 버전 찾기
+            String[] parts = trimmedFileName.split("[-_]");
+
+            // 마지막 부분부터 시작하여 예외 버전 확인
+            for (int i = parts.length - 1; i >= 0; i--) {
+                String candidateVersion = String.join("-", java.util.Arrays.copyOfRange(parts, i, parts.length));
+
+                // 예외 버전 배열에 포함되어 있는지 확인
+                for (String exceptionalVersion : exceptionalVersions) {
+                    if (candidateVersion.equals(exceptionalVersion) || candidateVersion.startsWith(exceptionalVersion + "-")) {
+                        String baseName = String.join("-", java.util.Arrays.copyOfRange(parts, 0, i));
+                        return new VersionInfo(baseName, candidateVersion, true);
+                    }
+                }
+            }
+        }
+
+        return new VersionInfo(trimmedFileName, null, false);
     }
 
     /**
