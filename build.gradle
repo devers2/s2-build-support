@@ -1,0 +1,79 @@
+plugins {
+    id 'java-gradle-plugin'
+    id 'maven-publish'
+}
+group = project.property('group')
+version = project.property('version')
+repositories {
+    mavenCentral()
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+dependencies {
+    implementation gradleApi()
+}
+
+/*
+ * [Gradle 플러그인 배포]
+ *
+ * java-gradle-plugin이 자동으로 2개의 패키지를 생성합니다:
+ *
+ * 1. Plugin Marker (메타데이터)
+ *    - 좌표: kr.s2.buildsupport:kr.s2.buildsupport.gradle.plugin:version
+ *    - GitHub Packages 표시: kr.s2.buildsupport.kr.s2.buildsupport.gradle.plugin
+ *    - 역할: 사용자가 'id: kr.s2.buildsupport'로 플러그인을 적용할 때 실제 JAR를 찾을 수 있도록 하는 메타데이터
+ *
+ * 2. Main JAR (실제 플러그인 코드)
+ *    - 좌표: kr.s2:s2-build-support:version
+ *    - GitHub Packages 표시: kr.s2.s2-build-support
+ *    - 역할: S2BuildSupportPlugin 클래스 등 실제 플러그인 구현 코드 포함
+ *
+ * 이 두 패키지는 Gradle 플러그인 시스템의 표준 동작이며, 둘 다 필수입니다.
+ *
+ * [사용 방법]
+ *
+ * 1. settings.gradle에 저장소 추가:
+ *    pluginManagement {
+ *        repositories {
+ *            gradlePluginPortal()
+ *            maven {
+ *                url = uri("https://maven.pkg.github.com/devers2/s2-libs")
+ *                credentials {
+ *                    username = 'your-github-username'
+ *                    password = 'your-github-token'
+ *                }
+ *            }
+ *        }
+ *    }
+ *
+ * 2. build.gradle에 플러그인 적용:
+ *    plugins {
+ *        id 'kr.s2.buildsupport' version '1.0.0'
+ *    }
+ */
+gradlePlugin {
+    plugins {
+        s2BuildSupportPlugin {
+            id = 'kr.s2.buildsupport'
+            implementationClass = 'kr.s2.buildsupport.S2BuildSupportPlugin'
+            displayName = 'S2 Build Support'
+            description = 'S2 project build utilities'
+        }
+    }
+    // Plugin marker publication을 명시적으로 설정
+    vcsUrl = 'https://github.com/devers2/s2-libs'
+}
+publishing {
+    repositories {
+        maven {
+            name = 'devers2-packages'
+            url = uri("https://maven.pkg.github.com/devers2/s2-libs")
+            credentials {
+                username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+                password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
+}
