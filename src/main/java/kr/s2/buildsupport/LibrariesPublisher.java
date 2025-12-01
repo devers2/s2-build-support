@@ -47,7 +47,7 @@ public class LibrariesPublisher {
      * </ol>
      *
      * @param project             Gradle 프로젝트 객체
-     * @param fileScanRules       스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", ".jar"}, {"libs", ".war"}})
+     * @param fileScanRules       스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", "jar"}, {"libs", "war"}})
      * @param allowedClassifiers  허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
      * @param exceptionalVersions 예외적인 버전 형태 배열
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
@@ -61,7 +61,7 @@ public class LibrariesPublisher {
      * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록 (예외 버전 없음)
      *
      * @param project            Gradle 프로젝트 객체
-     * @param fileScanRules      스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태)
+     * @param fileScanRules      스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", "jar"}, {"libs", "war"}})
      * @param allowedClassifiers 허용된 classifier 규칙 배열
      */
     public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers) {
@@ -87,6 +87,10 @@ public class LibrariesPublisher {
                 String dirPath = rule[0];
                 String extension = rule[1];
 
+                if (dirPath == null || dirPath.isEmpty() || extension == null || extension.isEmpty()) {
+                    continue;
+                }
+
                 File scanDir = new File(dirPath);
                 if (!scanDir.exists() || !scanDir.isDirectory()) {
                     System.out.println("⚠️  [LibsPublishHelper] directory not found: " + scanDir.getAbsolutePath());
@@ -94,7 +98,7 @@ public class LibrariesPublisher {
                 }
 
                 // 지정된 확장자로 파일 필터링
-                File[] files = scanDir.listFiles((dir, name) -> name.endsWith(extension));
+                File[] files = scanDir.listFiles((dir, name) -> name.endsWith("." + extension));
 
                 if (files != null) {
                     for (File file : files) {
