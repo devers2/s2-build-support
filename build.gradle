@@ -71,8 +71,9 @@ publishing {
             name = 'devers2-packages'
             url = uri("https://maven.pkg.github.com/devers2/s2-libs")
             credentials {
-                username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
-                password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
+                // project.ext는 settings.gradle에서 추가된 속성을 포함한다.
+                username = project.ext.has('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+                password = project.ext.has('gpr.key') ?: System.getenv('GITHUB_TOKEN')
             }
         }
     }
