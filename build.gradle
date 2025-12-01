@@ -39,7 +39,7 @@ dependencies {
  *        repositories {
  *            gradlePluginPortal()
  *            maven {
- *                url = uri("https://maven.pkg.github.com/devers2/s2-libs")
+ *                url = uri("https://maven.pkg.github.com/devers2/s2-packages")
  *                credentials {
  *                    username = 'your-github-username'
  *                    password = 'your-github-token'
@@ -63,13 +63,13 @@ gradlePlugin {
         }
     }
     // Plugin marker publication을 명시적으로 설정
-    vcsUrl = 'https://github.com/devers2/s2-libs'
+    vcsUrl = 'https://github.com/devers2/s2-packages'
 }
 publishing {
     repositories {
         maven {
             name = 'devers2-packages'
-            url = uri("https://maven.pkg.github.com/devers2/s2-libs")
+            url = uri("https://maven.pkg.github.com/devers2/s2-packages")
             credentials {
                 username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
                 password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
