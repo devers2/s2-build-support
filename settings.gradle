@@ -1,15 +1,1 @@
-pluginManagement {
-    def globalProperties = new Properties()
-    def globalFile = new File(gradle.gradleUserHomeDir, 'gradle.properties')
-    if (globalFile.exists()) {
-        globalFile.withInputStream { stream ->
-            globalProperties.load(stream)
-        }
-    }
-
-    settings.extra.set('gpr.user', globalProperties.getProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR'))
-    settings.extra.set('gpr.key', globalProperties.getProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN'))
-    // pluginManagement 블록 평가 시점에 사용자 홈의 gradle.properties 를 읽어올 수 없어 직접 읽어온다.
-}
-
 rootProject.name = 's2-build-support'
