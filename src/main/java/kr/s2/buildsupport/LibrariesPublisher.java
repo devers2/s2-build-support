@@ -5,8 +5,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.gradle.api.Project;
 import org.gradle.api.publish.PublishingExtension;
@@ -266,11 +264,14 @@ public class LibrariesPublisher {
      * 예외적인 버전: exceptionalVersions 배열에 정의된 문자열
      * </p>
      * <p>
+     * 우선순위: 1) 뒤에서부터 예외 버전 찾기, 2) 예외 버전 없으면 뒤에서부터 일반 패턴 찾기
+     * </p>
+     * <p>
      * 예:
      * </p>
      * <ul>
      * <li>bcprov-1.78 -&gt; baseName: bcprov, version: 1.78 (일반 패턴 매칭)</li>
-     * <li>bcprov-jdk18on-1.78 -&gt; baseName: bcprov-jdk18on, version: 1.78 (일반 패턴 맨저 매칭)</li>
+     * <li>bcprov-jdk18on-1.78 -&gt; baseName: bcprov-jdk18on, version: 1.78 (예외 버전이 없으면 일반 패턴 뒤에서부터 매칭)</li>
      * <li>bcprov-jdk18on -&gt; baseName: bcprov, version: jdk18on (jdk18on이 예외 버전에 포함된 경우)</li>
      * </ul>
      *
@@ -287,33 +288,31 @@ public class LibrariesPublisher {
 
         String trimmedFileName = fileName.trim();
 
-        // 1단계: 일반적인 버전 패턴 (숫자, 점, 대시, 플러스만 포함)
-        // 패턴: 숫자로 시작하고 숫자, 점(.), 대시(-), 플러스(+)로만 구성된 버전
-        Pattern standardPattern = Pattern.compile("^(.+?)[-_]([0-9][0-9.+\\-]+)$");
-        Matcher standardMatcher = standardPattern.matcher(trimmedFileName);
+        // 파일명을 토큰화 ([-_]로 분리)
+        String[] parts = trimmedFileName.split("[-_]");
 
-        if (standardMatcher.matches()) {
-            String baseName = standardMatcher.group(1).trim();
-            String version = standardMatcher.group(2);
-            return new VersionInfo(baseName, version, true);
-        }
+        // 뒤에서부터 버전 찾기 (baseName 최소 1개 요소 필요)
+        for (int i = parts.length - 1; i > 0; i--) {
+            // parts 배열의 i번째 요소부터 끝까지를 dash(-)로 연결한 버전 후보 생성
+            // 예: parts = ["bcprov", "jdk18on", "1.78"]일 때
+            // - i=2: candidateVersion = "1.78"
+            // - i=1: candidateVersion = "jdk18on-1.78"
+            String candidateVersion = String.join("-", java.util.Arrays.copyOfRange(parts, i, parts.length));
 
-        // 2단계: 예외적인 버전 패턴 처리
-        if (exceptionalVersions != null && exceptionalVersions.length > 0) {
-            // 파일명을 역순으로 토큰화하여 예외 버전 찾기
-            String[] parts = trimmedFileName.split("[-_]");
-
-            // 마지막 부분부터 시작하여 예외 버전 확인
-            for (int i = parts.length - 1; i >= 0; i--) {
-                String candidateVersion = String.join("-", java.util.Arrays.copyOfRange(parts, i, parts.length));
-
-                // 예외 버전 배열에 포함되어 있는지 확인
+            // 1단계: 예외적인 버전 패턴 확인
+            if (exceptionalVersions != null && exceptionalVersions.length > 0) {
                 for (String exceptionalVersion : exceptionalVersions) {
                     if (candidateVersion.equals(exceptionalVersion) || candidateVersion.startsWith(exceptionalVersion + "-")) {
                         String baseName = String.join("-", java.util.Arrays.copyOfRange(parts, 0, i));
                         return new VersionInfo(baseName, candidateVersion, true);
                     }
                 }
+            }
+
+            // 2단계: 일반적인 버전 패턴 확인 (숫자로 시작, 숫자/점/대시/플러스만 포함)
+            if (candidateVersion.matches("^[0-9][0-9.+\\-]*$")) {
+                String baseName = String.join("-", java.util.Arrays.copyOfRange(parts, 0, i));
+                return new VersionInfo(baseName, candidateVersion, true);
             }
         }
 
