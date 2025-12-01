@@ -213,7 +213,7 @@ public class LibrariesPublisher {
         }
 
         // 버전 패턴: 숫자로 시작하는 버전 문자열
-        Pattern pattern = Pattern.compile("^(.+?)[-_]([0-9][A-Za-z0-9._\\\\-+]+)$");
+        Pattern pattern = Pattern.compile("^(.+?)[-_]([0-9][A-Za-z0-9._\\+-]+)$");
         Matcher m = pattern.matcher(fileName);
 
         if (m.matches()) {
