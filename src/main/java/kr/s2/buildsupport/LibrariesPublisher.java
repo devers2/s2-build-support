@@ -51,7 +51,7 @@ public class LibrariesPublisher {
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      */
-    public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
+    public static void registerPublications(Project project, Object[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
         registerPublicationsInternal(project, fileScanRules, allowedClassifiers, exceptionalVersions);
     }
 
@@ -62,7 +62,7 @@ public class LibrariesPublisher {
      * @param fileScanRules      스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
      * @param allowedClassifiers 허용된 classifier 규칙 배열
      */
-    public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers) {
+    public static void registerPublications(Project project, Object[][] fileScanRules, String[][] allowedClassifiers) {
         registerPublicationsInternal(project, fileScanRules, allowedClassifiers, null);
     }
 
