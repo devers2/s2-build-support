@@ -89,7 +89,7 @@ public class GitHubPackagesClient {
      */
     public static boolean isRepoPrivate(String repoBaseUrl, String githubToken) {
         // REPO_BASE_URL에서 owner/repo 추출
-        // 예: "https://maven.pkg.github.com/Placelink-HUB/libs-repo" -> "Placelink-HUB/libs-repo"
+        // 예: "https://maven.pkg.github.com/Placelink-HUB/packages" -> "Placelink-HUB/packages"
         Pattern pattern = Pattern.compile("github\\.com/([^/]+)/([^/]+)");
         Matcher matcher = pattern.matcher(repoBaseUrl);
 
