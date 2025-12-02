@@ -45,7 +45,7 @@ public class LibrariesPublisher {
      * </ol>
      *
      * @param project             Gradle 프로젝트 객체
-     * @param fileScanRules       스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", "jar"}, {"libs", "war"}})
+     * @param fileScanRules       스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
      * @param allowedClassifiers  허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
      * @param exceptionalVersions 예외적인 버전 형태 배열
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
@@ -59,7 +59,7 @@ public class LibrariesPublisher {
      * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록 (예외 버전 없음)
      *
      * @param project            Gradle 프로젝트 객체
-     * @param fileScanRules      스캔 규칙 배열 (각 항목은 [디렉토리경로, 확장자] 형태, 예: {{"libs", "jar"}, {"libs", "war"}})
+     * @param fileScanRules      스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
      * @param allowedClassifiers 허용된 classifier 규칙 배열
      */
     public static void registerPublications(Project project, String[][] fileScanRules, String[][] allowedClassifiers) {
@@ -68,8 +68,16 @@ public class LibrariesPublisher {
 
     /**
      * 내부 구현: 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록
+     *
+     * @param project             Gradle 프로젝트 객체
+     * @param fileScanRules       스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
+     * @param allowedClassifiers  허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
+     * @param exceptionalVersions 예외적인 버전 형태 배열
+     *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
+     *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
+     *
      */
-    private static void registerPublicationsInternal(Project project, String[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
+    private static void registerPublicationsInternal(Project project, Object[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
         // artifactId:version을 키로 하는 아티팩트 맵
         Map<String, List<ArtifactItem>> artifactsMap = new HashMap<>();
 
@@ -78,18 +86,25 @@ public class LibrariesPublisher {
 
         // 각 스캔 규칙에 따라 파일 수집
         if (fileScanRules != null && fileScanRules.length > 0) {
-            for (String[] rule : fileScanRules) {
+            for (Object[] rule : fileScanRules) {
                 if (rule == null || rule.length < 2)
                     continue;
 
-                String dirPath = rule[0];
-                String extension = rule[1];
+                Object dirObject = rule[0];
+                Object extObject = rule[1];
 
-                if (dirPath == null || dirPath.isEmpty() || extension == null || extension.isEmpty()) {
+                if (!(dirObject instanceof File) || !(extObject instanceof String)) {
+                    System.out.println(
+                            "⚠️  [LibsPublishHelper] Invalid rule format. Expected [File, String], but got [" +
+                                    (dirObject != null ? dirObject.getClass().getSimpleName() : "null") + ", " +
+                                    (extObject != null ? extObject.getClass().getSimpleName() : "null") + "]"
+                    );
                     continue;
                 }
 
-                File scanDir = new File(dirPath);
+                File scanDir = (File) dirObject;
+                String extension = (String) extObject;
+
                 if (!scanDir.exists() || !scanDir.isDirectory()) {
                     System.out.println("⚠️  [LibsPublishHelper] directory not found: " + scanDir.getAbsolutePath());
                     continue;
