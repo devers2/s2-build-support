@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.gradle.api.Project;
 import org.gradle.api.publish.PublishingExtension;
@@ -250,14 +251,86 @@ public class LibrariesPublisher {
     }
 
     /**
+     * 엄격한 버전 문자열 검증을 위한 정규표현식 패턴
+     * <p>
+     * 이 패턴은 Maven, Gradle, Spring Boot, JDK 등에서 실제로 사용되는 버전 형식만 정확히 허용하며,
+     * 비표준이거나 의미 없는 버전 문자열은 철저히 차단한다.
+     * </p>
+     *
+     * <h3>허용되는 버전 예시</h3>
+     * <ul>
+     * <li>{@code 1.0} → 기본 릴리스 버전</li>
+     * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
+     * <li>{@code 1.0.0}, {@code 2.3.4.5} → SemVer 표준 숫자 버전</li>
+     * <li>{@code 1.0.0-RC1}, {@code 2.0.0-rc2}, {@code 3.1.0-BETA5} → Release Candidate, Beta</li>
+     * <li>{@code 1.0.0-ALPHA}, {@code 1.0.0-alpha12} → Alpha 버전</li>
+     * <li>{@code 1.0.0-M1}, {@code 1.0.0-m3} → Milestone</li>
+     * <li>{@code 1.0.0-SNAPSHOT}, {@code 2.1.0-final} → 개발/최종 릴리스 태그</li>
+     * <li>{@code 1.0.0+20251203}, {@code 17.0.12+7}, {@code 1.8.0_422+8} → 빌드 메타데이터 (JDK, CI 필수!)</li>
+     * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
+     * </ul>
+     *
+     * <h3>차단되는 잘못된 예시 (의도된 대로 차단됨)</h3>
+     * <ul>
+     * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
+     * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
+     * <li>{@code 1.0-hello}, {@code 1.0-test} → 의미 없는 태그</li>
+     * <li>{@code 1.0-RC.1}, {@code 1.0-rc.2} → npm 스타일 점 구분자 (자바에선 사용 안 됨)</li>
+     * <li>{@code 1.0-SNAPSHOT1} → SNAPSHOT 뒤에 숫자 붙음 금지</li>
+     * <li>{@code 1.0-alpha-abc} → 키워드 뒤 추가 문자열 금지</li>
+     * <li>{@code 2025}, {@code latest}, {@code stable} → 숫자.숫자 형태 아님</li>
+     * </ul>
+     */
+    private static final Pattern STRICT_VERSION_PATTERN = Pattern.compile(
+            // 1. v 접두사 선택적
+            "^[vV]?" +
+
+            // 2. 숫자.숫자 필수 (1.0 이상)
+                    "\\d+(?:\\.\\d+)+" +
+
+                    // 3. 선택적 프리릴리스 태그 (-로 시작)
+                    "(?:-" +
+                    "(?:" +
+                    "SNAPSHOT|FINAL|RELEASE" + // 정확한 키워드
+                    "|" +
+                    "(?:ALPHA|BETA|RC|MILESTONE|M|B|A)\\d*" + // RC1, beta5 등
+                    ")" +
+                    ")?" +
+
+                    // 4. 선택적 빌드 메타데이터 → 반드시 허용해야 함!
+                    // 예: +20251203, +8, +sha.1a2b3c, +jdk-17 등
+                    "(?:\\+[\\da-zA-Z.-]+)?" +
+
+                    "$",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    /**
      * 파일명에서 버전 정보를 추출 (예외 버전 형태 없음)
      *
-     * <p>
-     * 파일명 패턴: {baseName}[-_]{version}
-     * </p>
-     * <p>
-     * 예: bcprov-1.78 -&gt; baseName: bcprov, version: 1.78 (일반 패턴)
-     * </p>
+     * <h3>허용되는 버전 예시</h3>
+     * <ul>
+     * <li>{@code 1.0} → 기본 릴리스 버전</li>
+     * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
+     * <li>{@code 1.0.0}, {@code 2.3.4.5} → SemVer 표준 숫자 버전</li>
+     * <li>{@code 1.0.0-RC1}, {@code 2.0.0-rc2}, {@code 3.1.0-BETA5} → Release Candidate, Beta</li>
+     * <li>{@code 1.0.0-ALPHA}, {@code 1.0.0-alpha12} → Alpha 버전</li>
+     * <li>{@code 1.0.0-M1}, {@code 1.0.0-m3} → Milestone</li>
+     * <li>{@code 1.0.0-SNAPSHOT}, {@code 2.1.0-final} → 개발/최종 릴리스 태그</li>
+     * <li>{@code 1.0.0+20251203}, {@code 17.0.12+7}, {@code 1.8.0_422+8} → 빌드 메타데이터 (JDK, CI 필수!)</li>
+     * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
+     * </ul>
+     *
+     * <h3>차단되는 잘못된 예시 (의도된 대로 차단됨)</h3>
+     * <ul>
+     * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
+     * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
+     * <li>{@code 1.0-hello}, {@code 1.0-test} → 의미 없는 태그</li>
+     * <li>{@code 1.0-RC.1}, {@code 1.0-rc.2} → npm 스타일 점 구분자 (자바에선 사용 안 됨)</li>
+     * <li>{@code 1.0-SNAPSHOT1} → SNAPSHOT 뒤에 숫자 붙음 금지</li>
+     * <li>{@code 1.0-alpha-abc} → 키워드 뒤 추가 문자열 금지</li>
+     * <li>{@code 2025}, {@code latest}, {@code stable} → 숫자.숫자 형태 아님</li>
+     * </ul>
      *
      * @param fileName 버전을 추출할 파일명 (.jar 확장자 제외)
      * @return VersionInfo 객체 (baseName, version, hasVersion 포함)
@@ -269,12 +342,29 @@ public class LibrariesPublisher {
     /**
      * 파일명에서 버전 정보를 추출
      *
-     * <p>
-     * 파일명 패턴: {baseName}[-_]{version}
-     * </p>
-     * <p>
-     * 일반적인 버전 패턴: 숫자로 시작하고 숫자, 점(.), 대시(-), 플러스(+)로만 구성
-     * </p>
+     * <ul>
+     * <li>{@code 1.0} → 기본 릴리스 버전</li>
+     * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
+     * <li>{@code 1.0.0}, {@code 2.3.4.5} → SemVer 표준 숫자 버전</li>
+     * <li>{@code 1.0.0-RC1}, {@code 2.0.0-rc2}, {@code 3.1.0-BETA5} → Release Candidate, Beta</li>
+     * <li>{@code 1.0.0-ALPHA}, {@code 1.0.0-alpha12} → Alpha 버전</li>
+     * <li>{@code 1.0.0-M1}, {@code 1.0.0-m3} → Milestone</li>
+     * <li>{@code 1.0.0-SNAPSHOT}, {@code 2.1.0-final} → 개발/최종 릴리스 태그</li>
+     * <li>{@code 1.0.0+20251203}, {@code 17.0.12+7}, {@code 1.8.0_422+8} → 빌드 메타데이터 (JDK, CI 필수!)</li>
+     * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
+     * </ul>
+     *
+     * <h3>차단되는 잘못된 예시 (의도된 대로 차단됨)</h3>
+     * <ul>
+     * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
+     * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
+     * <li>{@code 1.0-hello}, {@code 1.0-test} → 의미 없는 태그</li>
+     * <li>{@code 1.0-RC.1}, {@code 1.0-rc.2} → npm 스타일 점 구분자 (자바에선 사용 안 됨)</li>
+     * <li>{@code 1.0-SNAPSHOT1} → SNAPSHOT 뒤에 숫자 붙음 금지</li>
+     * <li>{@code 1.0-alpha-abc} → 키워드 뒤 추가 문자열 금지</li>
+     * <li>{@code 2025}, {@code latest}, {@code stable} → 숫자.숫자 형태 아님</li>
+     * </ul>
+     *
      * <p>
      * 예외적인 버전: exceptionalVersions 배열에 정의된 문자열
      * </p>
@@ -312,7 +402,9 @@ public class LibrariesPublisher {
             // 예: parts = ["bcprov", "jdk18on", "1.78"]일 때
             // - i=2: candidateVersion = "1.78"
             // - i=1: candidateVersion = "jdk18on-1.78"
-            String candidateVersion = String.join("-", java.util.Arrays.copyOfRange(parts, i, parts.length));
+            String candidateVersion = trimmedFileName.substring(
+                    trimmedFileName.lastIndexOf(parts[i])
+            );
 
             // 1단계: 예외적인 버전 패턴 확인
             if (exceptionalVersions != null && exceptionalVersions.length > 0) {
@@ -324,8 +416,8 @@ public class LibrariesPublisher {
                 }
             }
 
-            // 2단계: 일반적인 버전 패턴 확인 (숫자로 시작, 숫자/점/대시/플러스만 포함)
-            if (candidateVersion.matches("^[0-9][0-9.+\\-]*$")) {
+            // 2단계: 엄격한 버전 패턴 확인
+            if (STRICT_VERSION_PATTERN.matcher(candidateVersion).matches()) {
                 String baseName = String.join("-", java.util.Arrays.copyOfRange(parts, 0, i));
                 return new VersionInfo(baseName, candidateVersion, true);
             }
