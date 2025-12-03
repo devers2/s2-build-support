@@ -398,12 +398,10 @@ public class LibrariesPublisher {
 
         // 뒤에서부터 버전 찾기 (baseName 최소 1개 요소 필요)
         for (int i = parts.length - 1; i > 0; i--) {
-            // parts 배열의 i번째 요소부터 끝까지를 dash(-)로 연결한 버전 후보 생성
-            // 예: parts = ["bcprov", "jdk18on", "1.78"]일 때
-            // - i=2: candidateVersion = "1.78"
-            // - i=1: candidateVersion = "jdk18on-1.78"
+            // parts 배열의 i번째 요소를 기준으로 원본 파일명에서 버전 후보 문자열을 자름
+            // 이렇게 하면 '1.8.0_422'와 같이 '_'가 포함된 버전도 원본 그대로 유지됨
             String candidateVersion = trimmedFileName.substring(
-                    trimmedFileName.lastIndexOf(parts[i])
+                    trimmedFileName.lastIndexOf(parts[i - 1]) + parts[i - 1].length() + 1
             );
 
             // 1단계: 예외적인 버전 패턴 확인
