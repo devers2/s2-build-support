@@ -15,10 +15,8 @@ import org.gradle.api.publish.maven.MavenPublication;
  * libs 디렉토리의 JAR 파일들을 Maven Publication으로 등록하는 퍼블리셔 클래스
  *
  * <p>
- * 이 클래스는 {@code libs/} 디렉토리에 있는 서드파티 JAR 파일들을
- * 자동으로 스캔하여 Maven Publication으로 등록합니다.
- * 각 JAR 파일명에서 아티팩트명과 버전을 추출하고,
- * 허용된 classifier 규칙에 따라 적절히 그룹화하여 배포합니다.
+ * 이 클래스는 {@code libs/} 디렉토리에 있는 서드파티 JAR 파일들을 자동으로 스캔하여 Maven Publication으로 등록한다.
+ * 각 JAR 파일명에서 아티팩트명과 버전을 추출하고, 허용된 classifier 규칙에 따라 적절히 그룹화하여 배포
  * </p>
  *
  * <p>
