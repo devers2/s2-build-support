@@ -11,20 +11,27 @@ import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
+import org.gradle.api.tasks.javadoc.Javadoc;
+import org.gradle.external.javadoc.JavadocMemberLevel;
+import org.gradle.external.javadoc.StandardJavadocDocletOptions;
 
 /**
  * S2 프로젝트 빌드 관련 공통 유틸리티 클래스
  *
- * <p>이 클래스는 build.gradle에서 사용하는 복잡한 빌드 로직을 Java 코드로 캡슐화하여
- * 재사용성과 유지보수성을 높이는 핵심 유틸리티입니다.</p>
+ * <p>
+ * 이 클래스는 build.gradle에서 사용하는 복잡한 빌드 로직을 Java 코드로 캡슐화하여
+ * 재사용성과 유지보수성을 높이는 핵심 유틸리티입니다.
+ * </p>
  *
- * <p>주요 기능 영역:</p>
+ * <p>
+ * 주요 기능 영역:
+ * </p>
  * <ul>
- *   <li><b>경로 계산</b>: 라이선스 경로, 제외 경로 해석</li>
- *   <li><b>소스 토글</b>: 동적 기능별 소스 파일 활성화/비활성화</li>
- *   <li><b>Import 변환</b>: Java 버전별 Servlet import 자동 전환</li>
- *   <li><b>파일 업데이트</b>: 저작권 연도, README.md 버전 자동 갱신</li>
- *   <li><b>JAR 생성</b>: Classifier 생성, 파일명 생성 유틸리티</li>
+ * <li><b>경로 계산</b>: 라이선스 경로, 제외 경로 해석</li>
+ * <li><b>소스 토글</b>: 동적 기능별 소스 파일 활성화/비활성화</li>
+ * <li><b>Import 변환</b>: Java 버전별 Servlet import 자동 전환</li>
+ * <li><b>파일 업데이트</b>: 저작권 연도, README.md 버전 자동 갱신</li>
+ * <li><b>JAR 생성</b>: Classifier 생성, 파일명 생성 유틸리티</li>
  * </ul>
  *
  * @see LibrariesPublisher
@@ -450,5 +457,120 @@ public class S2BuildUtils {
     private static String getFileExtension(String fileName) {
         int lastDotIndex = fileName.lastIndexOf('.');
         return (lastDotIndex == -1) ? "" : fileName.substring(lastDotIndex + 1).toLowerCase();
+    }
+
+    // ========================================================================
+    // Gradle Task 설정 헬퍼 메서드
+    // ========================================================================
+
+    /**
+     * 표준 Javadoc 옵션 및 제외 경로 설정
+     *
+     * @param project       Gradle 프로젝트 객체
+     * @param excludedPaths 제외할 소스 경로 목록
+     */
+    public static void configureJavadoc(Project project, Set<String> excludedPaths) {
+        project.getTasks().withType(Javadoc.class).configureEach(javadoc -> {
+            StandardJavadocDocletOptions options = (StandardJavadocDocletOptions) javadoc.getOptions();
+            options.setEncoding("UTF-8");
+
+            // 모든 경고 및 오류 검사 비활성화
+            options.addStringOption("Xdoclint:none", "-quiet");
+
+            // 모든 접근 제어자 문서화
+            options.addBooleanOption("private", true);
+            options.setMemberLevel(JavadocMemberLevel.PROTECTED);
+
+            // 링크 및 상속 설정
+            options.setLinkSource(true);
+            options.setUse(true);
+
+            // 타이틀 설정
+            // project.name 등을 활용할 수도 있지만 일관성을 위해 고정값 또는 파라미터화 고려
+            options.setWindowTitle("S2Util API Documentation");
+            options.setDocTitle("S2Util API Documentation");
+
+            // 커스텀 태그
+            options.setTags(java.util.Arrays.asList("details:a:Details:", "example:a:Example:"));
+
+            // 표준 태그
+            options.setAuthor(true);
+            options.setVersion(true);
+
+            // HTML5 및 추가 옵션
+            options.addBooleanOption("html5", true);
+            options.addBooleanOption("notimestamp", true);
+
+            // 오류 처리 및 제외 설정
+            javadoc.setFailOnError(true);
+
+            if (excludedPaths != null && !excludedPaths.isEmpty()) {
+                javadoc.exclude(
+                        fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString())
+                );
+            }
+        });
+    }
+
+    /**
+     * 컴파일 및 JAR 생성 시 소스 제외 설정 적용
+     *
+     * @param project       Gradle 프로젝트 객체
+     * @param excludedPaths 제외할 소스 경로 목록
+     */
+    public static void configureSourceExclusions(Project project, Set<String> excludedPaths) {
+        if (excludedPaths == null || excludedPaths.isEmpty()) {
+            return;
+        }
+
+        // 컴파일 태스크
+        project.getTasks().named("compileJava", org.gradle.api.tasks.compile.JavaCompile.class).configure(task -> {
+            task.exclude(fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
+        });
+
+        // JAR 태스크 (sourcesJar 포함)
+        project.getTasks().withType(org.gradle.api.tasks.bundling.Jar.class).configureEach(task -> {
+            task.exclude(fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
+        });
+    }
+
+    /**
+     * Distributions 플러그인 설정 (라이선스 및 라이브러리 포함)
+     *
+     * @param project      Gradle 프로젝트 객체
+     * @param licensePaths 라이선스 파일 경로 목록
+     */
+    public static void configureDistributions(Project project, Set<String> licensePaths) {
+        // distributions 플러그인이 적용되었는지 확인은 호출 측에서 보장하거나 try-catch
+        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project.getExtensions().findByName("distributions");
+
+        if (distributions == null)
+            return;
+
+        distributions.getByName("main").contents(contents -> {
+            // 1. 라이선스 파일
+            if (licensePaths != null && !licensePaths.isEmpty()) {
+                contents.from(project.getRootDir(), copySpec -> {
+                    copySpec.include(licensePaths);
+                });
+            }
+
+            // 2. 최종 JAR (lib 폴더)
+            contents.from(project.getTasks().named("jar"), copySpec -> {
+                copySpec.into("lib");
+            });
+
+            // 3. 런타임 의존성 (lib 폴더)
+            contents.from(project.getConfigurations().getByName("runtimeClasspath"), copySpec -> {
+                copySpec.into("lib");
+            });
+
+            contents.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
+        });
+
+        // distZip 중복 전략 설정
+        project.getTasks().named("distZip", org.gradle.api.tasks.bundling.Zip.class).configure(task -> {
+            task.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
+        });
     }
 }

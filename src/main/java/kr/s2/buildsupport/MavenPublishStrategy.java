@@ -3,6 +3,10 @@ package kr.s2.buildsupport;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.gradle.api.Project;
+import org.gradle.api.publish.maven.MavenPublication;
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository;
+
 /**
  * Maven 배포 전략을 결정하는 유틸리티 클래스
  *
@@ -136,5 +140,75 @@ public class MavenPublishStrategy {
             this.classifier = classifier;
             this.extension = extension;
         }
+    }
+
+    /**
+     * 스마트 배포 로직을 Gradle 태스크에 적용
+     *
+     * <p>
+     * 1. POM 없음 → 전체 배포
+     * 2. POM 있음 + 모든 JAR 있음 → 배포 스킵
+     * 3. POM 있음 + 일부 JAR 누락 → 누락된 JAR만 배포 시도 (POM Conflict 무시)
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    public static void configureSmartPublishing(Project project) {
+        project.getTasks().withType(PublishToMavenRepository.class).configureEach(task -> {
+            // 특정 리포지토리(devers2-packages)에만 적용
+            // TODO: 저장소 이름을 파라미터로 받거나 설정에서 읽어오도록 개선 가능
+            if ("devers2-packages".equals(task.getRepository().getName())) {
+                task.onlyIf(t -> {
+                    PublishToMavenRepository pubTask = (PublishToMavenRepository) t;
+                    MavenPublication pub = pubTask.getPublication();
+                    String groupPath = project.getGroup().toString().replace('.', '/');
+                    String artifactId = pub.getArtifactId();
+                    String version = pub.getVersion();
+
+                    // REPO_BASE_URL 가져오기
+                    Object repoBaseUrlObj = project.getExtensions().getExtraProperties().get("REPO_BASE_URL");
+                    String repoBaseUrl = repoBaseUrlObj != null ? repoBaseUrlObj.toString() : "";
+
+                    // GITHUB_TOKEN 가져오기
+                    Object githubUserObj = project.getExtensions().getExtraProperties().get("GITHUB_USER");
+                    String githubUser = githubUserObj != null ? githubUserObj.toString() : "";
+                    Object githubTokenObj = project.getExtensions().getExtraProperties().get("GITHUB_TOKEN");
+                    String githubToken = githubTokenObj != null ? githubTokenObj.toString() : "";
+
+                    String baseUrl = String.format("%s/%s/%s/%s", repoBaseUrl, groupPath, artifactId, version);
+
+                    project.getLogger().lifecycle("");
+                    project.getLogger().lifecycle("[CHECK] Checking artifacts for {}:{}...", artifactId, version);
+
+                    List<ArtifactInfo> artifacts = new ArrayList<>();
+                    pub.getArtifacts().forEach(a -> {
+                        project.getLogger().lifecycle(
+                                "  - Artifact: {} (Classifier: {}, Ext: {})",
+                                a.getFile().getName(), a.getClassifier(), a.getExtension()
+                        );
+                        artifacts.add(new ArtifactInfo(a.getClassifier(), a.getExtension()));
+                    });
+
+                    PublishDecision decision = shouldPublish(baseUrl, artifactId, version, artifacts, githubUser, githubToken);
+
+                    if (!decision.shouldPublish) {
+                        project.getLogger().lifecycle("[SKIP] {} ({}) is fully published.", artifactId, version);
+                        return false;
+                    }
+
+                    if (decision.reason.contains("POM이 없으므로")) {
+                        project.getLogger().lifecycle("[REGISTER] {} ({}) - POM missing, publishing...", artifactId, version);
+                        return true;
+                    } else {
+                        project.getLogger().lifecycle("[REGISTER] {} ({}) - Missing artifacts:", artifactId, version);
+                        decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("  - {}", missing));
+                        project.getLogger().lifecycle("");
+                        project.getLogger().lifecycle("⚠️  Note: POM already exists. GitHub Packages will return 409 Conflict for POM,");
+                        project.getLogger().lifecycle("    but missing JARs will be uploaded successfully.");
+                        return true;
+                    }
+                });
+            }
+        });
     }
 }
