@@ -12,7 +12,7 @@ import org.gradle.api.publish.maven.tasks.PublishToMavenRepository;
  *
  * <p>
  * 이 클래스는 GitHub Packages에 아티팩트를 배포하기 전에
- * 중복 배포를 방지하고 효율적인 배포 전략을 수립하는 기능을 제공합니다.
+ * 중복 배포를 방지하고 효율적인 배포 전략을 수립하는 기능 제공
  * </p>
  *
  * <p>
@@ -32,7 +32,7 @@ public class MavenPublishStrategy {
      * 배포 결정 결과를 담는 데이터 클래스
      *
      * <p>
-     * 배포 여부, 이유, 누락된 아티팩트 목록을 포함합니다.
+     * 배포 여부, 이유, 누락된 아티팩트 목록 포함
      * </p>
      */
     public static class PublishDecision {
@@ -127,7 +127,7 @@ public class MavenPublishStrategy {
      * 아티팩트 정보를 담는 데이터 클래스
      *
      * <p>
-     * 배포할 아티팩트의 classifier와 확장자 정보를 저장합니다.
+     * 배포할 아티팩트의 classifier와 확장자 정보 저장
      * </p>
      */
     public static class ArtifactInfo {

@@ -20,7 +20,7 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  *
  * <p>
  * 이 클래스는 build.gradle에서 사용하는 복잡한 빌드 로직을 Java 코드로 캡슐화하여
- * 재사용성과 유지보수성을 높이는 핵심 유틸리티입니다.
+ * 재사용성과 유지보수성을 높이는 핵심 유틸리티
  * </p>
  *
  * <p>
@@ -122,7 +122,7 @@ public class S2BuildUtils {
 
     /**
      * 소스 파일 토글 수행 (.java <-> .java.txt)
-     * 초기화 단계에서 실행되며 활성화된 기능에 따라 파일명을 변경
+     * 초기화 단계에서 실행되며 활성화된 기능에 따라 파일명 변경
      *
      * @param project           Gradle 프로젝트 객체
      * @param javaSourceRoot    Java 소스 루트 경로
@@ -178,7 +178,7 @@ public class S2BuildUtils {
     }
 
     /**
-     * Java 버전에 따라 Servlet Import 구문을 업데이트
+     * Java 버전에 따라 Servlet Import 구문 업데이트
      *
      * 기능:
      * 1. Java 11 이상이면 javax.servlet -> jakarta.servlet
@@ -252,7 +252,7 @@ public class S2BuildUtils {
     }
 
     /**
-     * 소스 파일의 저작권 연도를 업데이트
+     * 소스 파일의 저작권 연도 업데이트
      *
      * 기능:
      * 1. 지정된 소스 디렉토리의 모든 파일을 순회
@@ -322,7 +322,7 @@ public class S2BuildUtils {
      * 기능:
      * 1. README.md 파일에서 버전 패턴(제품 버전]: X.Y [YYYY-MM-DD]:)을 찾아 현재 프로젝트 버전으로 업데이트
      * 2. 버전이 변경된 경우에만 날짜도 현재 날짜로 업데이트
-     * 3. 버전이 변경되지 않은 경우 날짜 갱신을 건너뜀
+     * 3. 버전이 변경되지 않은 경우 날짜 갱신 스킵
      *
      * @param project    Gradle 프로젝트 객체
      * @param newVersion 새 버전 문자열

@@ -80,11 +80,50 @@ public abstract class BuildVariantsTask extends DefaultTask {
 
             getLogger().lifecycle("✅ Variant built successfully: {}", classifier);
         }
+
+        /**
+         * [프로젝트 기본값 복원]
+         * 메인 변형(classifier="")이 SKIP 되었거나, 마지막 변형이 기본값과 다를 수 있기 때문에 모든 변형 빌드가 끝난 후, 워크스페이스(소스 코드 상태)를 프로젝트 기본값으로 복원한다.
+         */
+        try {
+            Object defaultJavaVersion = getProject().getExtensions().getExtraProperties().get("javaVersion");
+            Object defaultSourcesObj = getProject().getExtensions().getExtraProperties().get("additionalSource");
+
+            String defaultSourcesStr = "";
+            if (defaultSourcesObj instanceof java.util.Collection) {
+                @SuppressWarnings("unchecked")
+                java.util.Collection<String> srcColl = (java.util.Collection<String>) defaultSourcesObj;
+                defaultSourcesStr = String.join(",", srcColl);
+            }
+
+            getLogger().lifecycle("🧹 Restoring workspace to default state (Java {}, Sources: [{}])", defaultJavaVersion, defaultSourcesStr);
+
+            String finalDefaultSourcesStr = defaultSourcesStr;
+            getExecOperations().exec(spec -> {
+                Map<String, Object> env = new HashMap<>(System.getenv());
+                env.put("JAVA_HOME", javaHome);
+                spec.environment(env);
+
+                spec.commandLine(
+                        gradlewPath,
+                        "help", // 가벼운 태스크 실행으로 설정 단계(Configuration Phase) 트리거
+                        "-Dorg.gradle.java.home=" + javaHome,
+                        "-PtargetJavaVersion=" + defaultJavaVersion,
+                        "-PtargetSources=" + finalDefaultSourcesStr,
+                        "-PisSubBuild=true",
+                        "-q" // Quiet 모드
+                );
+            });
+            getLogger().lifecycle("✨ Workspace restored.");
+
+        } catch (Exception e) {
+            getLogger().warn("⚠️  Failed to restore workspace to default state: {}", e.getMessage());
+        }
     }
 
     /**
      * Variants 목록을 기반으로 MavenPublication에 아티팩트 등록
-     * s2-util/build.gradle의 publishing 로직을 이곳으로 캡슐화함
+     * s2-util/build.gradle의 publishing 로직을 이곳으로 캡슐화
      */
     public static void configureVariantArtifacts(Project project, MavenPublication publication, List<Map<String, Object>> variants) {
         Logger logger = project.getLogger();
