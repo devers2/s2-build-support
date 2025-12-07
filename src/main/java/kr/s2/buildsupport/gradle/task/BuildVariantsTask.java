@@ -162,8 +162,12 @@ public abstract class BuildVariantsTask extends DefaultTask {
         boolean isRepoPrivate = GitHubPackagesClient.isRepoPrivate(repoBaseUrl, githubToken);
 
         // Safe Task 확인
+        Object safeTasksObj = project.getExtensions().getExtraProperties().has("safeTasks")
+                ? project.getExtensions().getExtraProperties().get("safeTasks")
+                : null;
+
         @SuppressWarnings("unchecked")
-        Set<String> safeTasks = (Set<String>) project.getExtensions().getExtraProperties().get("safeTasks");
+        Set<String> safeTasks = safeTasksObj != null ? (Set<String>) safeTasksObj : new HashSet<>();
         List<String> currentTasks = project.getGradle().getStartParameter().getTaskNames();
 
         // 원격 publish 태스크 확인 (로컬 publish 제외)

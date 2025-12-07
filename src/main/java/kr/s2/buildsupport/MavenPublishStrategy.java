@@ -143,7 +143,7 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 스마트 배포 로직을 Gradle 태스크에 적용
+     * 스마트 배포 로직을 Gradle 태스크에 적용 (기본 리포지토리: devers2-packages)
      *
      * <p>
      * 1. POM 없음 → 전체 배포
@@ -154,10 +154,19 @@ public class MavenPublishStrategy {
      * @param project Gradle 프로젝트 객체
      */
     public static void configureSmartPublishing(Project project) {
+        configureSmartPublishing(project, "devers2-packages");
+    }
+
+    /**
+     * 스마트 배포 로직을 Gradle 태스크에 적용
+     *
+     * @param project        Gradle 프로젝트 객체
+     * @param repositoryName 적용할 리포지토리 이름
+     */
+    public static void configureSmartPublishing(Project project, String repositoryName) {
         project.getTasks().withType(PublishToMavenRepository.class).configureEach(task -> {
-            // 특정 리포지토리(devers2-packages)에만 적용
-            // TODO: 저장소 이름을 파라미터로 받거나 설정에서 읽어오도록 개선 가능
-            if ("devers2-packages".equals(task.getRepository().getName())) {
+            // 특정 리포지토리에만 적용
+            if (repositoryName.equals(task.getRepository().getName())) {
                 task.onlyIf(t -> {
                     PublishToMavenRepository pubTask = (PublishToMavenRepository) t;
                     MavenPublication pub = pubTask.getPublication();
