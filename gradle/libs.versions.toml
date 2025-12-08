@@ -1,0 +1,8 @@
+[versions]
+java = "8"
+
+[libraries]
+# No external libraries yet, but ready for expansion
+
+[plugins]
+# No external plugins managed here yet

@@ -1,3 +1,8 @@
+/*
+ * [Version Catalog]
+ * 의존성 및 플러그인 버전은 'gradle/libs.versions.toml' 파일에서 통합 관리
+ * 별도 설정 없이 Gradle이 기본 경로(gradle/libs.versions.toml)를 자동으로 인식하여 'libs' 접근자로 제공
+ */
 plugins {
     id 'java-gradle-plugin'
     id 'maven-publish'
@@ -8,8 +13,9 @@ repositories {
     mavenCentral()
 }
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(libs.versions.java.get().toInteger())
+    }
 }
 dependencies {
     implementation gradleApi()
