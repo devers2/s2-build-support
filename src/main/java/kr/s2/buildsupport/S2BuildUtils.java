@@ -320,7 +320,7 @@ public class S2BuildUtils {
     /**
      * 지정된 파일의 버전 정보를 템플릿 기반으로 업데이트합니다.
      * - 예: "Version: {{=version}} ({{=release-date}})"
-     * - project.version 또는 날짜가 파일에 기록된 기존 정보와 다를 때만 갱신합니다.
+     * - project.version이 파일에 기록된 기존 정보와 다를 때만 갱신합니다.
      *
      * <p>
      * <b>Example Usage (in build.gradle):</b>
@@ -410,8 +410,9 @@ public class S2BuildUtils {
                 }
             }
 
-            if (existingVersion.equals(newVersion) && existingDate.equals(newDate)) {
-                System.out.println("ℹ️  [" + filePath + "] Version and date are unchanged (" + newVersion + " " + newDate + "). Skipping update.");
+            // 버전이 동일하면 업데이트를 건너뛴다.
+            if (existingVersion.equals(newVersion)) {
+                System.out.println("ℹ️  [" + filePath + "] Version is unchanged (" + newVersion + "). Skipping update.");
                 return;
             }
 
