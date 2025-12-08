@@ -28,16 +28,58 @@ import kr.s2.buildsupport.S2BuildUtils;
  */
 public abstract class BuildVariantsTask extends DefaultTask {
 
+    // 태스크 이름 상수
+    private static final String TASK_JAR = "jar";
+    private static final String TASK_SOURCES_JAR = "sourcesJar";
+    private static final String TASK_JAVADOC_JAR = "javadocJar";
+    private static final String TASK_CLEAN = "clean";
+    private static final String TASK_HELP = "help";
+    private static final String TASK_BUILD_ALL_VARIANTS = "buildAllVariants";
+    private static final String TASK_JAVADOC = "javadoc";
+
+    // Gradle 실행 파일 이름
+    private static final String GRADLEW_WINDOWS = "gradlew.bat";
+    private static final String GRADLEW_UNIX = "gradlew";
+
     @Input
     public abstract ListProperty<Map<String, Object>> getVariants();
 
     @Inject
     protected abstract ExecOperations getExecOperations();
 
+    /**
+     * ExecSpec에 JAVA_HOME 환경 변수를 설정하는 헬퍼 메서드
+     */
+    private void configureEnvironment(org.gradle.process.ExecSpec spec, String javaHome) {
+        Map<String, Object> env = new HashMap<>(System.getenv());
+        env.put("JAVA_HOME", javaHome);
+        spec.environment(env);
+    }
+
+    /**
+     * MavenArtifact의 builtBy 의존성을 설정하는 헬퍼 메서드
+     * 
+     * @param artifact      Maven 아티팩트
+     * @param project       Gradle 프로젝트
+     * @param isMainVariant 메인 variant 여부
+     * @param mainTaskName  메인 variant의 빌드 태스크 이름
+     */
+    private static void configureArtifactBuiltBy(
+            org.gradle.api.publish.maven.MavenArtifact artifact,
+            Project project,
+            boolean isMainVariant,
+            String mainTaskName) {
+        if (!isMainVariant) {
+            artifact.builtBy(project.getTasks().named(TASK_BUILD_ALL_VARIANTS));
+        } else {
+            artifact.builtBy(project.getTasks().named(mainTaskName));
+        }
+    }
+
     @TaskAction
     public void build() {
         String rootDir = getProject().getRootDir().getAbsolutePath();
-        String gradlew = System.getProperty("os.name").toLowerCase().contains("windows") ? "gradlew.bat" : "gradlew";
+        String gradlew = System.getProperty("os.name").toLowerCase().contains("windows") ? GRADLEW_WINDOWS : GRADLEW_UNIX;
         String gradlewPath = new File(rootDir, gradlew).getAbsolutePath();
 
         // 현재 실행 중인 Java 홈 경로
@@ -46,10 +88,8 @@ public abstract class BuildVariantsTask extends DefaultTask {
         // 모든 빌드 시작 전 clean 한 번만 실행
         getLogger().lifecycle("🧹 Cleaning build directory...");
         getExecOperations().exec(spec -> {
-            Map<String, Object> env = new HashMap<>(System.getenv());
-            env.put("JAVA_HOME", javaHome);
-            spec.environment(env);
-            spec.commandLine(gradlewPath, "clean", "-PisSubBuild=true");
+            configureEnvironment(spec, javaHome);
+            spec.commandLine(gradlewPath, TASK_CLEAN, "-PisSubBuild=true");
         });
 
         // 각 변형 빌드 (clean 없이 jar만 실행)
@@ -63,13 +103,11 @@ public abstract class BuildVariantsTask extends DefaultTask {
             getLogger().lifecycle("🚀 Building variant: Java {}, Sources: {} (Classifier: {})", javaVersion, additionalSource, classifier);
 
             getExecOperations().exec(spec -> {
-                Map<String, Object> env = new HashMap<>(System.getenv());
-                env.put("JAVA_HOME", javaHome);
-                spec.environment(env);
+                configureEnvironment(spec, javaHome);
 
                 spec.commandLine(
                         gradlewPath,
-                        "jar", "sourcesJar", "javadocJar", // 각 변형마다 jar, sources.jar, javadoc.jar 생성
+                        TASK_JAR, TASK_SOURCES_JAR, TASK_JAVADOC_JAR, // 각 변형마다 jar, sources.jar, javadoc.jar 생성
                         "-Dorg.gradle.java.home=" + javaHome,
                         "-PtargetJavaVersion=" + javaVersion,
                         "-PtargetSources=" + String.join(",", additionalSource),
@@ -99,13 +137,11 @@ public abstract class BuildVariantsTask extends DefaultTask {
 
             String finalDefaultSourcesStr = defaultSourcesStr;
             getExecOperations().exec(spec -> {
-                Map<String, Object> env = new HashMap<>(System.getenv());
-                env.put("JAVA_HOME", javaHome);
-                spec.environment(env);
+                configureEnvironment(spec, javaHome);
 
                 spec.commandLine(
                         gradlewPath,
-                        "help", // 가벼운 태스크 실행으로 설정 단계(Configuration Phase) 트리거
+                        TASK_HELP, // 가벼운 태스크 실행으로 설정 단계(Configuration Phase) 트리거
                         "-Dorg.gradle.java.home=" + javaHome,
                         "-PtargetJavaVersion=" + defaultJavaVersion,
                         "-PtargetSources=" + finalDefaultSourcesStr,
@@ -133,7 +169,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
         // 중복 방지를 위한 classifier 추적
         Set<String> addedClassifiers = new HashSet<>();
 
-        // 1. Classifier 기준 정렬: 메인(빈값) 우선 (등록은 스킵)
+        // 1. Classifier 기준 정렬: 메인(빈값) 우선
         List<Map<String, Object>> sortedVariants = new ArrayList<>(variants);
         sortedVariants.sort((a, b) -> {
             JavaVersion jvA = (JavaVersion) a.get("javaVersion");
@@ -217,12 +253,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
                     if (!isMainVariant) {
                         artifact.setClassifier(variantClassifier);
                     }
-                    // 메인 variant는 루트 빌드에서 생성, 나머지는 buildAllVariants에서 생성
-                    if (!isMainVariant) {
-                        artifact.builtBy(project.getTasks().named("buildAllVariants"));
-                    } else {
-                        artifact.builtBy(project.getTasks().named("jar"));
-                    }
+                    configureArtifactBuiltBy(artifact, project, isMainVariant, TASK_JAR);
                 });
                 addedClassifiers.add(mainClassifier);
             }
@@ -240,12 +271,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
                     publication.artifact(sourcesJarFile, artifact -> {
                         artifact.setExtension("jar");
                         artifact.setClassifier(sourcesClassifier);
-                        // 메인 variant는 루트 빌드에서 생성, 나머지는 buildAllVariants에서 생성
-                        if (!isMainVariant) {
-                            artifact.builtBy(project.getTasks().named("buildAllVariants"));
-                        } else {
-                            artifact.builtBy(project.getTasks().named("jar"));
-                        }
+                        configureArtifactBuiltBy(artifact, project, isMainVariant, TASK_JAR);
                     });
                     addedClassifiers.add(sourcesClassifier);
                 }
@@ -263,12 +289,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
                 publication.artifact(javadocJarFile, artifact -> {
                     artifact.setExtension("jar");
                     artifact.setClassifier(javadocClassifier);
-                    // 메인 variant는 루트 빌드에서 생성, 나머지는 buildAllVariants에서 생성
-                    if (!isMainVariant) {
-                        artifact.builtBy(project.getTasks().named("buildAllVariants"));
-                    } else {
-                        artifact.builtBy(project.getTasks().named("javadoc"));
-                    }
+                    configureArtifactBuiltBy(artifact, project, isMainVariant, TASK_JAVADOC);
                 });
                 addedClassifiers.add(javadocClassifier);
             }
