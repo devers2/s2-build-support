@@ -319,7 +319,7 @@ public class S2BuildUtils {
 
     /**
      * 지정된 파일의 버전 정보를 템플릿 기반으로 업데이트합니다.
-     * - 예: "Version: ${version} (${release-date})"
+     * - 예: "Version: {{=version}} ({{=release-date}})"
      * - project.version 또는 날짜가 파일에 기록된 기존 정보와 다를 때만 갱신합니다.
      *
      * <p>
@@ -328,7 +328,7 @@ public class S2BuildUtils {
      *
      * <pre>{@code
      * // 1. build.gradle에서 다음과 같이 호출
-     * kr.s2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: ${version} (${release-date})", project.version.toString());
+     * kr.s2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: {{=version}} ({{=release-date}})", project.version.toString());
      *
      * // 2. README.md 파일에 아래 내용이 있다고 가정:
      * // ### Version: 1.0.0 (2023-01-01)
@@ -339,7 +339,7 @@ public class S2BuildUtils {
      *
      * @param project         Gradle 프로젝트 객체
      * @param filePath        업데이트할 파일 경로
-     * @param versionTemplate 버전 정보 템플릿. `${version}`과 `${release-date}` 플레이스홀더를 포함해야 합니다.
+     * @param versionTemplate 버전 정보 템플릿. `{{=version}}`과 `{{=release-date}}` 플레이스홀더를 포함해야 합니다.
      * @param newVersion      새로운 버전 문자열
      */
     public static void updateVersionInFile(Project project, String filePath, String versionTemplate, String newVersion) {
@@ -350,11 +350,11 @@ public class S2BuildUtils {
         }
 
         try {
-            String versionPlaceholder = "${version}";
-            String datePlaceholder = "${release-date}";
+            String versionPlaceholder = "{{=version}}";
+            String datePlaceholder = "{{=release-date}}";
 
             if (!versionTemplate.contains(versionPlaceholder) || !versionTemplate.contains(datePlaceholder)) {
-                System.err.println("❌ [" + filePath + "] versionTemplate must contain ${version} and ${release-date}.");
+                System.err.println("❌ [" + filePath + "] versionTemplate must contain {{=version}} and {{=release-date}}.");
                 return;
             }
 
@@ -362,13 +362,13 @@ public class S2BuildUtils {
             // 플레이스홀더 순서를 기억하고, 각 부분을 정규식으로 변환합니다.
             String tempTemplate = versionTemplate;
             List<String> placeholders = new ArrayList<>();
-            Pattern p = Pattern.compile("(\\$\\{version\\}|\\$\\{release-date\\})");
+            Pattern p = Pattern.compile("(\\{\\{=version\\}\\}|\\{\\{=release-date\\}\\})");
             Matcher m = p.matcher(tempTemplate);
             while (m.find()) {
                 placeholders.add(m.group(1));
             }
 
-            String[] literals = tempTemplate.split("(\\$\\{version\\}|\\$\\{release-date\\})");
+            String[] literals = tempTemplate.split("(\\{\\{=version\\}\\}|\\{\\{=release-date\\}\\})");
             StringBuilder regexBuilder = new StringBuilder();
 
             for (int i = 0; i < literals.length; i++) {
