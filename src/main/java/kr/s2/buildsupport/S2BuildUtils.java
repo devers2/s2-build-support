@@ -7,6 +7,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
@@ -316,60 +318,118 @@ public class S2BuildUtils {
     }
 
     /**
-     * README.md 파일의 버전 정보를 현재 버전으로 업데이트
-     * - project.version이 README에 기록된 기존 버전과 다를 때만 갱신
+     * 지정된 파일의 버전 정보를 템플릿 기반으로 업데이트합니다.
+     * - 예: "Version: ${version} (${release-date})"
+     * - project.version 또는 날짜가 파일에 기록된 기존 정보와 다를 때만 갱신합니다.
      *
-     * 기능:
-     * 1. README.md 파일에서 버전 패턴(제품 버전]: X.Y [YYYY-MM-DD]:)을 찾아 현재 프로젝트 버전으로 업데이트
-     * 2. 버전이 변경된 경우에만 날짜도 현재 날짜로 업데이트
-     * 3. 버전이 변경되지 않은 경우 날짜 갱신 스킵
+     * <p>
+     * <b>Example Usage (in build.gradle):</b>
+     * </p>
      *
-     * @param project    Gradle 프로젝트 객체
-     * @param newVersion 새 버전 문자열
+     * <pre>{@code
+     * // 1. build.gradle에서 다음과 같이 호출
+     * kr.s2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: ${version} (${release-date})", project.version.toString());
+     *
+     * // 2. README.md 파일에 아래 내용이 있다고 가정:
+     * // ### Version: 1.0.0 (2023-01-01)
+     *
+     * // 3. project.version = '1.1.0'으로 태스크 실행 후, README.md 내용은 아래와 같이 변경됨:
+     * // ### Version: 1.1.0 (YYYY-MM-DD) // (여기서 YYYY-MM-DD는 현재 날짜)
+     * }</pre>
+     *
+     * @param project         Gradle 프로젝트 객체
+     * @param filePath        업데이트할 파일 경로
+     * @param versionTemplate 버전 정보 템플릿. `${version}`과 `${release-date}` 플레이스홀더를 포함해야 합니다.
+     * @param newVersion      새로운 버전 문자열
      */
-    public static void updateReadmeVersion(Project project, String newVersion) {
-        File readmeFile = project.file("README.md");
-
-        if (!readmeFile.exists()) {
-            System.err.println("❌ [README] README.md file not found in project root.");
+    public static void updateVersionInFile(Project project, String filePath, String versionTemplate, String newVersion) {
+        File targetFile = project.file(filePath);
+        if (!targetFile.exists()) {
+            System.err.println("❌ [" + filePath + "] File not found in project root.");
             return;
         }
 
         try {
-            java.nio.file.Path path = readmeFile.toPath();
-            String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
+            String versionPlaceholder = "${version}";
+            String datePlaceholder = "${release-date}";
 
-            // 정규식: "[제품 버전]: (버전) [(날짜)]:" 패턴에서 버전 부분을 캡처
-            // 예시: [제품 버전]: 25.8 [2025-11-26]:
-            java.util.regex.Pattern currentVersionPattern = java.util.regex.Pattern.compile("\\[제품 버전\\]:\\s+(\\S+)\\s+\\[\\d{4}-\\d{2}-\\d{2}\\]:");
-            java.util.regex.Matcher matcher = currentVersionPattern.matcher(content);
+            if (!versionTemplate.contains(versionPlaceholder) || !versionTemplate.contains(datePlaceholder)) {
+                System.err.println("❌ [" + filePath + "] versionTemplate must contain ${version} and ${release-date}.");
+                return;
+            }
+
+            // 1. 템플릿을 기반으로 검색할 정규식을 생성합니다.
+            // 플레이스홀더 순서를 기억하고, 각 부분을 정규식으로 변환합니다.
+            String tempTemplate = versionTemplate;
+            List<String> placeholders = new ArrayList<>();
+            Pattern p = Pattern.compile("(\\$\\{version\\}|\\$\\{release-date\\})");
+            Matcher m = p.matcher(tempTemplate);
+            while (m.find()) {
+                placeholders.add(m.group(1));
+            }
+
+            String[] literals = tempTemplate.split("(\\$\\{version\\}|\\$\\{release-date\\})");
+            StringBuilder regexBuilder = new StringBuilder();
+
+            for (int i = 0; i < literals.length; i++) {
+                if (!literals[i].isEmpty()) {
+                    regexBuilder.append(Pattern.quote(literals[i]));
+                }
+                if (i < placeholders.size()) {
+                    String placeholder = placeholders.get(i);
+                    if (placeholder.equals(versionPlaceholder)) {
+                        regexBuilder.append("([\\w.-]+)"); // 버전 캡처 그룹
+                    } else if (placeholder.equals(datePlaceholder)) {
+                        regexBuilder.append("([\\d-]+)"); // 날짜 캡처 그룹
+                    }
+                }
+            }
+            String regex = regexBuilder.toString();
+
+            java.nio.file.Path path = targetFile.toPath();
+            String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
+            String newDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+            Pattern pattern = Pattern.compile(regex);
+            Matcher matcher = pattern.matcher(content);
 
             if (!matcher.find()) {
-                System.err.println("⚠️  [README] Could not find the version pattern. Please ensure the format '[제품 버전]: X.Y [YYYY-MM-DD]:' exists.");
+                System.err.println("⚠️  [" + filePath + "] Could not find the version pattern from template: " + versionTemplate);
                 return;
             }
 
-            // README.md 파일에 기록된 기존 버전 추출
-            String existingVersion = matcher.group(1).trim();
+            // 캡처 그룹 인덱스를 동적으로 할당합니다.
+            String existingVersion = "";
+            String existingDate = "";
+            int groupCount = 1;
+            for (String placeholder : placeholders) {
+                if (placeholder.equals(versionPlaceholder)) {
+                    existingVersion = matcher.group(groupCount++);
+                } else if (placeholder.equals(datePlaceholder)) {
+                    existingDate = matcher.group(groupCount++);
+                }
+            }
 
-            if (existingVersion.equals(newVersion)) {
-                // 버전이 변경되지 않음: 날짜 갱신을 건너뜀
-                System.out.println("ℹ️  [README] Version is unchanged (" + newVersion + "). Skipping date update.");
+            if (existingVersion.equals(newVersion) && existingDate.equals(newDate)) {
+                System.out.println("ℹ️  [" + filePath + "] Version and date are unchanged (" + newVersion + " " + newDate + "). Skipping update.");
                 return;
             }
 
-            // 버전이 변경됨: 버전과 날짜 모두 갱신
-            String newDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-            String newProductVersionLine = "[제품 버전]: " + newVersion + " [" + newDate + "]:";
+            // 2. 템플릿에 실제 값을 채워 새 라인 생성
+            String newLine = versionTemplate
+                    .replace(versionPlaceholder, newVersion)
+                    .replace(datePlaceholder, newDate);
 
-            String updatedContent = matcher.replaceFirst(java.util.regex.Matcher.quoteReplacement(newProductVersionLine));
+            // 3. 내용 교체
+            String updatedContent = matcher.replaceFirst(Matcher.quoteReplacement(newLine));
 
             if (!content.equals(updatedContent)) {
                 java.nio.file.Files.write(path, updatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                System.out.println("📝 [README] Updated version: " + existingVersion + " → " + newVersion + " (Date: " + newDate + ")");
+                System.out.println("📝 [" + filePath + "] Updated version: " + existingVersion + " → " + newVersion + " (Date: " + existingDate + " → " + newDate + ")");
             }
+
         } catch (java.io.IOException e) {
-            System.err.println("❌ [README] Failed to update: " + e.getMessage());
+            System.err.println("❌ [" + filePath + "] Failed to update: " + e.getMessage());
         }
     }
 
