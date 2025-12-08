@@ -58,7 +58,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
 
     /**
      * MavenArtifact의 builtBy 의존성을 설정하는 헬퍼 메서드
-     * 
+     *
      * @param artifact      Maven 아티팩트
      * @param project       Gradle 프로젝트
      * @param isMainVariant 메인 variant 여부
@@ -99,23 +99,48 @@ public abstract class BuildVariantsTask extends DefaultTask {
             Set<String> additionalSource = (Set<String>) variant.get("additionalSource");
 
             String classifier = S2BuildUtils.generateClassifier(javaVersion, additionalSource);
+            String displayClassifier = classifier.isEmpty() ? "(main)" : classifier;
 
-            getLogger().lifecycle("🚀 Building variant: Java {}, Sources: {} (Classifier: {})", javaVersion, additionalSource, classifier);
+            getLogger().lifecycle("🚀 Building variant: Java {}, Sources: {} (Classifier: {})", javaVersion, additionalSource, displayClassifier);
 
-            getExecOperations().exec(spec -> {
-                configureEnvironment(spec, javaHome);
+            try {
+                getExecOperations().exec(spec -> {
+                    configureEnvironment(spec, javaHome);
 
-                spec.commandLine(
-                        gradlewPath,
-                        TASK_JAR, TASK_SOURCES_JAR, TASK_JAVADOC_JAR, // 각 변형마다 jar, sources.jar, javadoc.jar 생성
-                        "-Dorg.gradle.java.home=" + javaHome,
-                        "-PtargetJavaVersion=" + javaVersion,
-                        "-PtargetSources=" + String.join(",", additionalSource),
-                        "-PisSubBuild=true"
+                    spec.commandLine(
+                            gradlewPath,
+                            TASK_JAR, TASK_SOURCES_JAR, TASK_JAVADOC_JAR, // 각 변형마다 jar, sources.jar, javadoc.jar 생성
+                            "-Dorg.gradle.java.home=" + javaHome,
+                            "-PtargetJavaVersion=" + javaVersion,
+                            "-PtargetSources=" + String.join(",", additionalSource),
+                            "-PisSubBuild=true"
+                    );
+                });
+
+                getLogger().lifecycle("✅ Variant built successfully: {}", displayClassifier);
+
+            } catch (Exception e) {
+                // 빌드 실패 시 명확한 에러 메시지 출력
+                getLogger().error("");
+                getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                getLogger().error("❌ BUILD FAILED for variant: {}", displayClassifier);
+                getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                getLogger().error("Variant Details:");
+                getLogger().error("  - Java Version: {}", javaVersion);
+                getLogger().error("  - Additional Sources: {}", additionalSource);
+                getLogger().error("  - Classifier: {}", displayClassifier);
+                getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                getLogger().error("");
+
+                // 원본 예외를 다시 던져서 빌드 중단
+                throw new org.gradle.api.GradleException(
+                        String.format(
+                                "Failed to build variant: %s (Java %s, Sources: %s)",
+                                displayClassifier, javaVersion, additionalSource
+                        ),
+                        e
                 );
-            });
-
-            getLogger().lifecycle("✅ Variant built successfully: {}", classifier);
+            }
         }
 
         /**
