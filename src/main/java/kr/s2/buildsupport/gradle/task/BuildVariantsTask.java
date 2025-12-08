@@ -43,22 +43,22 @@ public abstract class BuildVariantsTask extends DefaultTask {
         // 현재 실행 중인 Java 홈 경로
         String javaHome = System.getProperty("java.home");
 
-        // 메인 빌드 결과물 보존을 위해 clean 제외
-        // 기존: getExecOperations().exec(spec -> { ... clean ... });
+        // 모든 빌드 시작 전 clean 한 번만 실행
+        getLogger().lifecycle("🧹 Cleaning build directory...");
+        getExecOperations().exec(spec -> {
+            Map<String, Object> env = new HashMap<>(System.getenv());
+            env.put("JAVA_HOME", javaHome);
+            spec.environment(env);
+            spec.commandLine(gradlewPath, "clean", "-PisSubBuild=true");
+        });
 
-        // 각 변형 빌드 (jar, sourcesJar, javadocJar 실행)
+        // 각 변형 빌드 (clean 없이 jar만 실행)
         for (Map<String, Object> variant : getVariants().get()) {
             JavaVersion javaVersion = (JavaVersion) variant.get("javaVersion");
             @SuppressWarnings("unchecked")
             Set<String> additionalSource = (Set<String>) variant.get("additionalSource");
 
             String classifier = S2BuildUtils.generateClassifier(javaVersion, additionalSource);
-
-            // 메인 변형(classifier 없는 경우)은 루트 프로젝트 빌드에서 처리되므로 제외
-            if (classifier == null || classifier.isEmpty()) {
-                getLogger().lifecycle("⏭️  Skipping main variant (handled by root build): Java {}", javaVersion);
-                continue;
-            }
 
             getLogger().lifecycle("🚀 Building variant: Java {}, Sources: {} (Classifier: {})", javaVersion, additionalSource, classifier);
 
@@ -74,7 +74,6 @@ public abstract class BuildVariantsTask extends DefaultTask {
                         "-PtargetJavaVersion=" + javaVersion,
                         "-PtargetSources=" + String.join(",", additionalSource),
                         "-PisSubBuild=true"
-                // clean 없이 실행하여 기존 파일 유지 (동일 이름은 덮어씀)
                 );
             });
 
@@ -202,29 +201,36 @@ public abstract class BuildVariantsTask extends DefaultTask {
 
             String variantClassifier = S2BuildUtils.generateClassifier(javaVersion, additionalSource);
 
-            // 메인 아티팩트(빈 classifier)는 components.java에서 처리되므로 제외
-            if (variantClassifier == null || variantClassifier.isEmpty()) {
-                continue;
-            }
+            boolean isMainVariant = variantClassifier == null || variantClassifier.isEmpty();
 
             // --- Main JAR ---
-            if (!addedClassifiers.contains(variantClassifier)) {
+            // 모든 variant의 main JAR 등록 (메인 포함)
+            String mainClassifier = isMainVariant ? "" : variantClassifier;
+            if (!addedClassifiers.contains(mainClassifier)) {
                 String jarName = S2BuildUtils.getJarFileName(archivesName, version.toString(), variantClassifier);
                 File jarFile = new File(project.getLayout().getBuildDirectory().get().getAsFile(), "libs/" + jarName);
 
-                logger.lifecycle("📦 Configuring artifact: {} (Classifier: {})", jarFile.getName(), variantClassifier);
+                logger.lifecycle("📦 Configuring artifact: {} (Classifier: {})", jarFile.getName(), isMainVariant ? "(main)" : variantClassifier);
 
                 publication.artifact(jarFile, artifact -> {
                     artifact.setExtension("jar");
-                    artifact.setClassifier(variantClassifier);
-                    artifact.builtBy(project.getTasks().named("buildAllVariants"));
+                    if (!isMainVariant) {
+                        artifact.setClassifier(variantClassifier);
+                    }
+                    // 메인 variant는 루트 빌드에서 생성, 나머지는 buildAllVariants에서 생성
+                    if (!isMainVariant) {
+                        artifact.builtBy(project.getTasks().named("buildAllVariants"));
+                    } else {
+                        artifact.builtBy(project.getTasks().named("jar"));
+                    }
                 });
-                addedClassifiers.add(variantClassifier);
+                addedClassifiers.add(mainClassifier);
             }
 
             // --- Sources JAR ---
+            // 메인 variant 포함 모든 variant의 sources JAR 등록
             if (shouldIncludeSourcesJar) {
-                String sourcesClassifier = variantClassifier + "-sources";
+                String sourcesClassifier = isMainVariant ? "sources" : variantClassifier + "-sources";
                 if (!addedClassifiers.contains(sourcesClassifier)) {
                     String sourcesJarName = S2BuildUtils.getJarFileName(archivesName, version.toString(), sourcesClassifier);
                     File sourcesJarFile = new File(project.getLayout().getBuildDirectory().get().getAsFile(), "libs/" + sourcesJarName);
@@ -234,14 +240,20 @@ public abstract class BuildVariantsTask extends DefaultTask {
                     publication.artifact(sourcesJarFile, artifact -> {
                         artifact.setExtension("jar");
                         artifact.setClassifier(sourcesClassifier);
-                        artifact.builtBy(project.getTasks().named("buildAllVariants"));
+                        // 메인 variant는 루트 빌드에서 생성, 나머지는 buildAllVariants에서 생성
+                        if (!isMainVariant) {
+                            artifact.builtBy(project.getTasks().named("buildAllVariants"));
+                        } else {
+                            artifact.builtBy(project.getTasks().named("jar"));
+                        }
                     });
                     addedClassifiers.add(sourcesClassifier);
                 }
             }
 
             // --- Javadoc JAR ---
-            String javadocClassifier = variantClassifier + "-javadoc";
+            // 메인 variant 포함 모든 variant의 javadoc JAR 등록
+            String javadocClassifier = isMainVariant ? "javadoc" : variantClassifier + "-javadoc";
             if (!addedClassifiers.contains(javadocClassifier)) {
                 String javadocJarName = S2BuildUtils.getJarFileName(archivesName, version.toString(), javadocClassifier);
                 File javadocJarFile = new File(project.getLayout().getBuildDirectory().get().getAsFile(), "libs/" + javadocJarName);
@@ -251,7 +263,12 @@ public abstract class BuildVariantsTask extends DefaultTask {
                 publication.artifact(javadocJarFile, artifact -> {
                     artifact.setExtension("jar");
                     artifact.setClassifier(javadocClassifier);
-                    artifact.builtBy(project.getTasks().named("buildAllVariants"));
+                    // 메인 variant는 루트 빌드에서 생성, 나머지는 buildAllVariants에서 생성
+                    if (!isMainVariant) {
+                        artifact.builtBy(project.getTasks().named("buildAllVariants"));
+                    } else {
+                        artifact.builtBy(project.getTasks().named("javadoc"));
+                    }
                 });
                 addedClassifiers.add(javadocClassifier);
             }
