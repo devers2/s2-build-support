@@ -264,29 +264,33 @@ public abstract class BuildVariantsTask extends DefaultTask {
 
             boolean isMainVariant = variantClassifier == null || variantClassifier.isEmpty();
 
-            // --- Main JAR ---
-            // 모든 variant의 main JAR 등록 (메인 포함)
-            String mainClassifier = isMainVariant ? "" : variantClassifier;
+            // **메인 variant는 건너뛰기**
+            // from components.java가 메인 JAR, sources, javadoc을 자동 등록하므로
+            // BuildVariantsTask는 classifier가 있는 variant만 처리
+            if (isMainVariant) {
+                logger.lifecycle("⏭️  Skipping main variant artifacts (handled by 'from components.java')");
+                continue;
+            }
+
+            // --- Main JAR (Classifier 있는 variant만) ---
+            String mainClassifier = variantClassifier;
             if (!addedClassifiers.contains(mainClassifier)) {
                 String jarName = S2BuildUtils.getJarFileName(archivesName, version.toString(), variantClassifier);
                 File jarFile = new File(project.getLayout().getBuildDirectory().get().getAsFile(), "libs/" + jarName);
 
-                logger.lifecycle("📦 Configuring artifact: {} (Classifier: {})", jarFile.getName(), isMainVariant ? "(main)" : variantClassifier);
+                logger.lifecycle("📦 Configuring artifact: {} (Classifier: {})", jarFile.getName(), variantClassifier);
 
                 publication.artifact(jarFile, artifact -> {
                     artifact.setExtension("jar");
-                    if (!isMainVariant) {
-                        artifact.setClassifier(variantClassifier);
-                    }
+                    artifact.setClassifier(variantClassifier);
                     configureArtifactBuiltBy(artifact, project, isMainVariant, TASK_JAR);
                 });
                 addedClassifiers.add(mainClassifier);
             }
 
-            // --- Sources JAR ---
-            // 메인 variant 포함 모든 variant의 sources JAR 등록
+            // --- Sources JAR (Classifier 있는 variant만) ---
             if (shouldIncludeSourcesJar) {
-                String sourcesClassifier = isMainVariant ? "sources" : variantClassifier + "-sources";
+                String sourcesClassifier = variantClassifier + "-sources";
                 if (!addedClassifiers.contains(sourcesClassifier)) {
                     String sourcesJarName = S2BuildUtils.getJarFileName(archivesName, version.toString(), sourcesClassifier);
                     File sourcesJarFile = new File(project.getLayout().getBuildDirectory().get().getAsFile(), "libs/" + sourcesJarName);
@@ -296,15 +300,14 @@ public abstract class BuildVariantsTask extends DefaultTask {
                     publication.artifact(sourcesJarFile, artifact -> {
                         artifact.setExtension("jar");
                         artifact.setClassifier(sourcesClassifier);
-                        configureArtifactBuiltBy(artifact, project, isMainVariant, TASK_JAR);
+                        configureArtifactBuiltBy(artifact, project, false, TASK_JAR);
                     });
                     addedClassifiers.add(sourcesClassifier);
                 }
             }
 
-            // --- Javadoc JAR ---
-            // 메인 variant 포함 모든 variant의 javadoc JAR 등록
-            String javadocClassifier = isMainVariant ? "javadoc" : variantClassifier + "-javadoc";
+            // --- Javadoc JAR (Classifier 있는 variant만) ---
+            String javadocClassifier = variantClassifier + "-javadoc";
             if (!addedClassifiers.contains(javadocClassifier)) {
                 String javadocJarName = S2BuildUtils.getJarFileName(archivesName, version.toString(), javadocClassifier);
                 File javadocJarFile = new File(project.getLayout().getBuildDirectory().get().getAsFile(), "libs/" + javadocJarName);
@@ -314,7 +317,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
                 publication.artifact(javadocJarFile, artifact -> {
                     artifact.setExtension("jar");
                     artifact.setClassifier(javadocClassifier);
-                    configureArtifactBuiltBy(artifact, project, isMainVariant, TASK_JAVADOC);
+                    configureArtifactBuiltBy(artifact, project, false, TASK_JAVADOC);
                 });
                 addedClassifiers.add(javadocClassifier);
             }
