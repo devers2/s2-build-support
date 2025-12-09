@@ -2,6 +2,7 @@ package kr.s2.buildsupport.gradle.task;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -107,14 +108,24 @@ public abstract class BuildVariantsTask extends DefaultTask {
                 getExecOperations().exec(spec -> {
                     configureEnvironment(spec, javaHome);
 
-                    spec.commandLine(
-                            gradlewPath,
-                            TASK_JAR, TASK_SOURCES_JAR, TASK_JAVADOC_JAR, // 각 변형마다 jar, sources.jar, javadoc.jar 생성
-                            "-Dorg.gradle.java.home=" + javaHome,
-                            "-PtargetJavaVersion=" + javaVersion,
-                            "-PtargetSources=" + String.join(",", additionalSource),
-                            "-PisSubBuild=true"
+                    List<String> command = new ArrayList<>(
+                            Arrays.asList(
+                                    gradlewPath,
+                                    TASK_JAR, TASK_SOURCES_JAR, TASK_JAVADOC_JAR, // 각 변형마다 jar, sources.jar, javadoc.jar 생성
+                                    "-Dorg.gradle.java.home=" + javaHome,
+                                    "-PtargetJavaVersion=" + javaVersion,
+                                    "-PtargetSources=" + String.join(",", additionalSource),
+                                    "-PisSubBuild=true"
+                            )
                     );
+
+                    // 'publish' 계열 태스크 실행 시 Fat JAR 빌드를 비활성화하는 프로퍼티 전달
+                    boolean isPublishing = getProject().getGradle().getStartParameter().getTaskNames().stream()
+                            .anyMatch(t -> t.toLowerCase().contains("publish"));
+                    if (isPublishing) {
+                        command.add("-PbuildFatJar=false");
+                    }
+                    spec.commandLine(command);
                 });
 
                 getLogger().lifecycle("✅ Variant built successfully: {}", displayClassifier);
