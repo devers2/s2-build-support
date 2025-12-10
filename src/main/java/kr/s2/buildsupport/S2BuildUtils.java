@@ -3,15 +3,22 @@ package kr.s2.buildsupport;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
+import org.gradle.api.file.DuplicatesStrategy;
+import org.gradle.api.tasks.Copy;
+import org.gradle.api.tasks.SourceSetContainer;
+import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.api.tasks.javadoc.Javadoc;
 import org.gradle.external.javadoc.JavadocMemberLevel;
 import org.gradle.external.javadoc.StandardJavadocDocletOptions;
@@ -607,5 +614,158 @@ public class S2BuildUtils {
         project.getTasks().named("distZip", org.gradle.api.tasks.bundling.Zip.class).configure(task -> {
             task.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
         });
+    }
+    // ========================================================================
+    // JAR 및 배포 설정 메서드
+    // ========================================================================
+
+    /**
+     * Fat JAR 및 Source JAR 생성 여부를 결정하는 전략 메서드
+     *
+     * @param project         Gradle 프로젝트 객체
+     * @param isAnyPublish    배포 태스크 실행 여부
+     * @param isRemotePublish 원격 배포 실행 여부
+     * @param safeTasks       안전한 태스크 목록 (로컬 빌드용)
+     * @param repoBaseUrl     Maven 리포지토리 URL
+     * @param githubToken     GitHub 토큰
+     * @return 결정된 전략 맵 ("buildFatJar", "enableSourceJar")
+     */
+    public static Map<String, Boolean> decideJarStrategies(Project project, boolean isAnyPublish, boolean isRemotePublish, Set<String> safeTasks, String repoBaseUrl, String githubToken) {
+        Map<String, Boolean> strategies = new HashMap<>();
+
+        // 1. Fat JAR 생성 여부 결정
+        boolean buildFatJar;
+        if (project.hasProperty("buildFatJar")) {
+            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
+        } else {
+            // 배포 시에는 Standard JAR(Fat JAR 아님) 강제
+            buildFatJar = !isAnyPublish;
+        }
+        strategies.put("buildFatJar", buildFatJar);
+
+        // 2. Source JAR 생성 여부 결정
+        boolean enableSourceJar;
+        if (project.hasProperty("enableSourceJar")) {
+            enableSourceJar = Boolean.parseBoolean(project.findProperty("enableSourceJar").toString());
+            String status = enableSourceJar ? "활성화(파라미터)" : "비활성화(파라미터)";
+            project.getLogger().lifecycle("📦 [Config] 소스 JAR 생성이 " + status + "되었습니다.");
+        } else if (isRemotePublish) {
+            boolean isPrivate = GitHubPackagesClient.isRepoPrivate(repoBaseUrl, githubToken);
+            enableSourceJar = isPrivate;
+            if (isPrivate) {
+                project.getLogger().lifecycle("🔒 [Config] 비공개 리포지토리 감지됨. 소스 JAR가 생성됩니다.");
+            } else {
+                project.getLogger().lifecycle("🌍 [Config] 공개 리포지토리 감지됨. 소스 JAR 생성을 건너뜁니다.");
+            }
+        } else {
+            // 실행 중인 태스크 이름 가져오기
+            List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+            enableSourceJar = safeTasks.stream().anyMatch(taskNames::contains);
+
+            if (enableSourceJar) {
+                project.getLogger().lifecycle("📦 [Config] 로컬 빌드 모드. 소스 JAR가 생성됩니다.");
+            } else {
+                project.getLogger().info("🚫 [Config] 소스 JAR 생성 조건 미충족 (Skip).");
+            }
+        }
+        strategies.put("enableSourceJar", enableSourceJar);
+
+        return strategies;
+    }
+
+    /**
+     * Publish 전용 Standard JAR 태스크 등록
+     *
+     * @param project         Gradle 프로젝트 객체
+     * @param archiveBaseName JAR 파일 기본 이름
+     * @param version         프로젝트 버전
+     */
+    public static void registerStandardJarTask(Project project, String archiveBaseName, String version) {
+        project.getTasks().register("standardJar", Jar.class, task -> {
+            task.getArchiveBaseName().set(archiveBaseName);
+            task.getArchiveClassifier().set(""); // 기본 아티팩트는 classifier 없음
+
+            // main 소스셋의 출력을 포함
+            SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
+            task.from(sourceSets.getByName("main").getOutput());
+
+            // Manifest 설정
+            task.manifest(manifest -> {
+                Map<String, String> attributes = new HashMap<>();
+                attributes.put("Implementation-Title", project.getName());
+                attributes.put("Implementation-Version", String.valueOf(version));
+                attributes.put("Built-JDK", System.getProperty("java.version"));
+                manifest.attributes(attributes);
+            });
+        });
+    }
+
+    /**
+     * 메인 JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
+     *
+     * @param project      Gradle 프로젝트 객체
+     * @param licensePaths 포함할 라이선스 파일 경로 목록
+     * @param buildFatJar  Fat JAR 생성 여부
+     */
+    public static void configureJarTask(Project project, Set<String> licensePaths, boolean buildFatJar) {
+        project.getTasks().named("jar", Jar.class).configure(task -> {
+            if (buildFatJar) {
+                project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
+                // 런타임 의존성을 모두 포함 (Lazy evaluation)
+                task.from(
+                        (Callable<Object>) () -> project.getConfigurations().getByName("runtimeClasspath").getFiles().stream()
+                                .map(file -> file.isDirectory() ? file : project.zipTree(file))
+                                .collect(Collectors.toList())
+                );
+            } else {
+                project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
+            }
+
+            // 라이선스 파일 포함
+            task.from(project.getRootDir(), spec -> {
+                spec.include(licensePaths);
+            });
+
+            // 중복 파일 처리 전략
+            task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
+
+            // Manifest 설정
+            task.manifest(manifest -> {
+                Map<String, String> attributes = new HashMap<>();
+                attributes.put("Implementation-Title", project.getName());
+                attributes.put("Implementation-Version", String.valueOf(project.getVersion()));
+                attributes.put("Built-JDK", System.getProperty("java.version"));
+                manifest.attributes(attributes);
+            });
+        });
+    }
+
+    /**
+     * 의존성 복사 태스크 등록 (copyDependencies)
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    public static void registerCopyDependenciesTask(Project project) {
+        project.getTasks().register("copyDependencies", Copy.class, task -> {
+            task.from(project.getConfigurations().getByName("runtimeClasspath"));
+            task.into(project.getLayout().getBuildDirectory().dir("../dependencies"));
+        });
+    }
+
+    /**
+     * Gradle 8.x 메타데이터 생성 이슈 해결 설정
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    public static void fixMetadataGeneration(Project project) {
+        // generateMetadataFileForMavenJavaPublication 태스크가 있다면 standardJar에 의존하도록 설정
+        // (플러그인이 적용되지 않았을 경우를 대비해 찾아서 설정)
+        try {
+            project.getTasks().named("generateMetadataFileForMavenJavaPublication").configure(task -> {
+                task.dependsOn(project.getTasks().named("standardJar"));
+            });
+        } catch (Exception ignored) {
+            // 태스크가 없으면 무시
+        }
     }
 }
