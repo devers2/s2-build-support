@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
@@ -437,31 +436,6 @@ public class S2BuildUtils {
     // ========================================================================
     // JAR 관련 유틸리티 메서드
     // ========================================================================
-
-    /**
-     * Java 버전과 추가 소스 목록을 기반으로 Classifier 문자열 생성
-     * 예: Java 8, [S2PdfUtil] -> "java8-pdf"
-     *
-     * @param javaVersion       Java 버전
-     * @param additionalSources 추가 소스 목록
-     * @return 생성된 classifier 문자열 (없으면 빈 문자열)
-     */
-    public static String generateClassifier(JavaVersion javaVersion, Set<String> additionalSources) {
-        List<String> parts = new ArrayList<>();
-
-        if (javaVersion == JavaVersion.VERSION_1_8) {
-            parts.add("java8");
-        }
-
-        if (additionalSources != null && additionalSources.contains("S2PdfUtil")) {
-            parts.add("pdf");
-        }
-
-        // 중복 제거 및 하이픈으로 연결
-        return parts.stream()
-                .distinct()
-                .collect(Collectors.joining("-"));
-    }
 
     /**
      * JAR 파일명 생성

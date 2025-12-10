@@ -187,7 +187,7 @@ public class MavenPublishStrategy {
                     String baseUrl = String.format("%s/%s/%s/%s", repoBaseUrl, groupPath, artifactId, version);
 
                     project.getLogger().lifecycle("");
-                    project.getLogger().lifecycle("[CHECK] Checking artifacts for {}:{}...", artifactId, version);
+                    project.getLogger().lifecycle("🔍 [CHECK] 아티팩트 상태 확인 중: {}:{}...", artifactId, version);
 
                     List<ArtifactInfo> artifacts = new ArrayList<>();
                     pub.getArtifacts().forEach(a -> {
@@ -201,19 +201,25 @@ public class MavenPublishStrategy {
                     PublishDecision decision = shouldPublish(baseUrl, artifactId, version, artifacts, githubUser, githubToken);
 
                     if (!decision.shouldPublish) {
-                        project.getLogger().lifecycle("[SKIP] {} ({}) is fully published.", artifactId, version);
+                        project.getLogger().lifecycle("⏭️  [SKIP] {}:{} 버전은 이미 완전히 배포되어 있습니다.", artifactId, version);
                         return false;
                     }
 
                     if (decision.reason.contains("POM이 없으므로")) {
-                        project.getLogger().lifecycle("[REGISTER] {} ({}) - POM missing, publishing...", artifactId, version);
+                        project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (POM 없음)", artifactId, version);
                         return true;
                     } else {
-                        project.getLogger().lifecycle("[REGISTER] {} ({}) - Missing artifacts:", artifactId, version);
-                        decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("  - {}", missing));
+                        project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - 일부 아티팩트 누락", artifactId, version);
+                        project.getLogger().lifecycle("    누락된 파일 목록:");
+                        decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("      - {}", missing));
                         project.getLogger().lifecycle("");
-                        project.getLogger().lifecycle("⚠️  Note: POM already exists. GitHub Packages will return 409 Conflict for POM,");
-                        project.getLogger().lifecycle("    but missing JARs will be uploaded successfully.");
+                        project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (POM 존재)");
+                        project.getLogger().error("");
+                        project.getLogger().error("  GitHub Packages에 이미 동일한 버전의 POM 파일이 존재합니다.");
+                        project.getLogger().error("  이로 인해 빌드 완료 시 '409 Conflict' 오류가 발생할 수 있습니다.");
+                        project.getLogger().error("  하지만 누락되었던 JAR 파일들은 정상적으로 업로드됩니다.");
+                        project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                         return true;
                     }
                 });
