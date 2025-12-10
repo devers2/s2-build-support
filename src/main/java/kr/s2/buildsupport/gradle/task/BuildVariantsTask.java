@@ -100,6 +100,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
                 command.add("-Dorg.gradle.java.home=" + javaHome);
                 command.add("-PtargetJavaVersion=" + javaVersion);
                 command.add("-PtargetSources=" + String.join(",", additionalSource));
+                command.add("-PenableSourceJar=" + generateSources);
                 command.add("-PisSubBuild=true");
 
                 // 'publish' 계열 태스크 실행 시 Fat JAR 빌드를 비활성화하는 프로퍼티 전달

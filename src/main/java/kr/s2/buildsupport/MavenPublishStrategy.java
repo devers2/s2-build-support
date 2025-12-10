@@ -206,7 +206,7 @@ public class MavenPublishStrategy {
                     }
 
                     if (decision.reason.contains("POM이 없으므로")) {
-                        project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (POM 없음)", artifactId, version);
+                        project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (기존 POM 없음)", artifactId, version);
                         return true;
                     } else {
                         project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - 일부 아티팩트 누락", artifactId, version);
@@ -214,7 +214,7 @@ public class MavenPublishStrategy {
                         decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("      - {}", missing));
                         project.getLogger().lifecycle("");
                         project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (POM 존재)");
+                        project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (기존 POM 존재)");
                         project.getLogger().error("");
                         project.getLogger().error("  GitHub Packages에 이미 동일한 버전의 POM 파일이 존재합니다.");
                         project.getLogger().error("  이로 인해 빌드 완료 시 '409 Conflict' 오류가 발생할 수 있습니다.");
