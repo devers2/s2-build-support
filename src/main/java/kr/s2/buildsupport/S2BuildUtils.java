@@ -679,8 +679,9 @@ public class S2BuildUtils {
      * @param project         Gradle 프로젝트 객체
      * @param archiveBaseName JAR 파일 기본 이름
      * @param version         프로젝트 버전
+     * @param licensePaths    포함할 라이선스 파일 경로 목록
      */
-    public static void registerStandardJarTask(Project project, String archiveBaseName, String version) {
+    public static void registerStandardJarTask(Project project, String archiveBaseName, String version, Set<String> licensePaths) {
         project.getTasks().register("standardJar", Jar.class, task -> {
             task.getArchiveBaseName().set(archiveBaseName);
             task.getArchiveClassifier().set(""); // 기본 아티팩트는 classifier 없음
@@ -688,6 +689,13 @@ public class S2BuildUtils {
             // main 소스셋의 출력을 포함
             SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
             task.from(sourceSets.getByName("main").getOutput());
+
+            // 라이선스 파일 포함
+            if (licensePaths != null && !licensePaths.isEmpty()) {
+                task.from(project.getRootDir(), spec -> {
+                    spec.include(licensePaths);
+                });
+            }
 
             // Manifest 설정
             task.manifest(manifest -> {
