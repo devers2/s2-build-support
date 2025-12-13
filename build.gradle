@@ -22,6 +22,34 @@ dependencies {
 }
 
 /*
+ * [Gradle Version Auto-Sync]
+ * s2-build-support의 gradle-wrapper.properties에서 Gradle 버전을 읽어와
+ * s2-build.properties 리소스 파일에 자동으로 주입합니다.
+ * 이렇게 하면 s2-build-support의 Gradle 버전과 배포되는 버전이 자동으로 동기화됩니다.
+ */
+def extractGradleVersion() {
+    def wrapperProps = new Properties()
+    file('gradle/wrapper/gradle-wrapper.properties').withInputStream { wrapperProps.load(it) }
+    def distributionUrl = wrapperProps.getProperty('distributionUrl')
+    // Extract version from URL like: https://services.gradle.org/distributions/gradle-9.2.1-bin.zip
+    def matcher = (distributionUrl =~ /gradle-(\d+\.\d+(?:\.\d+)?)-/)
+    return matcher ? matcher[0][1] : '9.2.1' // fallback
+}
+
+tasks.named('processResources').configure {
+    def gradleVersion = extractGradleVersion()
+    inputs.property('gradleWrapperVersion', gradleVersion)
+
+    filesMatching('s2-build.properties') {
+        expand('gradleWrapperVersion': gradleVersion)
+    }
+
+    doFirst {
+        logger.lifecycle("📦 [Build] Injecting Gradle version: ${gradleVersion} into s2-build.properties")
+    }
+}
+
+/*
  * [Gradle 플러그인 배포]
  *
  * java-gradle-plugin이 자동으로 2개의 패키지를 생성합니다:
