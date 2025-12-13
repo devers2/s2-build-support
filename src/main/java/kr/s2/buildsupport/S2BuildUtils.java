@@ -1,12 +1,15 @@
 package kr.s2.buildsupport;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
@@ -47,8 +50,6 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  */
 public class S2BuildUtils {
 
-    private static final Pattern VERSION_PATTERN = java.util.regex.Pattern.compile("gradle-([^-]+)");
-
     private static final Set<String> DEFAULT_LICENSES = new LinkedHashSet<>();
 
     static {
@@ -71,8 +72,7 @@ public class S2BuildUtils {
      * @param activeSources     활성화된 추가 소스 목록
      * @return 병합된 라이선스 파일 목록
      */
-    public static Set<String> resolveLicensePaths(Map<String, Map<String, Object>> dynamicSourceInfo,
-            Set<String> activeSources) {
+    public static Set<String> resolveLicensePaths(Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
         Set<String> licensePaths = new LinkedHashSet<>(DEFAULT_LICENSES);
 
         if (dynamicSourceInfo == null || activeSources == null) {
@@ -102,8 +102,7 @@ public class S2BuildUtils {
      * @param activeSources     활성화된 추가 소스 목록
      * @return 제외할 소스 파일 경로 목록
      */
-    public static Set<String> resolveExcludedPaths(Map<String, Map<String, Object>> dynamicSourceInfo,
-            Set<String> activeSources) {
+    public static Set<String> resolveExcludedPaths(Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
         Set<String> excludedPaths = new LinkedHashSet<>();
 
         if (dynamicSourceInfo == null) {
@@ -141,8 +140,7 @@ public class S2BuildUtils {
      * @param dynamicSourceInfo 동적 소스 설정 정보
      * @param activeSources     활성화된 추가 소스 목록
      */
-    public static void performSourceToggle(Project project, String javaSourceRoot,
-            Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
+    public static void performSourceToggle(Project project, String javaSourceRoot, Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
         if (dynamicSourceInfo == null) {
             return;
         }
@@ -170,30 +168,18 @@ public class S2BuildUtils {
                         // 🟩 기능 활성화: .java.txt -> .java 로 복원
                         if (fileTxt.exists()) {
                             if (fileTxt.renameTo(fileJava)) {
-                                System.out.println(
-                                        "✅ [Source Toggle] " + fileTxt.getName() + " → " + fileJava.getName()
-                                                + " (Feature: " + featureName + " ENABLED)"
-                                );
+                                System.out.println("✅ [Source Toggle] " + fileTxt.getName() + " → " + fileJava.getName() + " (Feature: " + featureName + " ENABLED)");
                             } else {
-                                System.err.println(
-                                        "❌ [Source Toggle] Failed to rename " + fileTxt.getName() + " → "
-                                                + fileJava.getName()
-                                );
+                                System.err.println("❌ [Source Toggle] Failed to rename " + fileTxt.getName() + " → " + fileJava.getName());
                             }
                         }
                     } else {
                         // 🟥 기능 비활성화: .java -> .java.txt 로 제외
                         if (fileJava.exists()) {
                             if (fileJava.renameTo(fileTxt)) {
-                                System.out.println(
-                                        "⚠️  [Source Toggle] " + fileJava.getName() + " → "
-                                                + fileTxt.getName() + " (Feature: " + featureName + " DISABLED)"
-                                );
+                                System.out.println("⚠️  [Source Toggle] " + fileJava.getName() + " → " + fileTxt.getName() + " (Feature: " + featureName + " DISABLED)");
                             } else {
-                                System.err.println(
-                                        "❌ [Source Toggle] Failed to rename " + fileJava.getName() + " → "
-                                                + fileTxt.getName()
-                                );
+                                System.err.println("❌ [Source Toggle] Failed to rename " + fileJava.getName() + " → " + fileTxt.getName());
                             }
                         }
                     }
@@ -238,10 +224,7 @@ public class S2BuildUtils {
 
             try {
                 java.nio.file.Path path = file.toPath();
-                String content = new String(
-                        java.nio.file.Files.readAllBytes(path),
-                        java.nio.charset.StandardCharsets.UTF_8
-                );
+                String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
 
                 // servlet 관련 import가 없으면 건너뛰기
                 if (!content.contains("javax.servlet") && !content.contains("jakarta.servlet")) {
@@ -253,16 +236,10 @@ public class S2BuildUtils {
                 if (classIndex == -1) {
                     // public class가 없다면 전체 파일에서 import 교체 시도
                     if (content.contains(fromPackage)) {
-                        String updated = content.replaceAll(
-                                "import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.",
-                                "import " + toPackage + "."
-                        );
+                        String updated = content.replaceAll("import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.", "import " + toPackage + ".");
                         if (!content.equals(updated)) {
                             java.nio.file.Files.write(path, updated.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            System.out.println(
-                                    "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage
-                                            + " → " + toPackage + ")"
-                            );
+                            System.out.println("🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage + ")");
                         }
                     }
                     return;
@@ -272,17 +249,11 @@ public class S2BuildUtils {
                 String afterClass = content.substring(classIndex);
 
                 if (beforeClass.contains(fromPackage)) {
-                    String updatedBefore = beforeClass.replaceAll(
-                            "import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.",
-                            "import " + toPackage + "."
-                    );
+                    String updatedBefore = beforeClass.replaceAll("import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.", "import " + toPackage + ".");
                     String newContent = updatedBefore + afterClass;
                     if (!content.equals(newContent)) {
                         java.nio.file.Files.write(path, newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        System.out.println(
-                                "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → "
-                                        + toPackage + ")"
-                        );
+                        System.out.println("🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage + ")");
                     }
                 }
             } catch (java.io.IOException e) {
@@ -304,8 +275,7 @@ public class S2BuildUtils {
     public static void updateCopyright(Project project, String[] sourcePaths) {
         String currentYear = String.valueOf(java.time.Year.now().getValue());
         // 패턴: Copyright (c) 2020 - [연도] devers2
-        java.util.regex.Pattern copyrightPattern = java.util.regex.Pattern
-                .compile("Copyright \\(c\\) 2020 - (\\d{4}) devers2");
+        java.util.regex.Pattern copyrightPattern = java.util.regex.Pattern.compile("Copyright \\(c\\) 2020 - (\\d{4}) devers2");
 
         // 대상 확장자 목록
         Set<String> targetExtensions = new LinkedHashSet<>();
@@ -338,24 +308,15 @@ public class S2BuildUtils {
 
                 try {
                     java.nio.file.Path path = file.toPath();
-                    String content = new String(
-                            java.nio.file.Files.readAllBytes(path),
-                            java.nio.charset.StandardCharsets.UTF_8
-                    );
+                    String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
                     java.util.regex.Matcher matcher = copyrightPattern.matcher(content);
 
                     if (matcher.find()) {
                         String oldYear = matcher.group(1);
                         if (!oldYear.equals(currentYear)) {
-                            String newContent = matcher
-                                    .replaceFirst("Copyright (c) 2020 - " + currentYear + " devers2");
-                            java.nio.file.Files.write(
-                                    path,
-                                    newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8)
-                            );
-                            System.out.println(
-                                    "©️  [Copyright] Updated " + fileName + " (" + oldYear + " → " + currentYear + ")"
-                            );
+                            String newContent = matcher.replaceFirst("Copyright (c) 2020 - " + currentYear + " devers2");
+                            java.nio.file.Files.write(path, newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            System.out.println("©️  [Copyright] Updated " + fileName + " (" + oldYear + " → " + currentYear + ")");
                         }
                     }
                 } catch (java.io.IOException e) {
@@ -376,10 +337,7 @@ public class S2BuildUtils {
      *
      * <pre>{@code
      * // 1. build.gradle에서 다음과 같이 호출
-     * kr.s2.buildsupport.S2BuildUtils.updateVersionInFile(
-     *         project, "README.md",
-     *         "### Version: {{=version}} ({{=release-date}})", project.version.toString()
-     * );
+     * kr.s2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: {{=version}} ({{=release-date}})", project.version.toString());
      *
      * // 2. README.md 파일에 아래 내용이 있다고 가정:
      * // ### Version: 1.0.0 (2023-01-01)
@@ -393,8 +351,7 @@ public class S2BuildUtils {
      * @param versionTemplate 버전 정보 템플릿. `{{=version}}`과 `{{=release-date}}` 플레이스홀더를 포함해야 한다.
      * @param newVersion      새로운 버전 문자열
      */
-    public static void updateVersionInFile(Project project, String filePath, String versionTemplate,
-            String newVersion) {
+    public static void updateVersionInFile(Project project, String filePath, String versionTemplate, String newVersion) {
         File targetFile = project.file(filePath);
         if (!targetFile.exists()) {
             System.err.println("❌ [" + filePath + "] File not found in project root.");
@@ -441,20 +398,14 @@ public class S2BuildUtils {
             String regex = regexBuilder.toString();
 
             java.nio.file.Path path = targetFile.toPath();
-            String content = new String(
-                    java.nio.file.Files.readAllBytes(path),
-                    java.nio.charset.StandardCharsets.UTF_8
-            );
-            String newDate = java.time.LocalDate.now()
-                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
+            String newDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
             Pattern pattern = Pattern.compile(regex);
             Matcher matcher = pattern.matcher(content);
 
             if (!matcher.find()) {
-                System.err.println(
-                        "⚠️  [" + filePath + "] Could not find the version pattern from template: " + versionTemplate
-                );
+                System.err.println("⚠️  [" + filePath + "] Could not find the version pattern from template: " + versionTemplate);
                 return;
             }
 
@@ -472,8 +423,7 @@ public class S2BuildUtils {
 
             // 버전이 동일하면 업데이트를 건너뛴다.
             if (existingVersion.equals(newVersion)) {
-                System.out
-                        .println("ℹ️  [" + filePath + "] Version is unchanged (" + newVersion + "). Skipping update.");
+                System.out.println("ℹ️  [" + filePath + "] Version is unchanged (" + newVersion + "). Skipping update.");
                 return;
             }
 
@@ -487,10 +437,7 @@ public class S2BuildUtils {
 
             if (!content.equals(updatedContent)) {
                 java.nio.file.Files.write(path, updatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                System.out.println(
-                        "📝 [" + filePath + "] Updated version: " + existingVersion + " → " + newVersion
-                                + " (Date: " + existingDate + " → " + newDate + ")"
-                );
+                System.out.println("📝 [" + filePath + "] Updated version: " + existingVersion + " → " + newVersion + " (Date: " + existingDate + " → " + newDate + ")");
             }
 
         } catch (java.io.IOException e) {
@@ -642,8 +589,7 @@ public class S2BuildUtils {
      */
     public static void configureDistributions(Project project, Set<String> licensePaths) {
         // distributions 플러그인이 적용되었는지 확인은 호출 측에서 보장하거나 try-catch
-        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project
-                .getExtensions().findByName("distributions");
+        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project.getExtensions().findByName("distributions");
 
         if (distributions == null)
             return;
@@ -689,8 +635,7 @@ public class S2BuildUtils {
      * @param githubToken     GitHub 토큰
      * @return 결정된 전략 맵 ("buildFatJar", "enableSourceJar")
      */
-    public static Map<String, Boolean> decideJarStrategies(Project project, boolean isAnyPublish,
-            boolean isRemotePublish, Set<String> safeTasks, String repoBaseUrl, String githubToken) {
+    public static Map<String, Boolean> decideJarStrategies(Project project, boolean isAnyPublish, boolean isRemotePublish, Set<String> safeTasks, String repoBaseUrl, String githubToken) {
         Map<String, Boolean> strategies = new HashMap<>();
 
         // 1. Fat JAR 생성 여부 결정
@@ -741,8 +686,7 @@ public class S2BuildUtils {
      * @param version         프로젝트 버전
      * @param licensePaths    포함할 라이선스 파일 경로 목록
      */
-    public static void registerStandardJarTask(Project project, String archiveBaseName, String version,
-            Set<String> licensePaths) {
+    public static void registerStandardJarTask(Project project, String archiveBaseName, String version, Set<String> licensePaths) {
         project.getTasks().register("standardJar", Jar.class, task -> {
             task.getArchiveBaseName().set(archiveBaseName);
             task.getArchiveClassifier().set(""); // 기본 아티팩트는 classifier 없음
@@ -904,91 +848,76 @@ public class S2BuildUtils {
     }
 
     /**
-     * Gradle Wrapper 설정 및 버전 강제
+     * 🛡️ Gradle 빌드 환경의 일관성(Consistency)을 검증한다.
+     * - 현재 빌드를 실행하고 있는 Gradle 엔진의 버전(Runtime Version)과 프로젝트의 gradle-wrapper.properties 파일에 설정된 목표 버전(Wrapper Configured Version)을 비교한다.
+     * - 두 버전이 일치하지 않을 경우, 사용자에게 경고 메시지를 출력하여 프로젝트 표준을 따르는 Wrapper 명령어('./gradlew') 사용 또는 Wrapper 버전 동기화를 유도한다.
      *
-     * <p>
-     * 1. Wrapper 태스크 설정: 지정된 버전(9.2.1)으로 설정
-     * 2. 버전 확인: 현재 프로젝트의 gradle-wrapper.properties가 지정된 버전과 다르면 경고 출력
-     * </p>
-     *
-     * @param project Gradle 프로젝트 객체
+     * @param project 현재 빌드가 진행 중인 Gradle Project 객체
      */
-    public static void configureGradleWrapper(Project project) {
-        String targetVersion = loadTargetGradleVersion();
+    public static void checkGradleConsistency(Project project) {
+        // 1. 실제 실행 버전 (Runtime Version) 가져오기
+        String actualRuntimeVersion = project.getGradle().getGradleVersion();
 
-        // 1. Wrapper 태스크 설정
-        project.getTasks().withType(org.gradle.api.tasks.wrapper.Wrapper.class).configureEach(wrapper -> {
-            wrapper.setGradleVersion(targetVersion);
-            wrapper.setDistributionType(org.gradle.api.tasks.wrapper.Wrapper.DistributionType.BIN);
-        });
+        // 2. Wrapper 설정 파일에서 목표 버전 가져오기 (Configured Version)
+        String configuredTargetVersion = getWrapperConfiguredVersion(project);
 
-        // 2. 현재 설정된 버전 확인 (Configuration Phase)
-        File wrapperPropsFile = project.file("gradle/wrapper/gradle-wrapper.properties");
-        if (wrapperPropsFile.exists()) {
-            java.util.Properties props = new java.util.Properties();
-            try (java.io.InputStream is = new java.io.FileInputStream(wrapperPropsFile)) {
-                props.load(is);
-                String currentVersion = extractGradleVersion(props.getProperty("distributionUrl"));
-                if (currentVersion != null && !currentVersion.equals(targetVersion)) {
-                    project.getLogger().warn(
-                            "\n" +
-                                    "⚠️  [Gradle Wrapper] 편차 감지됨!\n" +
-                                    "   - 현재 버전: " + currentVersion + "\n" +
-                                    "   - 권장 버전: " + targetVersion + "\n" +
-                                    "   👉 './gradlew wrapper --gradle-version " + targetVersion + "' 명령을 실행하여 버전을 동기화하세요.\n"
-                    );
-                }
-            } catch (java.io.IOException e) {
-                project.getLogger().warn("Gradle Wrapper 버전 확인 중 오류 발생: " + e.getMessage());
-            }
+        // 3. 버전 비교 및 경고 출력
+        if (configuredTargetVersion != null && !actualRuntimeVersion.equals(configuredTargetVersion)) {
+
+            String separator = "==================================================================================";
+
+            project.getLogger().warn(separator);
+            project.getLogger().warn("⚠️ [S2BuildSupport] Gradle Wrapper 버전 편차 감지됨!");
+            project.getLogger().warn("");
+            project.getLogger().warn("  - 현재 실행 버전 (Runtime):   " + actualRuntimeVersion);
+            project.getLogger().warn("  - 프로젝트 목표 버전 (Wrapper): " + configuredTargetVersion);
+            project.getLogger().warn("");
+            project.getLogger().warn("  ➡️ 현재 상황에 맞춰 다음 중 하나의 조치를 취해 주세요:");
+            project.getLogger().warn("");
+
+            project.getLogger().warn("  [A] 프로젝트 표준(목표 버전: " + configuredTargetVersion + ")으로 빌드하려면:");
+            project.getLogger().warn("     로컬 'gradle' 대신, './gradlew build'를 사용해 주세요.([프로젝트 루트]/gradlew)");
+            project.getLogger().warn("");
+            project.getLogger().warn("  [B] 현재 실행 버전(" + actualRuntimeVersion + ")으로 Wrapper 설정을 업데이트하려면 (⚠️ 신중히 결정):");
+            project.getLogger().warn("     ./gradlew wrapper --gradle-version " + actualRuntimeVersion);
+            project.getLogger().warn(separator);
         }
     }
 
     /**
-     * distributionUrl에서 Gradle 버전 문자열(예: "9.2.1")을 추출한다.
+     * 프로젝트의 'gradle-wrapper.properties' 파일을 읽어 'distributionUrl' 속성에서 설정된 Gradle 버전을 추출한다.
+     *
+     * @param project 현재 Gradle Project 객체
+     * @return Wrapper에 설정된 Gradle 버전 문자열 (예: "9.2.1"). 파일이 없거나 파싱에 실패하면 null을 반환
      */
-    private static String extractGradleVersion(String distributionUrl) {
-        if (distributionUrl == null) {
+    private static String getWrapperConfiguredVersion(Project project) {
+        // gradle/wrapper/gradle-wrapper.properties 파일 경로
+        File wrapperPropertiesFile = project.getRootProject().file("gradle/wrapper/gradle-wrapper.properties");
+
+        if (!wrapperPropertiesFile.exists()) {
+            project.getLogger().warn("[S2BuildSupport] 경고: gradle-wrapper.properties 파일이 존재하지 않습니다. Wrapper 설정을 확인해 주세요.");
             return null;
         }
-        java.util.regex.Matcher matcher = VERSION_PATTERN.matcher(distributionUrl);
-        // 정규식 그룹 1 (gradle- 다음에 나오는 버전)을 반환
-        return matcher.find() ? matcher.group(1) : null;
-    }
 
-    /**
-     * s2-build.properties에서 목표 Gradle 버전 로드
-     *
-     * @return 목표 Gradle 버전 (예: "9.2.1")
-     */
-    private static String loadTargetGradleVersion() {
-        String fallbackGradleVersion = "9.2.1";
-        try (java.io.InputStream is = S2BuildUtils.class.getClassLoader().getResourceAsStream("s2-build.properties")) {
-            if (is == null) {
-                System.err.println(
-                        "⚠️  [Gradle Version] s2-build.properties not found. Using default version "
-                                + fallbackGradleVersion + "."
-                );
-                return fallbackGradleVersion;
+        Properties properties = new Properties();
+        try (FileInputStream input = new FileInputStream(wrapperPropertiesFile)) {
+            properties.load(input);
+            String distributionUrl = properties.getProperty("distributionUrl");
+
+            if (distributionUrl != null) {
+                // distributionUrl에서 버전 문자열을 추출하는 정규식
+                // 예: https\://.../gradle-9.2.1-bin.zip -> 9.2.1 추출
+                Pattern pattern = Pattern.compile("gradle-(\\d+\\.\\d+\\.\\d+).*\\.zip");
+                Matcher matcher = pattern.matcher(distributionUrl);
+
+                if (matcher.find()) {
+                    return matcher.group(1); // 첫 번째 캡처 그룹(버전) 반환
+                }
             }
-            java.util.Properties props = new java.util.Properties();
-            props.load(is);
-            String version = props.getProperty("s2.gradle.version");
-            if (version == null || version.trim().isEmpty()) {
-                System.err.println(
-                        "⚠️  [Gradle Version] s2.gradle.version not found in s2-build.properties. Using default version "
-                                + fallbackGradleVersion + "."
-                );
-                return fallbackGradleVersion;
-            }
-            return version.trim();
-        } catch (java.io.IOException e) {
-            System.err.println(
-                    "⚠️  [Gradle Version] Failed to load s2-build.properties: " + e.getMessage()
-                            + ". Using default version " + fallbackGradleVersion + "."
-            );
-            return fallbackGradleVersion;
+        } catch (IOException e) {
+            project.getLogger().error("[S2BuildSupport] Wrapper 설정 파일을 읽는 중 오류 발생: " + e.getMessage());
         }
+        return null;
     }
 
     /**
@@ -1007,4 +936,5 @@ public class S2BuildUtils {
             // 태스크가 없으면 무시
         }
     }
+
 }
