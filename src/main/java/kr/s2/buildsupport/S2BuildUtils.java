@@ -876,10 +876,10 @@ public class S2BuildUtils {
             project.getLogger().warn("");
 
             project.getLogger().warn("  [A] 프로젝트 표준(목표 버전: " + configuredTargetVersion + ")으로 빌드하려면:");
-            project.getLogger().warn("     로컬 'gradle' 대신, './gradlew build'를 사용해 주세요.([프로젝트 루트]/gradlew)");
+            project.getLogger().warn("     시스템에 설치된 'gradle' 대신, './gradlew build'를 사용해 주세요.([프로젝트 루트]/gradlew)");
             project.getLogger().warn("");
-            project.getLogger().warn("  [B] 현재 실행 버전(" + actualRuntimeVersion + ")으로 Wrapper 설정을 업데이트하려면 (⚠️ 신중히 결정):");
-            project.getLogger().warn("     ./gradlew wrapper --gradle-version " + actualRuntimeVersion);
+            project.getLogger().warn("  [B] 현재 실행 버전(" + actualRuntimeVersion + ")으로 Wrapper 설정을 업데이트하려면 (⚠️ 신중히 결정, 시스템에 설치된 `Gradle`을 사용):");
+            project.getLogger().warn("     gradle wrapper --gradle-version " + actualRuntimeVersion);
             project.getLogger().warn(separator);
         }
     }
