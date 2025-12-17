@@ -520,6 +520,9 @@ public class S2BuildUtils {
         project.getTasks().withType(Javadoc.class).configureEach(javadoc -> {
             StandardJavadocDocletOptions options = (StandardJavadocDocletOptions) javadoc.getOptions();
             options.setEncoding("UTF-8");
+            options.setDocEncoding("UTF-8");
+            options.setCharSet("UTF-8");
+            options.setJFlags(java.util.Arrays.asList("-Dfile.encoding=UTF-8"));
 
             // 모든 경고 및 오류 검사 비활성화
             options.addStringOption("Xdoclint:none", "-quiet");
