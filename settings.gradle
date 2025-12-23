@@ -1,1 +1,6 @@
+plugins {
+    // Gradle이 필요한 JDK를 자동으로 찾고 다운로드하는 플러그인
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
 rootProject.name = 's2-build-support'

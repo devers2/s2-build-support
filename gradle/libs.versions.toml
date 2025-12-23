@@ -1,5 +1,5 @@
 [versions]
-java = "8"
+java = "17"
 
 [libraries]
 # No external libraries yet, but ready for expansion
