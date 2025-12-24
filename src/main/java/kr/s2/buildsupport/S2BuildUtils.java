@@ -612,18 +612,17 @@ public class S2BuildUtils {
         // ========================================================================
         // 1. Standard JAR 태스크 등록 (배포 전용)
         // ========================================================================
-        // publishing 블록에서 참조되므로 가장 먼저 등록해야 함
-        // archiveBaseName과 version은 프로젝트에서 자동 추출
-        String extractedArchiveName;
-        try {
-            // base.archivesName 속성 사용 (동적 접미사 반영)
-            extractedArchiveName = project.getExtensions().getByType(org.gradle.api.plugins.BasePluginExtension.class)
-                    .getArchivesName().get();
-        } catch (Exception e) {
-            // 없으면 프로젝트 이름 사용
-            extractedArchiveName = project.getName();
-        }
-        final String archiveBaseName = extractedArchiveName;
+        /*
+         * [목적]
+         * - Maven 배포 시 사용할 Standard JAR (의존성 분리) 태스크를 등록
+         * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
+         *
+         * [특징]
+         * - archiveBaseName: base.archivesName 또는 project.name에서 자동 추출
+         * - 의존성을 포함하지 않는 순수 프로젝트 코드만 포함
+         * - Manifest 정보 자동 설정
+         */
+        final String archiveBaseName = getArchiveBaseName(project);
         final String version = project.getVersion().toString();
 
         project.getTasks().register("standardJar", Jar.class, task -> {
@@ -635,43 +634,41 @@ public class S2BuildUtils {
             task.from(sourceSets.getByName("main").getOutput());
 
             // 추가 파일 포함 (라이선스 등)
-            if (extraFiles != null && !extraFiles.isEmpty()) {
-                task.from(project.getRootDir(), spec -> {
-                    spec.include(extraFiles);
-                });
-            }
+            includeExtraFiles(task, project, extraFiles);
 
             // Manifest 설정
-            task.manifest(manifest -> {
-                Map<String, String> attributes = new HashMap<>();
-                attributes.put("Implementation-Title", project.getName());
-                attributes.put("Implementation-Version", version);
-                attributes.put("Built-JDK", System.getProperty("java.version"));
-                manifest.attributes(attributes);
-            });
+            applyManifest(task, project, version);
         });
 
         // ========================================================================
         // 2. JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
         // ========================================================================
-        // 배포 관련 태스크 감지
+        /*
+         * [동작 방식]
+         * - 일반 빌드 (./gradlew build): Fat JAR 생성 (의존성 포함)
+         * - 배포 빌드 (./gradlew publish): Standard JAR 생성 (의존성 분리)
+         * - 사용자 지정: -PbuildFatJar=true/false로 강제 지정 가능
+         */
         List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
         boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
 
         // Fat JAR 생성 여부 결정
         boolean buildFatJar;
         if (project.hasProperty("buildFatJar")) {
+            // 사용자 명시적 지정
             buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
         } else {
-            // 배포 시에는 Standard JAR(Fat JAR 아님) 강제
+            // 자동 판단: 배포 시에는 Standard JAR 강제
             buildFatJar = !isAnyPublish;
         }
 
-        boolean finalBuildFatJar = buildFatJar;
+        // 람다 내부에서 사용하기 위한 effectively final 변수
+        final boolean finalBuildFatJar = buildFatJar;
+
         project.getTasks().named("jar", Jar.class).configure(task -> {
             if (finalBuildFatJar) {
                 project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
-                // 런타임 의존성을 모두 포함 (Lazy evaluation)
+                // 런타임 의존성을 모두 포함 (Lazy evaluation: 태스크 실행 시점에 평가)
                 task.from(
                         (Callable<Object>) () -> project.getConfigurations().getByName("runtimeClasspath").getFiles()
                                 .stream()
@@ -683,23 +680,13 @@ public class S2BuildUtils {
             }
 
             // 추가 파일 포함 (라이선스 등)
-            if (extraFiles != null && !extraFiles.isEmpty()) {
-                task.from(project.getRootDir(), spec -> {
-                    spec.include(extraFiles);
-                });
-            }
+            includeExtraFiles(task, project, extraFiles);
 
-            // 중복 파일 처리 전략
+            // 중복 파일 처리 전략 (Fat JAR 생성 시 필수)
             task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
 
             // Manifest 설정
-            task.manifest(manifest -> {
-                Map<String, String> attributes = new HashMap<>();
-                attributes.put("Implementation-Title", project.getName());
-                attributes.put("Implementation-Version", String.valueOf(project.getVersion()));
-                attributes.put("Built-JDK", System.getProperty("java.version"));
-                manifest.attributes(attributes);
-            });
+            applyManifest(task, project, version);
 
             /*
              * [참고] 재현 가능한 빌드 (Reproducible Builds)
@@ -711,16 +698,27 @@ public class S2BuildUtils {
         // ========================================================================
         // 3. 배포 패키지 생성 (Distributions)
         // ========================================================================
+        /*
+         * [목적]
+         * - 라이선스 파일 + JAR + 의존성을 포함한 ZIP 패키지 생성
+         * - 'Gradle > Tasks > distribution > distZip' 실행 시 생성됨
+         */
         configureDistributions(project, extraFiles);
 
         // ========================================================================
         // 4. 메타데이터 생성 및 스마트 배포 전략 설정
         // ========================================================================
-        // publishing 블록이 완전히 평가된 후에 실행되어야 하므로 afterEvaluate 사용
+        /*
+         * [afterEvaluate 사용 이유]
+         * - publishing 블록은 Configuration Phase에서 평가되며,
+         *   이때 generateMetadataFileForMavenJavaPublication 태스크가 생성됨
+         * - 해당 태스크에 의존성을 설정하려면 태스크가 먼저 생성되어야 하므로
+         *   afterEvaluate를 사용하여 모든 평가가 완료된 후에 실행
+         */
         project.afterEvaluate(p -> {
-            // 메타데이터 생성 태스크 의존성 설정 (standardJar -> generateMetadata)
+            // 메타데이터 생성 태스크 의존성 설정 (standardJar가 먼저 실행되도록)
             fixMetadataGeneration(p);
-            // 스마트 배포 전략 (중복 배포 방지)
+            // 스마트 배포 전략 (이미 배포된 아티팩트는 건너뛰기)
             MavenPublishStrategy.configureSmartPublishing(p);
         });
     }
@@ -1046,6 +1044,62 @@ public class S2BuildUtils {
             project.getLogger().error("[S2BuildSupport] Wrapper 설정 파일을 읽는 중 오류 발생: " + e.getMessage());
         }
         return null;
+    }
+
+    // ========================================================================
+    // Private 헬퍼 메서드 (Helper Methods)
+    // ========================================================================
+
+    /**
+     * 프로젝트의 아카이브 기본 이름을 추출한다.
+     * <p>
+     * base.archivesName 속성이 있으면 사용하고, 없으면 프로젝트 이름을 반환한다.
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     * @return 아카이브 기본 이름
+     */
+    private static String getArchiveBaseName(Project project) {
+        try {
+            // base.archivesName 속성 사용 (동적 접미사 반영)
+            return project.getExtensions().getByType(org.gradle.api.plugins.BasePluginExtension.class)
+                    .getArchivesName().get();
+        } catch (Exception e) {
+            // 없으면 프로젝트 이름 사용
+            return project.getName();
+        }
+    }
+
+    /**
+     * JAR 태스크에 표준 Manifest 정보를 설정한다.
+     *
+     * @param jarTask JAR 태스크
+     * @param project Gradle 프로젝트 객체
+     * @param version 버전 문자열
+     */
+    private static void applyManifest(Jar jarTask, Project project, String version) {
+        jarTask.manifest(manifest -> {
+            Map<String, String> attributes = new HashMap<>();
+            attributes.put("Implementation-Title", project.getName());
+            attributes.put("Implementation-Version", version);
+            attributes.put("Built-JDK", System.getProperty("java.version"));
+            manifest.attributes(attributes);
+        });
+    }
+
+    /**
+     * JAR 태스크에 추가 파일(라이선스 등)을 포함한다.
+     *
+     * @param jarTask    JAR 태스크
+     * @param project    Gradle 프로젝트 객체
+     * @param extraFiles 포함할 파일 경로 목록
+     */
+    private static void includeExtraFiles(Jar jarTask, Project project, Set<String> extraFiles) {
+        if (extraFiles != null && !extraFiles.isEmpty()) {
+            jarTask.from(project.getRootDir(), spec -> {
+                spec.include(extraFiles);
+            });
+        }
     }
 
 }
