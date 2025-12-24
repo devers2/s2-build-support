@@ -631,30 +631,17 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
-     * Fat JAR 및 Source JAR 생성 여부를 결정하는 전략 메서드
+     * Source JAR 생성 여부를 결정하는 전략 메서드
      *
      * @param project         Gradle 프로젝트 객체
-     * @param isAnyPublish    배포 태스크 실행 여부
      * @param isRemotePublish 원격 배포 실행 여부
      * @param safeTasks       안전한 태스크 목록 (로컬 빌드용)
      * @param repoBaseUrl     Maven 리포지토리 URL
      * @param githubToken     GitHub 토큰
-     * @return 결정된 전략 맵 ("buildFatJar", "enableSourceJar")
+     * @return Source JAR 생성 여부
      */
-    public static Map<String, Boolean> decideJarStrategies(Project project, boolean isAnyPublish, boolean isRemotePublish, Set<String> safeTasks, String repoBaseUrl, String githubToken) {
-        Map<String, Boolean> strategies = new HashMap<>();
-
-        // 1. Fat JAR 생성 여부 결정
-        boolean buildFatJar;
-        if (project.hasProperty("buildFatJar")) {
-            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
-        } else {
-            // 배포 시에는 Standard JAR(Fat JAR 아님) 강제
-            buildFatJar = !isAnyPublish;
-        }
-        strategies.put("buildFatJar", buildFatJar);
-
-        // 2. Source JAR 생성 여부 결정
+    public static boolean shouldEnableSourceJar(Project project, boolean isRemotePublish, Set<String> safeTasks, String repoBaseUrl, String githubToken) {
+        // Source JAR 생성 여부 결정
         boolean enableSourceJar;
         if (project.hasProperty("enableSourceJar")) {
             enableSourceJar = Boolean.parseBoolean(project.findProperty("enableSourceJar").toString());
@@ -679,9 +666,7 @@ public class S2BuildUtils {
                 project.getLogger().info("🚫 [Config] 소스 JAR 생성 조건 미충족 (Skip).");
             }
         }
-        strategies.put("enableSourceJar", enableSourceJar);
-
-        return strategies;
+        return enableSourceJar;
     }
 
     /**
@@ -724,11 +709,24 @@ public class S2BuildUtils {
      *
      * @param project      Gradle 프로젝트 객체
      * @param licensePaths 포함할 라이선스 파일 경로 목록
-     * @param buildFatJar  Fat JAR 생성 여부
      */
-    public static void configureJarTask(Project project, Set<String> licensePaths, boolean buildFatJar) {
+    public static void configureJarTask(Project project, Set<String> licensePaths) {
+        // 배포 관련 태스크 감지
+        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+        boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
+
+        // Fat JAR 생성 여부 결정
+        boolean buildFatJar;
+        if (project.hasProperty("buildFatJar")) {
+            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
+        } else {
+            // 배포 시에는 Standard JAR(Fat JAR 아님) 강제
+            buildFatJar = !isAnyPublish;
+        }
+
+        boolean finalBuildFatJar = buildFatJar;
         project.getTasks().named("jar", Jar.class).configure(task -> {
-            if (buildFatJar) {
+            if (finalBuildFatJar) {
                 project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
                 // 런타임 의존성을 모두 포함 (Lazy evaluation)
                 task.from(
