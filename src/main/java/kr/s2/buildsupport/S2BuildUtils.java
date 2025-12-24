@@ -609,6 +609,51 @@ public class S2BuildUtils {
      * @param extraFiles 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
      */
     public static void configurePackaging(Project project, Set<String> extraFiles) {
+        // ========================================================================
+        // 1. Standard JAR 태스크 등록 (배포 전용)
+        // ========================================================================
+        // publishing 블록에서 참조되므로 가장 먼저 등록해야 함
+        // archiveBaseName과 version은 프로젝트에서 자동 추출
+        String extractedArchiveName;
+        try {
+            // base.archivesName 속성 사용 (동적 접미사 반영)
+            extractedArchiveName = project.getExtensions().getByType(org.gradle.api.plugins.BasePluginExtension.class)
+                    .getArchivesName().get();
+        } catch (Exception e) {
+            // 없으면 프로젝트 이름 사용
+            extractedArchiveName = project.getName();
+        }
+        final String archiveBaseName = extractedArchiveName;
+        final String version = project.getVersion().toString();
+
+        project.getTasks().register("standardJar", Jar.class, task -> {
+            task.getArchiveBaseName().set(archiveBaseName);
+            task.getArchiveClassifier().set(""); // 기본 아티팩트는 classifier 없음
+
+            // main 소스셋의 출력을 포함
+            SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
+            task.from(sourceSets.getByName("main").getOutput());
+
+            // 추가 파일 포함 (라이선스 등)
+            if (extraFiles != null && !extraFiles.isEmpty()) {
+                task.from(project.getRootDir(), spec -> {
+                    spec.include(extraFiles);
+                });
+            }
+
+            // Manifest 설정
+            task.manifest(manifest -> {
+                Map<String, String> attributes = new HashMap<>();
+                attributes.put("Implementation-Title", project.getName());
+                attributes.put("Implementation-Version", version);
+                attributes.put("Built-JDK", System.getProperty("java.version"));
+                manifest.attributes(attributes);
+            });
+        });
+
+        // ========================================================================
+        // 2. JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
+        // ========================================================================
         // 배포 관련 태스크 감지
         List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
         boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
@@ -663,11 +708,21 @@ public class S2BuildUtils {
              */
         });
 
-        // 배포 패키지 생성
+        // ========================================================================
+        // 3. 배포 패키지 생성 (Distributions)
+        // ========================================================================
         configureDistributions(project, extraFiles);
 
-        // 스마트 배포 전략 설정 (중복 배포 방지, POM/아티팩트)
-        MavenPublishStrategy.configureSmartPublishing(project);
+        // ========================================================================
+        // 4. 메타데이터 생성 및 스마트 배포 전략 설정
+        // ========================================================================
+        // publishing 블록이 완전히 평가된 후에 실행되어야 하므로 afterEvaluate 사용
+        project.afterEvaluate(p -> {
+            // 메타데이터 생성 태스크 의존성 설정 (standardJar -> generateMetadata)
+            fixMetadataGeneration(p);
+            // 스마트 배포 전략 (중복 배포 방지)
+            MavenPublishStrategy.configureSmartPublishing(p);
+        });
     }
 
     /**
@@ -718,9 +773,6 @@ public class S2BuildUtils {
             project.getTasks().named("distZip", org.gradle.api.tasks.bundling.Zip.class).configure(task -> {
                 task.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
             });
-
-            // 메타데이터 생성 이슈 해결
-            fixMetadataGeneration(project);
         }
     }
 
