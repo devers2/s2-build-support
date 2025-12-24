@@ -143,7 +143,7 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 스마트 배포 로직을 Gradle 태스크에 적용 (기본 리포지토리: devers2-packages)
+     * 스마트 배포 로직을 Gradle 태스크에 적용 (기본 리포지토리: s2-packages)
      *
      * <p>
      * 1. POM 없음 → 전체 배포
@@ -154,7 +154,7 @@ public class MavenPublishStrategy {
      * @param project Gradle 프로젝트 객체
      */
     public static void configureSmartPublishing(Project project) {
-        configureSmartPublishing(project, "devers2-packages");
+        configureSmartPublishing(project, "s2-packages");
     }
 
     /**

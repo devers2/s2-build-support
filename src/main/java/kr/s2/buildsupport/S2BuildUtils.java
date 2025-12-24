@@ -655,10 +655,19 @@ public class S2BuildUtils {
                 attributes.put("Built-JDK", System.getProperty("java.version"));
                 manifest.attributes(attributes);
             });
+
+            /*
+             * [참고] 재현 가능한 빌드 (Reproducible Builds)
+             * Gradle은 빌드 결과물의 일관성을 위해 JAR 내부 파일의 타임스탬프를 1980-02-01로 고정한다.
+             * 이를 통해 동일한 소스에서 항상 바이트 단위까지 동일한 JAR가 생성되며, 빌드 캐시 효율이 극대화된다.
+             */
         });
 
         // 배포 패키지 생성
         configureDistributions(project, extraFiles);
+
+        // 스마트 배포 전략 설정 (중복 배포 방지, POM/아티팩트)
+        MavenPublishStrategy.configureSmartPublishing(project);
     }
 
     /**
