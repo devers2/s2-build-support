@@ -1,11 +1,17 @@
 package kr.s2.buildsupport;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
 
 /**
  * GitHub Packages와의 통신을 담당하는 클라이언트 클래스
@@ -27,8 +33,19 @@ import java.util.regex.Pattern;
  */
 public class GitHubPackagesClient {
 
+    private static final Logger logger = Logging.getLogger(GitHubPackagesClient.class);
+
+    // GitHub API 관련 상수
+    private static final String GITHUB_API_BASE_URL = "https://api.github.com/repos/";
+    private static final String GITHUB_API_ACCEPT_HEADER = "application/vnd.github.v3+json";
+    private static final Pattern GITHUB_REPO_PATTERN = Pattern.compile("github\\.com/([^/]+)/([^/]+)");
+
+    // HTTP 타임아웃 설정 (밀리초)
+    private static final int CONNECT_TIMEOUT_MS = 10000;
+    private static final int READ_TIMEOUT_MS = 10000;
+
     /**
-     * GitHub Packages에 아티팩트가 이미 존재하는지 확인
+     * GitHub Packages에 아티팩트가 이미 존재하는지 확인한다.
      *
      * <p>
      * HTTP HEAD 요청을 통해 아티팩트의 존재 여부를 확인합니다.
@@ -41,36 +58,33 @@ public class GitHubPackagesClient {
      * @return true: 아티팩트 존재, false: 아티팩트 없음 또는 오류 발생
      */
     public static boolean checkArtifactExists(String urlString, String user, String token) {
-        HttpURLConnection connection = null;
         try {
             URL url = new URL(urlString);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("HEAD");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            try {
+                connection.setRequestMethod("HEAD");
+                applyCommonSettings(connection);
 
-            // Basic 인증 설정 (필요한 경우)
-            if (user != null && token != null) {
-                String auth = user + ":" + token;
-                String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
-                connection.setRequestProperty("Authorization", "Basic " + encodedAuth);
-            }
+                // Basic 인증 설정 (필요한 경우)
+                if (user != null && token != null) {
+                    applyBasicAuth(connection, user, token);
+                }
 
-            int responseCode = connection.getResponseCode();
-            return responseCode == 200;
+                int responseCode = connection.getResponseCode();
+                return responseCode == 200;
 
-        } catch (IOException e) {
-            // 네트워크 오류 또는 URL 오류 시 존재하지 않는 것으로 처리
-            return false;
-        } finally {
-            if (connection != null) {
+            } finally {
                 connection.disconnect();
             }
+        } catch (IOException e) {
+            // 네트워크 오류 또는 URL 오류 시 존재하지 않는 것으로 처리
+            logger.debug("아티팩트 존재 확인 실패: {}", e.getMessage());
+            return false;
         }
     }
 
     /**
-     * GitHub API를 호출하여 리포지토리가 비공개인지 확인
+     * GitHub API를 호출하여 리포지토리가 비공개인지 확인한다.
      *
      * <p>
      * GitHub REST API를 통해 리포지토리의 메타데이터를 조회하고,
@@ -89,68 +103,103 @@ public class GitHubPackagesClient {
      */
     public static boolean isRepoPrivate(String repoBaseUrl, String githubToken) {
         // REPO_BASE_URL에서 owner/repo 추출
-        // 예: "https://maven.pkg.github.com/devers2/s2-packages" -> "devers2/s2-packages"
-        Pattern pattern = Pattern.compile("github\\.com/([^/]+)/([^/]+)");
-        Matcher matcher = pattern.matcher(repoBaseUrl);
+        Matcher matcher = GITHUB_REPO_PATTERN.matcher(repoBaseUrl);
 
         if (!matcher.find()) {
-            System.err.println("⚠️  REPO_BASE_URL 형식이 올바르지 않습니다: " + repoBaseUrl);
+            logger.warn("⚠️  REPO_BASE_URL 형식이 올바르지 않습니다: {}", repoBaseUrl);
             return false;
         }
 
         String repoOwner = matcher.group(1);
         String repoName = matcher.group(2);
 
-        HttpURLConnection connection = null;
         try {
             // GitHub REST API v3 엔드포인트 구성
-            String apiUrl = "https://api.github.com/repos/" + repoOwner + "/" + repoName;
+            String apiUrl = GITHUB_API_BASE_URL + repoOwner + "/" + repoName;
             URL url = new URL(apiUrl);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("Accept", "application/vnd.github.v3+json");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            try {
+                connection.setRequestMethod("GET");
+                connection.setRequestProperty("Accept", GITHUB_API_ACCEPT_HEADER);
+                applyCommonSettings(connection);
 
-            // 인증 토큰 설정 (Private 리포지토리 접근 시 필요)
-            if (githubToken != null) {
-                connection.setRequestProperty("Authorization", "token " + githubToken);
-            }
-
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode == 200) {
-                // JSON 응답 파싱 (간단한 문자열 검색 사용)
-                java.io.BufferedReader reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(connection.getInputStream(), "UTF-8")
-                );
-                StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    response.append(line);
+                // 인증 토큰 설정 (Private 리포지토리 접근 시 필요)
+                if (githubToken != null) {
+                    connection.setRequestProperty("Authorization", "token " + githubToken);
                 }
-                reader.close();
 
-                // "private":true 또는 "private": true 패턴 찾기
-                boolean isPrivate = response.toString().contains("\"private\":true") ||
-                        response.toString().contains("\"private\": true");
+                int responseCode = connection.getResponseCode();
 
-                String visibility = isPrivate ? "비공개(Private)" : "공개 (Public)";
-                System.out.println("✅ 리포지토리 공개 상태 확인: " + repoOwner + "/" + repoName + " -> " + visibility);
+                if (responseCode == 200) {
+                    // JSON 응답 읽기
+                    String responseBody = readResponseBody(connection);
 
-                return isPrivate;
-            } else {
-                System.err.println("⚠️  GitHub API 호출 실패 (HTTP " + responseCode + "). 공개 리포지토리로 간주합니다.");
-                return false;
-            }
-        } catch (IOException e) {
-            System.err.println("⚠️  리포지토리 공개 상태 확인 실패: " + e.getMessage() + ". 공개 리포지토리로 간주합니다.");
-            return false;
-        } finally {
-            if (connection != null) {
+                    // "private":true 또는 "private": true 패턴 찾기
+                    boolean isPrivate = responseBody.contains("\"private\":true") ||
+                            responseBody.contains("\"private\": true");
+
+                    String visibility = isPrivate ? "비공개(Private)" : "공개 (Public)";
+                    logger.lifecycle("✅ 리포지토리 공개 상태 확인: {}/{} → {}", repoOwner, repoName, visibility);
+
+                    return isPrivate;
+                } else {
+                    logger.warn("⚠️  GitHub API 호출 실패 (HTTP {}). 공개 리포지토리로 간주합니다.", responseCode);
+                    return false;
+                }
+            } finally {
                 connection.disconnect();
             }
+        } catch (IOException e) {
+            logger.warn("⚠️  리포지토리 공개 상태 확인 실패: {}. 공개 리포지토리로 간주합니다.", e.getMessage());
+            return false;
+        }
+    }
+
+    // ========================================================================
+    // Private 헬퍼 메서드 (Helper Methods)
+    // ========================================================================
+
+    /**
+     * HttpURLConnection에 공통 설정을 적용한다.
+     *
+     * @param connection HTTP 연결 객체
+     */
+    private static void applyCommonSettings(HttpURLConnection connection) {
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
+    }
+
+    /**
+     * HttpURLConnection에 Basic 인증 헤더를 추가한다.
+     *
+     * @param connection HTTP 연결 객체
+     * @param user       사용자명
+     * @param token      토큰
+     */
+    private static void applyBasicAuth(HttpURLConnection connection, String user, String token) {
+        String auth = user + ":" + token;
+        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        connection.setRequestProperty("Authorization", "Basic " + encodedAuth);
+    }
+
+    /**
+     * HTTP 응답 본문을 문자열로 읽는다.
+     *
+     * @param connection HTTP 연결 객체
+     * @return 응답 본문 문자열
+     * @throws IOException 입출력 오류 발생 시
+     */
+    private static String readResponseBody(HttpURLConnection connection) throws IOException {
+        // try-with-resources로 자동 리소스 정리
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8)
+        )) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            return response.toString();
         }
     }
 }

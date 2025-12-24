@@ -56,87 +56,169 @@ public abstract class BuildVariantsTask extends DefaultTask {
 
     @TaskAction
     public void build() {
-        String rootDir = getProject().getRootDir().getAbsolutePath();
-        String gradlew = System.getProperty("os.name").toLowerCase().contains("windows") ? GRADLEW_WINDOWS : GRADLEW_UNIX;
-        String gradlewPath = new File(rootDir, gradlew).getAbsolutePath();
-
-        // 현재 실행 중인 Java 홈 경로
+        // 빌드 환경 정보 추출
+        String gradlewPath = getGradlewPath();
         String javaHome = System.getProperty("java.home");
 
         JavaVersion javaVersion = getJavaVersion().get();
         Set<String> additionalSource = getAdditionalSource().get();
         boolean generateSources = getGenerateSources().getOrElse(false);
 
-        String displayInfo = String.format("Java %s", javaVersion);
-        if (!additionalSource.isEmpty()) {
-            displayInfo += ", Sources: " + additionalSource;
-        }
-
+        String displayInfo = buildDisplayInfo(javaVersion, additionalSource);
         getLogger().lifecycle("🚀 Starting build for: {}", displayInfo);
 
         try {
             // 1. Clean 실행
-            getLogger().lifecycle("🧹 Cleaning build directory...");
-            getExecOperations().exec(spec -> {
-                configureEnvironment(spec, javaHome);
-                spec.commandLine(gradlewPath, TASK_CLEAN, "-PisSubBuild=true");
-            });
+            executeClean(gradlewPath, javaHome);
 
             // 2. Build 실행 (jar, sourcesJar?, javadocJar)
-            getLogger().lifecycle("📦 Building artifacts...");
-            getExecOperations().exec(spec -> {
-                configureEnvironment(spec, javaHome);
-
-                List<String> command = new ArrayList<>();
-                command.add(gradlewPath);
-                command.add(TASK_JAR);
-
-                if (generateSources) {
-                    command.add(TASK_SOURCES_JAR);
-                }
-
-                command.add(TASK_JAVADOC_JAR);
-
-                command.add("-Dorg.gradle.java.home=" + javaHome);
-                command.add("-PtargetJavaVersion=" + javaVersion);
-                command.add("-PtargetSources=" + String.join(",", additionalSource));
-                command.add("-PenableSourceJar=" + generateSources);
-                command.add("-PisSubBuild=true");
-
-                // 'publish' 계열 태스크 실행 시 Fat JAR 빌드를 비활성화하는 프로퍼티 전달
-                boolean isPublishing = getProject().getGradle().getStartParameter().getTaskNames().stream()
-                        .anyMatch(t -> t.toLowerCase().contains("publish"));
-                if (isPublishing) {
-                    command.add("-PbuildFatJar=false");
-                }
-                spec.commandLine(command);
-            });
+            executeBuild(gradlewPath, javaHome, javaVersion, additionalSource, generateSources);
 
             getLogger().lifecycle("✅ Build completed successfully for: {}", displayInfo);
 
         } catch (Exception e) {
-            // 빌드 실패 시 명확한 에러 메시지 출력
-            getLogger().error("");
-            getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            getLogger().error("❌ BUILD FAILED for: {}", displayInfo);
-            getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            getLogger().error("Details:");
-            getLogger().error("  - Java Version: {}", javaVersion);
-            getLogger().error("  - Additional Sources: {}", additionalSource);
-            getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            getLogger().error("");
-
-            // 원본 예외를 다시 던져서 빌드 중단
-            throw new org.gradle.api.GradleException(
-                    String.format("Failed to build: %s", displayInfo),
-                    e
-            );
+            handleBuildFailure(displayInfo, javaVersion, additionalSource, e);
         }
 
-        // 3. 작업 완료 후 Workspace 복원 (필요한 경우)
-        // 단일 빌드 모드에서는 보통 target properties가 메인 설정과 일치하므로
-        // 별도의 복원 과정이 필수적이지 않을 수 있으나, 안전을 위해 기본 상태로 refresh
+        // 3. 작업 완료 후 Workspace 복원
         restoreWorkspace(gradlewPath, javaHome, javaVersion, additionalSource);
+    }
+
+    // ========================================================================
+    // Private 헬퍼 메서드 (Helper Methods)
+    // ========================================================================
+
+    /**
+     * Gradlew 실행 파일 경로를 반환한다.
+     *
+     * @return Gradlew 절대 경로
+     */
+    private String getGradlewPath() {
+        String rootDir = getProject().getRootDir().getAbsolutePath();
+        String gradlew = System.getProperty("os.name").toLowerCase().contains("windows") ? GRADLEW_WINDOWS : GRADLEW_UNIX;
+        return new File(rootDir, gradlew).getAbsolutePath();
+    }
+
+    /**
+     * 빌드 정보 표시 문자열을 생성한다.
+     *
+     * @param javaVersion      Java 버전
+     * @param additionalSource 추가 소스 목록
+     * @return 빌드 정보 문자열
+     */
+    private String buildDisplayInfo(JavaVersion javaVersion, Set<String> additionalSource) {
+        String displayInfo = String.format("Java %s", javaVersion);
+        if (!additionalSource.isEmpty()) {
+            displayInfo += ", Sources: " + additionalSource;
+        }
+        return displayInfo;
+    }
+
+    /**
+     * Clean 태스크를 실행한다.
+     *
+     * @param gradlewPath Gradlew 경로
+     * @param javaHome    JAVA_HOME 경로
+     */
+    private void executeClean(String gradlewPath, String javaHome) {
+        getLogger().lifecycle("🧹 Cleaning build directory...");
+        getExecOperations().exec(spec -> {
+            configureEnvironment(spec, javaHome);
+            spec.commandLine(gradlewPath, TASK_CLEAN, "-PisSubBuild=true");
+        });
+    }
+
+    /**
+     * 아티팩트 빌드 태스크를 실행한다.
+     *
+     * @param gradlewPath      Gradlew 경로
+     * @param javaHome         JAVA_HOME 경로
+     * @param javaVersion      Java 버전
+     * @param additionalSource 추가 소스 목록
+     * @param generateSources  소스 JAR 생성 여부
+     */
+    private void executeBuild(String gradlewPath, String javaHome, JavaVersion javaVersion,
+            Set<String> additionalSource, boolean generateSources) {
+        getLogger().lifecycle("📦 Building artifacts...");
+        getExecOperations().exec(spec -> {
+            configureEnvironment(spec, javaHome);
+
+            List<String> command = buildCommand(gradlewPath, javaHome, javaVersion, additionalSource, generateSources);
+            spec.commandLine(command);
+        });
+    }
+
+    /**
+     * 빌드 명령어를 구성한다.
+     *
+     * @param gradlewPath      Gradlew 경로
+     * @param javaHome         JAVA_HOME 경로
+     * @param javaVersion      Java 버전
+     * @param additionalSource 추가 소스 목록
+     * @param generateSources  소스 JAR 생성 여부
+     * @return 명령어 목록
+     */
+    private List<String> buildCommand(String gradlewPath, String javaHome, JavaVersion javaVersion,
+            Set<String> additionalSource, boolean generateSources) {
+        List<String> command = new ArrayList<>();
+        command.add(gradlewPath);
+        command.add(TASK_JAR);
+
+        if (generateSources) {
+            command.add(TASK_SOURCES_JAR);
+        }
+
+        command.add(TASK_JAVADOC_JAR);
+
+        command.add("-Dorg.gradle.java.home=" + javaHome);
+        command.add("-PtargetJavaVersion=" + javaVersion);
+        command.add("-PtargetSources=" + String.join(",", additionalSource));
+        command.add("-PenableSourceJar=" + generateSources);
+        command.add("-PisSubBuild=true");
+
+        // 'publish' 계열 태스크 실행 시 Fat JAR 빌드를 비활성화하는 프로퍼티 전달
+        if (isPublishing()) {
+            command.add("-PbuildFatJar=false");
+        }
+
+        return command;
+    }
+
+    /**
+     * 현재 배포 태스크가 실행 중인지 확인한다.
+     *
+     * @return true: 배포 중, false: 배포 아님
+     */
+    private boolean isPublishing() {
+        return getProject().getGradle().getStartParameter().getTaskNames().stream()
+                .anyMatch(t -> t.toLowerCase().contains("publish"));
+    }
+
+    /**
+     * 빌드 실패 시 상세한 오류 메시지를 출력하고 예외를 다시 던진다.
+     *
+     * @param displayInfo      빌드 정보 문자열
+     * @param javaVersion      Java 버전
+     * @param additionalSource 추가 소스 목록
+     * @param e                원본 예외
+     */
+    private void handleBuildFailure(String displayInfo, JavaVersion javaVersion,
+            Set<String> additionalSource, Exception e) {
+        getLogger().error("");
+        getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        getLogger().error("❌ BUILD FAILED for: {}", displayInfo);
+        getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        getLogger().error("Details:");
+        getLogger().error("  - Java Version: {}", javaVersion);
+        getLogger().error("  - Additional Sources: {}", additionalSource);
+        getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        getLogger().error("");
+
+        // 원본 예외를 다시 던져서 빌드 중단
+        throw new org.gradle.api.GradleException(
+                String.format("Failed to build: %s", displayInfo),
+                e
+        );
     }
 
     private void restoreWorkspace(String gradlewPath, String javaHome, JavaVersion javaVersion, Set<String> additionalSource) {

@@ -167,63 +167,114 @@ public class MavenPublishStrategy {
         project.getTasks().withType(PublishToMavenRepository.class).configureEach(task -> {
             // 특정 리포지토리에만 적용
             if (repositoryName.equals(task.getRepository().getName())) {
-                task.onlyIf(t -> {
-                    PublishToMavenRepository pubTask = (PublishToMavenRepository) t;
-                    MavenPublication pub = pubTask.getPublication();
-                    String groupPath = project.getGroup().toString().replace('.', '/');
-                    String artifactId = pub.getArtifactId();
-                    String version = pub.getVersion();
-
-                    // REPO_BASE_URL 가져오기
-                    Object repoBaseUrlObj = project.getExtensions().getExtraProperties().get("REPO_BASE_URL");
-                    String repoBaseUrl = repoBaseUrlObj != null ? repoBaseUrlObj.toString() : "";
-
-                    // GITHUB_TOKEN 가져오기
-                    Object githubUserObj = project.getExtensions().getExtraProperties().get("GITHUB_USER");
-                    String githubUser = githubUserObj != null ? githubUserObj.toString() : "";
-                    Object githubTokenObj = project.getExtensions().getExtraProperties().get("GITHUB_TOKEN");
-                    String githubToken = githubTokenObj != null ? githubTokenObj.toString() : "";
-
-                    String baseUrl = String.format("%s/%s/%s/%s", repoBaseUrl, groupPath, artifactId, version);
-
-                    project.getLogger().lifecycle("");
-                    project.getLogger().lifecycle("🔍 [CHECK] 아티팩트 상태 확인 중: {}:{}...", artifactId, version);
-
-                    List<ArtifactInfo> artifacts = new ArrayList<>();
-                    pub.getArtifacts().forEach(a -> {
-                        project.getLogger().lifecycle(
-                                "  - Artifact: {} (Classifier: {}, Ext: {})",
-                                a.getFile().getName(), a.getClassifier(), a.getExtension()
-                        );
-                        artifacts.add(new ArtifactInfo(a.getClassifier(), a.getExtension()));
-                    });
-
-                    PublishDecision decision = shouldPublish(baseUrl, artifactId, version, artifacts, githubUser, githubToken);
-
-                    if (!decision.shouldPublish) {
-                        project.getLogger().lifecycle("⏭️  [SKIP] {}:{} 버전은 이미 완전히 배포되어 있습니다.", artifactId, version);
-                        return false;
-                    }
-
-                    if (decision.reason.contains("POM이 없으므로")) {
-                        project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (기존 POM 없음)", artifactId, version);
-                        return true;
-                    } else {
-                        project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - 일부 아티팩트 누락", artifactId, version);
-                        project.getLogger().lifecycle("    누락된 파일 목록:");
-                        decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("      - {}", missing));
-                        project.getLogger().lifecycle("");
-                        project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (기존 POM 존재)");
-                        project.getLogger().error("");
-                        project.getLogger().error("  GitHub Packages에 이미 동일한 버전의 POM 파일이 존재합니다.");
-                        project.getLogger().error("  이로 인해 빌드 완료 시 '409 Conflict' 오류가 발생할 수 있습니다.");
-                        project.getLogger().error("  하지만 누락되었던 JAR 파일들은 정상적으로 업로드됩니다.");
-                        project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        return true;
-                    }
-                });
+                task.onlyIf(t -> evaluatePublishDecision(project, (PublishToMavenRepository) t));
             }
         });
+    }
+
+    // ========================================================================
+    // Private 헬퍼 메서드 (Helper Methods)
+    // ========================================================================
+
+    /**
+     * 배포 결정을 평가하고 로깅한다.
+     *
+     * @param project Gradle 프로젝트 객체
+     * @param pubTask 배포 태스크
+     * @return true: 배포 진행, false: 배포 스킵
+     */
+    private static boolean evaluatePublishDecision(Project project, PublishToMavenRepository pubTask) {
+        MavenPublication pub = pubTask.getPublication();
+        String groupPath = project.getGroup().toString().replace('.', '/');
+        String artifactId = pub.getArtifactId();
+        String version = pub.getVersion();
+
+        // GitHub Packages 정보 추출
+        String repoBaseUrl = getPropertyOrEmpty(project, "REPO_BASE_URL");
+        String githubUser = getPropertyOrEmpty(project, "GITHUB_USER");
+        String githubToken = getPropertyOrEmpty(project, "GITHUB_TOKEN");
+
+        String baseUrl = String.format("%s/%s/%s/%s", repoBaseUrl, groupPath, artifactId, version);
+
+        // 아티팩트 정보 수집
+        List<ArtifactInfo> artifacts = collectArtifactInfo(project, pub);
+
+        // 배포 결정
+        PublishDecision decision = shouldPublish(baseUrl, artifactId, version, artifacts, githubUser, githubToken);
+
+        // 결과 로깅 및 반환
+        return logPublishDecision(project, artifactId, version, decision);
+    }
+
+    /**
+     * 프로젝트의 extra 프로퍼티에서 값을 가져온다. 없으면 빈 문자열 반환.
+     *
+     * @param project      Gradle 프로젝트 객체
+     * @param propertyName 프로퍼티 이름
+     * @return 프로퍼티 값 또는 빈 문자열
+     */
+    private static String getPropertyOrEmpty(Project project, String propertyName) {
+        Object value = project.getExtensions().getExtraProperties().get(propertyName);
+        return value != null ? value.toString() : "";
+    }
+
+    /**
+     * Publication의 아티팩트 정보를 수집하고 로깅한다.
+     *
+     * @param project     Gradle 프로젝트 객체
+     * @param publication Maven Publication 객체
+     * @return 아티팩트 정보 목록
+     */
+    private static List<ArtifactInfo> collectArtifactInfo(Project project, MavenPublication publication) {
+        project.getLogger().lifecycle("");
+        project.getLogger().lifecycle(
+                "🔍 [CHECK] 아티팩트 상태 확인 중: {}:{}...",
+                publication.getArtifactId(), publication.getVersion()
+        );
+
+        List<ArtifactInfo> artifacts = new ArrayList<>();
+        publication.getArtifacts().forEach(a -> {
+            project.getLogger().lifecycle(
+                    "  - Artifact: {} (Classifier: {}, Ext: {})",
+                    a.getFile().getName(), a.getClassifier(), a.getExtension()
+            );
+            artifacts.add(new ArtifactInfo(a.getClassifier(), a.getExtension()));
+        });
+        return artifacts;
+    }
+
+    /**
+     * 배포 결정 결과를 로깅하고 배포 여부를 반환한다.
+     *
+     * @param project    Gradle 프로젝트 객체
+     * @param artifactId 아티팩트 ID
+     * @param version    버전
+     * @param decision   배포 결정 객체
+     * @return true: 배포 진행, false: 배포 스킵
+     */
+    private static boolean logPublishDecision(Project project, String artifactId, String version, PublishDecision decision) {
+        if (!decision.shouldPublish) {
+            project.getLogger().lifecycle("⏭️  [SKIP] {}:{} 버전은 이미 완전히 배포되어 있습니다.", artifactId, version);
+            return false;
+        }
+
+        if (decision.reason.contains("POM이 없으므로")) {
+            project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (기존 POM 없음)", artifactId, version);
+            return true;
+        } else {
+            // 일부 아티팩트 누락 시 경고 메시지 출력
+            project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - 일부 아티팩트 누락", artifactId, version);
+            project.getLogger().lifecycle("    누락된 파일 목록:");
+            decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("      - {}", missing));
+            project.getLogger().lifecycle("");
+            project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (기존 POM 존재)");
+            project.getLogger().error("");
+            project.getLogger().error("  GitHub Packages에 이미 동일한 버전의 POM 파일이 존재합니다.");
+            project.getLogger().error("  이로 인해 빌드 완료 시 '409 Conflict' 오류가 발생할 수 있습니다.");
+            project.getLogger().error("  하지만 누락되었던 JAR 파일들은 정상적으로 업로드됩니다.");
+            project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            return true;
+        }
     }
 }
