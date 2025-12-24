@@ -511,12 +511,29 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
-     * 표준 Javadoc 옵션 및 제외 경로 설정
+     * 빌드 및 Javadoc 관련 소스 설정 적용 (Internal Helper)
+     * <p>
+     * compileJava, Jar, Javadoc 태스크에 대해 소스 제외 및 표준 옵션을 설정한다.
+     * </p>
      *
      * @param project       Gradle 프로젝트 객체
      * @param excludedPaths 제외할 소스 경로 목록
      */
-    public static void configureJavadoc(Project project, Set<String> excludedPaths) {
+    private static void applySourceSettings(Project project, Set<String> excludedPaths) {
+        // 1. 소스 제외 설정 (컴파일 및 JAR)
+        if (excludedPaths != null && !excludedPaths.isEmpty()) {
+            // 컴파일 태스크
+            project.getTasks().named("compileJava", org.gradle.api.tasks.compile.JavaCompile.class).configure(task -> {
+                task.exclude(fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
+            });
+
+            // JAR 태스크 (sourcesJar 포함)
+            project.getTasks().withType(Jar.class).configureEach(task -> {
+                task.exclude(fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
+            });
+        }
+
+        // 2. Javadoc 설정 (표준 옵션 및 제외 경로)
         project.getTasks().withType(Javadoc.class).configureEach(javadoc -> {
             StandardJavadocDocletOptions options = (StandardJavadocDocletOptions) javadoc.getOptions();
             options.setEncoding("UTF-8");
@@ -539,7 +556,6 @@ public class S2BuildUtils {
             options.setUse(true);
 
             // 타이틀 설정
-            // project.name 등을 활용할 수도 있지만 일관성을 위해 고정값 또는 파라미터화 고려
             options.setWindowTitle("S2Util API Documentation");
             options.setDocTitle("S2Util API Documentation");
 
@@ -554,9 +570,10 @@ public class S2BuildUtils {
             options.addBooleanOption("html5", true);
             options.addBooleanOption("notimestamp", true);
 
-            // 오류 처리 및 제외 설정
+            // 오류 처리
             javadoc.setFailOnError(true);
 
+            // Javadoc에서도 제외 경로 적용
             if (excludedPaths != null && !excludedPaths.isEmpty()) {
                 javadoc.exclude(
                         fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString())
@@ -566,49 +583,38 @@ public class S2BuildUtils {
     }
 
     /**
-     * 컴파일 및 JAR 생성 시 소스 제외 설정 적용
-     *
-     * @param project       Gradle 프로젝트 객체
-     * @param excludedPaths 제외할 소스 경로 목록
-     */
-    public static void configureSourceExclusions(Project project, Set<String> excludedPaths) {
-        if (excludedPaths == null || excludedPaths.isEmpty()) {
-            return;
-        }
-
-        // 컴파일 태스크
-        project.getTasks().named("compileJava", org.gradle.api.tasks.compile.JavaCompile.class).configure(task -> {
-            task.exclude(fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
-        });
-
-        // JAR 태스크 (sourcesJar 포함)
-        project.getTasks().withType(org.gradle.api.tasks.bundling.Jar.class).configureEach(task -> {
-            task.exclude(fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
-        });
-    }
-
-    /**
-     * JAR 및 배포 패키지 통합 설정
-     * <p>
-     * JAR 파일 생성 및 배포용 ZIP 패키지 구성을 한 번에 처리한다.
-     * </p>
+     * JAR 및 배포 패키지 통합 설정 (기본형)
      *
      * @param project Gradle 프로젝트 객체
      */
     public static void configurePackaging(Project project) {
-        configurePackaging(project, null);
+        configurePackaging(project, null, null);
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정
-     * <p>
-     * JAR 파일 생성 및 배포용 ZIP 패키지 구성을 한 번에 처리한다.
-     * </p>
+     * JAR 및 배포 패키지 통합 설정 (추가 파일 포함형)
      *
      * @param project    Gradle 프로젝트 객체
-     * @param extraFiles 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
+     * @param extraFiles 포함할 추가 파일 경로 목록
      */
     public static void configurePackaging(Project project, Set<String> extraFiles) {
+        configurePackaging(project, extraFiles, null);
+    }
+
+    /**
+     * JAR 및 배포 패키지 통합 설정 (Javadoc 및 소스 제외 포함)
+     * <p>
+     * JAR 파일 생성, 소스 제외, Javadoc 옵션, 배포 패키지 구성을 한 번에 처리한다.
+     * </p>
+     *
+     * @param project             Gradle 프로젝트 객체
+     * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
+     * @param excludedSourcePaths 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
+     */
+    public static void configurePackaging(Project project, Set<String> extraFiles, Set<String> excludedSourcePaths) {
+        // 0. 소스 및 Javadoc 설정 통합 처리
+        applySourceSettings(project, excludedSourcePaths);
+
         // ========================================================================
         // 1. Standard JAR 태스크 등록 (배포 전용)
         // ========================================================================
@@ -650,7 +656,11 @@ public class S2BuildUtils {
          * - 사용자 지정: -PbuildFatJar=true/false로 강제 지정 가능
          */
         List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
-        boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
+        // 'publish'가 포함된 태스크가 있되, 단순히 메타데이터 파일 생성을 위한 태스크(IDE 동기화 등)는 제외함
+        boolean isAnyPublish = taskNames.stream().anyMatch(name -> {
+            String lowerName = name.toLowerCase();
+            return lowerName.contains("publish") && !lowerName.contains("metadata");
+        });
 
         // Fat JAR 생성 여부 결정
         boolean buildFatJar;
@@ -658,8 +668,15 @@ public class S2BuildUtils {
             // 사용자 명시적 지정
             buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
         } else {
-            // 자동 판단: 배포 시에는 Standard JAR 강제
+            // 자동 판단: 배포 시에는 Standard JAR 강제, 그 외에는 Fat JAR 생성
             buildFatJar = !isAnyPublish;
+        }
+
+        // 선택된 패키징 모드 로깅
+        if (buildFatJar) {
+            project.getLogger().lifecycle("🚀 [Packaging] Mode: Fat JAR (Includes all dependencies)");
+        } else {
+            project.getLogger().lifecycle("🚀 [Packaging] Mode: Standard JAR (Dependencies excluded for publishing)");
         }
 
         // 람다 내부에서 사용하기 위한 effectively final 변수
@@ -710,10 +727,10 @@ public class S2BuildUtils {
         // ========================================================================
         /*
          * [afterEvaluate 사용 이유]
-         * - publishing 블록은 Configuration Phase에서 평가되며,
-         *   이때 generateMetadataFileForMavenJavaPublication 태스크가 생성됨
+         * publishing 블록은 Configuration Phase에서 평가되며,
+         * 이때 generateMetadataFileForMavenJavaPublication 태스크가 생성됨
          * - 해당 태스크에 의존성을 설정하려면 태스크가 먼저 생성되어야 하므로
-         *   afterEvaluate를 사용하여 모든 평가가 완료된 후에 실행
+         * afterEvaluate를 사용하여 모든 평가가 완료된 후에 실행
          */
         project.afterEvaluate(p -> {
             // 메타데이터 생성 태스크 의존성 설정 (standardJar가 먼저 실행되도록)
