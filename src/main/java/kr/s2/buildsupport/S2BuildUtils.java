@@ -588,43 +588,130 @@ public class S2BuildUtils {
     }
 
     /**
-     * Distributions 플러그인 설정 (라이선스 및 라이브러리 포함)
+     * JAR 및 배포 패키지 통합 설정
+     * <p>
+     * JAR 파일 생성 및 배포용 ZIP 패키지 구성을 한 번에 처리한다.
+     * </p>
      *
-     * @param project      Gradle 프로젝트 객체
-     * @param licensePaths 라이선스 파일 경로 목록
+     * @param project Gradle 프로젝트 객체
      */
-    public static void configureDistributions(Project project, Set<String> licensePaths) {
-        // distributions 플러그인이 적용되었는지 확인은 호출 측에서 보장하거나 try-catch
-        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project.getExtensions().findByName("distributions");
+    public static void configurePackaging(Project project) {
+        configurePackaging(project, null);
+    }
 
-        if (distributions == null)
-            return;
+    /**
+     * JAR 및 배포 패키지 통합 설정
+     * <p>
+     * JAR 파일 생성 및 배포용 ZIP 패키지 구성을 한 번에 처리한다.
+     * </p>
+     *
+     * @param project    Gradle 프로젝트 객체
+     * @param extraFiles 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
+     */
+    public static void configurePackaging(Project project, Set<String> extraFiles) {
+        // ========================================================================
+        // 1. JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
+        // ========================================================================
 
-        distributions.getByName("main").contents(contents -> {
-            // 1. 라이선스 파일
-            if (licensePaths != null && !licensePaths.isEmpty()) {
-                contents.from(project.getRootDir(), copySpec -> {
-                    copySpec.include(licensePaths);
+        // 배포 관련 태스크 감지
+        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+        boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
+
+        // Fat JAR 생성 여부 결정
+        boolean buildFatJar;
+        if (project.hasProperty("buildFatJar")) {
+            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
+        } else {
+            // 배포 시에는 Standard JAR(Fat JAR 아님) 강제
+            buildFatJar = !isAnyPublish;
+        }
+
+        boolean finalBuildFatJar = buildFatJar;
+        project.getTasks().named("jar", Jar.class).configure(task -> {
+            if (finalBuildFatJar) {
+                project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
+                // 런타임 의존성을 모두 포함 (Lazy evaluation)
+                task.from(
+                        (Callable<Object>) () -> project.getConfigurations().getByName("runtimeClasspath").getFiles()
+                                .stream()
+                                .map(file -> file.isDirectory() ? file : project.zipTree(file))
+                                .collect(Collectors.toList())
+                );
+            } else {
+                project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
+            }
+
+            // 추가 파일 포함 (라이선스 등)
+            if (extraFiles != null && !extraFiles.isEmpty()) {
+                task.from(project.getRootDir(), spec -> {
+                    spec.include(extraFiles);
                 });
             }
 
-            // 2. 최종 JAR (lib 폴더)
-            contents.from(project.getTasks().named("jar"), copySpec -> {
-                copySpec.into("lib");
-            });
+            // 중복 파일 처리 전략
+            task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
 
-            // 3. 런타임 의존성 (lib 폴더)
-            contents.from(project.getConfigurations().getByName("runtimeClasspath"), copySpec -> {
-                copySpec.into("lib");
+            // Manifest 설정
+            task.manifest(manifest -> {
+                Map<String, String> attributes = new HashMap<>();
+                attributes.put("Implementation-Title", project.getName());
+                attributes.put("Implementation-Version", String.valueOf(project.getVersion()));
+                attributes.put("Built-JDK", System.getProperty("java.version"));
+                manifest.attributes(attributes);
             });
-
-            contents.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
         });
 
-        // distZip 중복 전략 설정
-        project.getTasks().named("distZip", org.gradle.api.tasks.bundling.Zip.class).configure(task -> {
-            task.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
-        });
+        // ========================================================================
+        // 2. Distributions 플러그인 설정 (라이선스 및 라이브러리 포함)
+        // ========================================================================
+
+        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project.getExtensions().findByName("distributions");
+        if (distributions != null) {
+            /**
+             * [⭐ 배포 패키지 생성: distributions 블록 ⭐]
+             *
+             * 목적:
+             * 1. **종합적인 라이선스(LGPL 포함) 준수:** JAR 파일 외부에 README.md (고지)와 licenses 폴더 (전문)를 포함하여 배포
+             * (모든 라이선스 정책 이행)
+             * 2. **라이브러리 배포:** 최종 JAR 파일과 모든 런타임 의존성 JAR을 하나의 ZIP 파일로 묶어 제공
+             * 3. **배포 방법:** 'Gradle > Tasks > distribution > distZip' 실행
+             * 4. **배포 형태:** 'build/distributions/S2Util-version.zip' 파일이 생성
+             *
+             * 생성된 ZIP 파일 사용법:
+             * 1. 사용자가 ZIP 파일을 압축 해제합 (예: S2Util-version/ 폴더 생성)
+             * 2. 압축 해제된 폴더 내의 'lib' 폴더에 있는 모든 JAR 파일 (s2-util-version.jar 포함)을
+             * 사용자 프로젝트의 클래스패스(Classpath)에 추가하여 사용
+             * 3. 사용자는 라이선스 준수를 위해 ZIP 파일 루트의 'README.md'와 'licenses' 폴더를 보관해야 함
+             * (애플리케이션의 docs 또는 third-party-licenses 폴더)
+             */
+
+            distributions.getByName("main").contents(contents -> {
+                // 1. 추가 파일 (라이선스 등)
+                if (extraFiles != null && !extraFiles.isEmpty()) {
+                    contents.from(project.getRootDir(), copySpec -> {
+                        copySpec.include(extraFiles);
+                    });
+                }
+
+                // 2. 최종 JAR (lib 폴더)
+                contents.from(project.getTasks().named("jar"), copySpec -> {
+                    copySpec.into("lib");
+                });
+
+                // 3. 런타임 의존성 (lib 폴더)
+                contents.from(project.getConfigurations().getByName("runtimeClasspath"), copySpec -> {
+                    copySpec.into("lib");
+                });
+
+                contents.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
+            });
+
+            // distZip 중복 전략 설정
+            project.getTasks().named("distZip", org.gradle.api.tasks.bundling.Zip.class).configure(task -> {
+                task.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
+            });
+        }
+
     }
     // ========================================================================
     // JAR 및 배포 설정 메서드
@@ -704,70 +791,7 @@ public class S2BuildUtils {
         });
     }
 
-    /**
-     * 메인 JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
-     *
-     * @param project Gradle 프로젝트 객체
-     */
-    public static void configureJarTask(Project project) {
-        configureJarTask(project, null);
-    }
-
-    /**
-     * 메인 JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
-     *
-     * @param project    Gradle 프로젝트 객체
-     * @param extraFiles JAR에 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
-     */
-    public static void configureJarTask(Project project, Set<String> extraFiles) {
-        // 배포 관련 태스크 감지
-        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
-        boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
-
-        // Fat JAR 생성 여부 결정
-        boolean buildFatJar;
-        if (project.hasProperty("buildFatJar")) {
-            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
-        } else {
-            // 배포 시에는 Standard JAR(Fat JAR 아님) 강제
-            buildFatJar = !isAnyPublish;
-        }
-
-        boolean finalBuildFatJar = buildFatJar;
-        project.getTasks().named("jar", Jar.class).configure(task -> {
-            if (finalBuildFatJar) {
-                project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
-                // 런타임 의존성을 모두 포함 (Lazy evaluation)
-                task.from(
-                        (Callable<Object>) () -> project.getConfigurations().getByName("runtimeClasspath").getFiles()
-                                .stream()
-                                .map(file -> file.isDirectory() ? file : project.zipTree(file))
-                                .collect(Collectors.toList())
-                );
-            } else {
-                project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
-            }
-
-            // 추가 파일 포함 (라이선스 등)
-            if (extraFiles != null && !extraFiles.isEmpty()) {
-                task.from(project.getRootDir(), spec -> {
-                    spec.include(extraFiles);
-                });
-            }
-
-            // 중복 파일 처리 전략
-            task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
-
-            // Manifest 설정
-            task.manifest(manifest -> {
-                Map<String, String> attributes = new HashMap<>();
-                attributes.put("Implementation-Title", project.getName());
-                attributes.put("Implementation-Version", String.valueOf(project.getVersion()));
-                attributes.put("Built-JDK", System.getProperty("java.version"));
-                manifest.attributes(attributes);
-            });
-        });
-    }
+    // ========================================================================
 
     /**
      * Consumer 프로젝트의 Java 컴파일, 테스트, 실행 환경에 UTF-8 인코딩을 중앙에서 강제한다.
