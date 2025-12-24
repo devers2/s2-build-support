@@ -609,10 +609,6 @@ public class S2BuildUtils {
      * @param extraFiles 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
      */
     public static void configurePackaging(Project project, Set<String> extraFiles) {
-        // ========================================================================
-        // 1. JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
-        // ========================================================================
-
         // 배포 관련 태스크 감지
         List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
         boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
@@ -661,30 +657,33 @@ public class S2BuildUtils {
             });
         });
 
-        // ========================================================================
-        // 2. Distributions 플러그인 설정 (라이선스 및 라이브러리 포함)
-        // ========================================================================
+        // 배포 패키지 생성
+        configureDistributions(project, extraFiles);
+    }
 
+    /**
+     * [⭐ 배포 패키지 생성: distributions 블록 ⭐]
+     *
+     * 목적:
+     * 1. **종합적인 라이선스(LGPL 포함) 준수:** JAR 파일 외부에 README.md (고지)와 licenses 폴더 (전문)를 포함하여 배포
+     * (모든 라이선스 정책 이행)
+     * 2. **라이브러리 배포:** 최종 JAR 파일과 모든 런타임 의존성 JAR을 하나의 ZIP 파일로 묶어 제공
+     * 3. **배포 방법:** 'Gradle > Tasks > distribution > distZip' 실행
+     * 4. **배포 형태:** 'build/distributions/S2Util-version.zip' 파일이 생성
+     *
+     *
+     * 1. 사용자가 ZIP 파일을 압축 해제합 (예: S2Util-version/ 폴더 생성)
+     * 2. 압축 해제된 폴더 내의 'lib' 폴더에 있는 모든 JAR 파일 (s2-util-version.jar 포함)을
+     * 사용자 프로젝트의 클래스패스(Classpath)에 추가하여 사용
+     * 3. 사용자는 라이선스 준수를 위해 ZIP 파일 루트의 'README.md'와 'licenses' 폴더를 보관해야 함
+     * (애플리케이션의 docs 또는 third-party-licenses 폴더)
+     *
+     * @param project    Gradle 프로젝트 객체
+     * @param extraFiles 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
+     */
+    private static void configureDistributions(Project project, Set<String> extraFiles) {
         org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project.getExtensions().findByName("distributions");
         if (distributions != null) {
-            /**
-             * [⭐ 배포 패키지 생성: distributions 블록 ⭐]
-             *
-             * 목적:
-             * 1. **종합적인 라이선스(LGPL 포함) 준수:** JAR 파일 외부에 README.md (고지)와 licenses 폴더 (전문)를 포함하여 배포
-             * (모든 라이선스 정책 이행)
-             * 2. **라이브러리 배포:** 최종 JAR 파일과 모든 런타임 의존성 JAR을 하나의 ZIP 파일로 묶어 제공
-             * 3. **배포 방법:** 'Gradle > Tasks > distribution > distZip' 실행
-             * 4. **배포 형태:** 'build/distributions/S2Util-version.zip' 파일이 생성
-             *
-             * 생성된 ZIP 파일 사용법:
-             * 1. 사용자가 ZIP 파일을 압축 해제합 (예: S2Util-version/ 폴더 생성)
-             * 2. 압축 해제된 폴더 내의 'lib' 폴더에 있는 모든 JAR 파일 (s2-util-version.jar 포함)을
-             * 사용자 프로젝트의 클래스패스(Classpath)에 추가하여 사용
-             * 3. 사용자는 라이선스 준수를 위해 ZIP 파일 루트의 'README.md'와 'licenses' 폴더를 보관해야 함
-             * (애플리케이션의 docs 또는 third-party-licenses 폴더)
-             */
-
             distributions.getByName("main").contents(contents -> {
                 // 1. 추가 파일 (라이선스 등)
                 if (extraFiles != null && !extraFiles.isEmpty()) {
@@ -710,9 +709,38 @@ public class S2BuildUtils {
             project.getTasks().named("distZip", org.gradle.api.tasks.bundling.Zip.class).configure(task -> {
                 task.setDuplicatesStrategy(org.gradle.api.file.DuplicatesStrategy.EXCLUDE);
             });
-        }
 
+            // 메타데이터 생성 이슈 해결
+            fixMetadataGeneration(project);
+        }
     }
+
+    /**
+     * 🛡️ Gradle 메타데이터 생성 및 태스크 의존성 순서 교정
+     * <p>
+     * {@code maven-publish} 플러그인이 실행될 때, 배포용 아티팩트(주로 {@code standardJar})가
+     * 선행되어야 함에도 불구하고 Gradle이 의존성을 자동으로 파악하지 못해 메타데이터 파일(.module)이
+     * 먼저 생성되려고 시도하다가 오류가 발생하는 경우가 있습니다.
+     * </p>
+     * <p>
+     * 이 메서드는 {@code generateMetadataFileForMavenJavaPublication} 태스크가 실행되기 전에
+     * 반드시 {@code standardJar} 태스크가 완료되도록 강제하여 배포 오류를 방지합니다.
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    private static void fixMetadataGeneration(Project project) {
+        // Maven 배포를 위한 메타데이터 생성 태스크를 찾아 의존성을 명시적으로 설정
+        try {
+            project.getTasks().named("generateMetadataFileForMavenJavaPublication").configure(task -> {
+                // standardJar 태스크가 존재한다면 그 결과를 보고 메타데이터를 만들도록 강제
+                task.dependsOn(project.getTasks().named("standardJar"));
+            });
+        } catch (Exception ignored) {
+            // 태스크가 없는 프로젝트(배포 설정이 없는 경우 등)에서는 조용히 무시하여 범용성 유지
+        }
+    }
+
     // ========================================================================
     // JAR 및 배포 설정 메서드
     // ========================================================================
@@ -957,23 +985,6 @@ public class S2BuildUtils {
             project.getLogger().error("[S2BuildSupport] Wrapper 설정 파일을 읽는 중 오류 발생: " + e.getMessage());
         }
         return null;
-    }
-
-    /**
-     * Gradle 8.x 메타데이터 생성 이슈 해결 설정
-     *
-     * @param project Gradle 프로젝트 객체
-     */
-    public static void fixMetadataGeneration(Project project) {
-        // generateMetadataFileForMavenJavaPublication 태스크가 있다면 standardJar에 의존하도록 설정
-        // (플러그인이 적용되지 않았을 경우를 대비해 찾아서 설정)
-        try {
-            project.getTasks().named("generateMetadataFileForMavenJavaPublication").configure(task -> {
-                task.dependsOn(project.getTasks().named("standardJar"));
-            });
-        } catch (Exception ignored) {
-            // 태스크가 없으면 무시
-        }
     }
 
 }
