@@ -19,6 +19,37 @@ import org.gradle.process.ExecOperations;
 
 /**
  * 설정된 Java 버전과 추가 소스를 기반으로 아티팩트를 빌드하는 태스크
+ *
+ * <p>
+ * <b>[원래 설계 의도]</b><br>
+ * 이 태스크는 원래 <b>여러 Java 버전과 여러 소스 조합으로 다양한 classifier를 가진
+ * 아티팩트를 자동으로 생성</b>하기 위해 설계되었다.
+ * </p>
+ *
+ * <p>
+ * <b>예시 사용 사례:</b>
+ * <ul>
+ * <li>Java 8용 아티팩트: {@code s2-util-25.10.0.jar}</li>
+ * <li>Java 11용 아티팩트: {@code s2-util-25.10.0-jdk11.jar}</li>
+ * <li>추가 기능 포함: {@code s2-util-25.10.0-pdf.jar}</li>
+ * </ul>
+ * </p>
+ *
+ * <p>
+ * <b>[현재 상태]</b><br>
+ * 현재 s2-util 프로젝트는 <b>단일 설정(단일 Java 버전, 단일 소스 조합)만 사용</b>하므로,
+ * 이 태스크는 과도하게 복잡하다. 따라서 {@code build.gradle}에서는
+ * 간단한 태스크 조합({@code dependsOn 'clean', 'jar', 'sourcesJar', 'javadocJar'})으로
+ * 대체하여 사용하고 있다.
+ * </p>
+ *
+ * <p>
+ * <b>[유지 이유]</b><br>
+ * 이 클래스는 향후 다시 여러 variant를 빌드해야 할 경우를 대비하여 유지된다.
+ * 현재는 사용되지 않지만, 필요 시 {@code build.gradle}에서 다시 활성화할 수 있다.
+ * </p>
+ *
+ * @see <a href="https://docs.gradle.org/current/userguide/java_library_plugin.html#sec:java_library_configurations_graph">Gradle Variants</a>
  */
 public abstract class BuildVariantsTask extends DefaultTask {
 
