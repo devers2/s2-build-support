@@ -707,10 +707,19 @@ public class S2BuildUtils {
     /**
      * 메인 JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
      *
-     * @param project      Gradle 프로젝트 객체
-     * @param licensePaths 포함할 라이선스 파일 경로 목록
+     * @param project Gradle 프로젝트 객체
      */
-    public static void configureJarTask(Project project, Set<String> licensePaths) {
+    public static void configureJarTask(Project project) {
+        configureJarTask(project, null);
+    }
+
+    /**
+     * 메인 JAR 태스크 설정 (Fat JAR 또는 Standard JAR)
+     *
+     * @param project    Gradle 프로젝트 객체
+     * @param extraFiles JAR에 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
+     */
+    public static void configureJarTask(Project project, Set<String> extraFiles) {
         // 배포 관련 태스크 감지
         List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
         boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
@@ -739,10 +748,12 @@ public class S2BuildUtils {
                 project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
             }
 
-            // 라이선스 파일 포함
-            task.from(project.getRootDir(), spec -> {
-                spec.include(licensePaths);
-            });
+            // 추가 파일 포함 (라이선스 등)
+            if (extraFiles != null && !extraFiles.isEmpty()) {
+                task.from(project.getRootDir(), spec -> {
+                    spec.include(extraFiles);
+                });
+            }
 
             // 중복 파일 처리 전략
             task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
