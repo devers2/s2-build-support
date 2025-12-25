@@ -642,6 +642,11 @@ public class S2BuildUtils {
         final String version = project.getVersion().toString();
 
         // ========================================================================
+        // 0.8. Publishing 설정 (Maven Publication 등록)
+        // ========================================================================
+        configurePublications(project, useShadow, archiveBaseName);
+
+        // ========================================================================
         // 1. Standard JAR 태스크 등록 (배포 전용)
         // ========================================================================
         /*
@@ -1356,6 +1361,47 @@ public class S2BuildUtils {
             project.getLogger().warn("⚠️ [Shadow] 초기 설정 중 오류: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    // ========================================================================
+    // Publishing 설정 메서드
+    // ========================================================================
+
+    /**
+     * 메이븐 배포 설정 (Maven Publication)
+     * - maven-publish 플러그인이 적용된 경우 mavenJava Publication을 생성 및 설정
+     * - Shadow 플러그인 유무에 따라 아티팩트 구성 분기
+     *
+     * @param project    Gradle 프로젝트 객체
+     * @param useShadow  Shadow 플러그인 사용 여부
+     * @param artifactId 아티팩트 ID (archivesName)
+     */
+    private static void configurePublications(Project project, boolean useShadow, String artifactId) {
+        if (!project.getPluginManager().hasPlugin("maven-publish")) {
+            return;
+        }
+
+        project.getExtensions().configure("publishing", (org.gradle.api.publish.PublishingExtension publishing) -> {
+            publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class, publication -> {
+                publication.setArtifactId(artifactId);
+
+                if (!useShadow) {
+                    // 1. Shadow 미사용: Standard 모드
+                    // - from components.java (의존성 정보 자동 포함)
+                    // - java 컴포넌트가 이미 jar, javadoc, sources(조건부)를 포함하므로 추가 조작 불필요
+                    try {
+                        publication.from(project.getComponents().getByName("java"));
+                    } catch (Exception e) {
+                        project.getLogger().warn("⚠️ [Publishing] components.java를 찾을 수 없습니다.");
+                    }
+                } else {
+                    // 2. Shadow 사용: Shadow 모드
+                    // - 여기서는 빈 Publication만 생성하고 artifactId만 설정
+                    // - 실제 아티팩트 및 POM 설정은 configureShadowForPublish (afterEvaluate)에서 처리
+                    // - components.java를 사용하지 않음 (Shadow와 충돌)
+                }
+            });
+        });
     }
 
     /**

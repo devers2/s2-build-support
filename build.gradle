@@ -83,7 +83,7 @@ gradlePlugin {
 publishing {
     repositories {
         maven {
-            name = 'devers2-packages'
+            name = 's2-packages'
             url = uri("https://maven.pkg.github.com/devers2/s2-packages")
             credentials {
                 username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
