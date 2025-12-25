@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -12,12 +13,15 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.tasks.Copy;
 import org.gradle.api.tasks.SourceSetContainer;
@@ -1322,62 +1326,87 @@ public class S2BuildUtils {
                 }
             }
 
-            // Shadow 확장을 통해 configurations 설정: api 제외, implementation/runtimeOnly만 포함
-            try {
-                java.lang.reflect.Method getConfigurationsMethod = shadowExtension.getClass().getMethod("getConfigurations");
-                Object shadowConfigurations = getConfigurationsMethod.invoke(shadowExtension);
-                if (shadowConfigurations != null) {
-                    // api configuration 제외
-                    org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-                    if (apiConfig != null) {
+            // Shadow 9에서는 기본적으로 runtimeClasspath가 포함되므로
+            // api 의존성은 exclude하여 shaded되지 않도록 하고, relocate로 implementation/runtimeOnly만 정밀하게 제어
+            org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
+            if (apiConfig != null) {
+                try {
+                    // Shadow 9의 CopySpec을 통해 api 의존성 제외
+                    if (shadowTask instanceof org.gradle.api.file.CopySpec) {
+                        org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
+                        for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
+                            if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
+                                String group = apiDep.getGroup();
+                                if (group != null && !group.isEmpty()) {
+                                    // api 의존성의 패키지 경로 패턴으로 exclude: com.example -> com/example/**
+                                    String excludePattern = group.replace(".", "/") + "/**";
+                                    copySpec.exclude(excludePattern);
+                                    project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
+                                }
+                            }
+                        }
+                    } else {
+                        // 리플렉션으로 exclude 메서드 호출
                         try {
-                            java.lang.reflect.Method excludeMethod = shadowConfigurations.getClass().getMethod("exclude", org.gradle.api.artifacts.Configuration.class);
-                            excludeMethod.invoke(shadowConfigurations, apiConfig);
-                        } catch (Exception e) {
-                            // exclude 메서드가 없거나 실패 시 다른 방법 시도
-                            try {
-                                java.lang.reflect.Method setMethod = shadowConfigurations.getClass().getMethod("set", java.util.List.class);
-                                org.gradle.api.artifacts.Configuration implementationConfig = project.getConfigurations().findByName("implementation");
-                                org.gradle.api.artifacts.Configuration runtimeOnlyConfig = project.getConfigurations().findByName("runtimeOnly");
-                                java.util.List<org.gradle.api.artifacts.Configuration> configsToInclude = new java.util.ArrayList<>();
-                                if (implementationConfig != null) {
-                                    configsToInclude.add(implementationConfig);
+                            java.lang.reflect.Method excludeMethod = shadowTask.getClass().getMethod("exclude", String.class);
+                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
+                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
+                                    String group = apiDep.getGroup();
+                                    if (group != null && !group.isEmpty()) {
+                                        String excludePattern = group.replace(".", "/") + "/**";
+                                        excludeMethod.invoke(shadowTask, excludePattern);
+                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
+                                    }
                                 }
-                                if (runtimeOnlyConfig != null) {
-                                    configsToInclude.add(runtimeOnlyConfig);
+                            }
+                        } catch (NoSuchMethodException e) {
+                            // exclude(String)이 없으면 Spec으로 시도
+                            java.lang.reflect.Method excludeSpecMethod = shadowTask.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
+                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
+                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
+                                    String group = apiDep.getGroup();
+                                    if (group != null && !group.isEmpty()) {
+                                        String groupPath = group.replace(".", "/");
+                                        org.gradle.api.specs.Spec<org.gradle.api.file.FileTreeElement> excludeSpec = (org.gradle.api.file.FileTreeElement element) -> {
+                                            String path = element.getRelativePath().getPathString();
+                                            return path.startsWith(groupPath + "/");
+                                        };
+                                        excludeSpecMethod.invoke(shadowTask, excludeSpec);
+                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + groupPath + "/**");
+                                    }
                                 }
-                                setMethod.invoke(shadowConfigurations, configsToInclude);
-                            } catch (Exception e2) {
-                                project.getLogger().warn("⚠️  [Shadow] configurations 설정 중 오류: " + e2.getMessage());
                             }
                         }
                     }
+                } catch (Exception e) {
+                    project.getLogger().warn("⚠️  [Shadow] api 의존성 제외 설정 중 오류: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                project.getLogger().warn("⚠️  [Shadow] Shadow 확장 configurations 접근 중 오류: " + e.getMessage());
             }
 
             // 동적 쉐이딩 설정 (relocate) - implementation/runtimeOnly 의존성의 패키지를 kr.s2.shaded.*로 이동
-            // 실제 JAR 파일 내부의 패키지 경로를 relocate해야 하므로, 의존성의 group을 패키지 경로로 사용
+            // Shadow 9.3.0의 relocate는 패키지 패턴을 사용: com/example/** -> kr/s2/shaded/com/example/**
             org.gradle.api.artifacts.Configuration implementationConfig = project.getConfigurations().findByName("implementation");
             org.gradle.api.artifacts.Configuration runtimeOnlyConfig = project.getConfigurations().findByName("runtimeOnly");
 
             try {
                 java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
                 if (relocateMethod != null) {
+                    Set<String> processedGroups = new java.util.HashSet<>();
+
                     // implementation 의존성에 대한 동적 쉐이딩
                     if (implementationConfig != null) {
-                        Set<String> processedGroups = new java.util.HashSet<>();
                         for (org.gradle.api.artifacts.Dependency dependency : implementationConfig.getAllDependencies()) {
                             if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
                                 String group = dependency.getGroup();
                                 if (group != null && !group.isEmpty() && !processedGroups.contains(group)) {
                                     processedGroups.add(group);
-                                    // group을 패키지 경로로 변환: com.example -> com/example
-                                    String fromPackage = group.replace(".", "/");
-                                    // kr.s2.shaded.*로 relocate (패턴 매칭을 위해 끝에 ** 추가)
-                                    String toPackage = "kr/s2/shaded/" + fromPackage;
+                                    // group을 패키지 경로 패턴으로 변환: com.example -> com/example/**
+                                    // **를 추가하여 모든 하위 패키지 포함
+                                    String fromPackage = group.replace(".", "/") + "/**";
+                                    // kr.s2.shaded.*로 relocate
+                                    String toPackage = "kr/s2/shaded/" + group.replace(".", "/") + "/**";
                                     relocateMethod.invoke(shadowTask, fromPackage, toPackage);
+                                    project.getLogger().debug("✅ [Shadow] Relocate: " + fromPackage + " -> " + toPackage);
                                 }
                             }
                         }
@@ -1385,17 +1414,18 @@ public class S2BuildUtils {
 
                     // runtimeOnly 의존성에 대한 동적 쉐이딩
                     if (runtimeOnlyConfig != null) {
-                        Set<String> processedGroups = new java.util.HashSet<>();
                         for (org.gradle.api.artifacts.Dependency dependency : runtimeOnlyConfig.getAllDependencies()) {
                             if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
                                 String group = dependency.getGroup();
                                 if (group != null && !group.isEmpty() && !processedGroups.contains(group)) {
                                     processedGroups.add(group);
-                                    // group을 패키지 경로로 변환: com.example -> com/example
-                                    String fromPackage = group.replace(".", "/");
-                                    // kr.s2.shaded.*로 relocate (패턴 매칭을 위해 끝에 ** 추가)
-                                    String toPackage = "kr/s2/shaded/" + fromPackage;
+                                    // group을 패키지 경로 패턴으로 변환: com.example -> com/example/**
+                                    // **를 추가하여 모든 하위 패키지 포함
+                                    String fromPackage = group.replace(".", "/") + "/**";
+                                    // kr.s2.shaded.*로 relocate
+                                    String toPackage = "kr/s2/shaded/" + group.replace(".", "/") + "/**";
                                     relocateMethod.invoke(shadowTask, fromPackage, toPackage);
+                                    project.getLogger().debug("✅ [Shadow] Relocate: " + fromPackage + " -> " + toPackage);
                                 }
                             }
                         }
@@ -1403,6 +1433,9 @@ public class S2BuildUtils {
                 }
             } catch (NoSuchMethodException e) {
                 project.getLogger().warn("⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage());
+            } catch (Exception e) {
+                project.getLogger().warn("⚠️  [Shadow] relocate 설정 중 오류: " + e.getMessage());
+                e.printStackTrace();
             }
 
             // Manifest 설정
@@ -1493,82 +1526,74 @@ public class S2BuildUtils {
                 }
             }
 
-            // Shadow 확장을 통해 configurations 설정: api 제외, implementation/runtimeOnly만 포함
-            try {
-                java.lang.reflect.Method getConfigurationsMethod = shadowExtension.getClass().getMethod("getConfigurations");
-                Object shadowConfigurations = getConfigurationsMethod.invoke(shadowExtension);
-                if (shadowConfigurations != null) {
-                    // api configuration 제외
-                    org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-                    if (apiConfig != null) {
+            // Shadow 9에서는 기본적으로 runtimeClasspath가 포함되므로
+            // api 의존성은 exclude하여 shaded되지 않도록 하고, relocate로 implementation/runtimeOnly만 정밀하게 제어
+            org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
+            if (apiConfig != null) {
+                try {
+                    // Shadow 9의 CopySpec을 통해 api 의존성 제외
+                    if (shadowTask instanceof org.gradle.api.file.CopySpec) {
+                        org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
+                        for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
+                            if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
+                                String group = apiDep.getGroup();
+                                if (group != null && !group.isEmpty()) {
+                                    // api 의존성의 패키지 경로 패턴으로 exclude: com.example -> com/example/**
+                                    String excludePattern = group.replace(".", "/") + "/**";
+                                    copySpec.exclude(excludePattern);
+                                    project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
+                                }
+                            }
+                        }
+                    } else {
+                        // 리플렉션으로 exclude 메서드 호출
                         try {
-                            java.lang.reflect.Method excludeMethod = shadowConfigurations.getClass().getMethod("exclude", org.gradle.api.artifacts.Configuration.class);
-                            excludeMethod.invoke(shadowConfigurations, apiConfig);
-                        } catch (Exception e) {
-                            // exclude 메서드가 없거나 실패 시 다른 방법 시도
-                            try {
-                                java.lang.reflect.Method setMethod = shadowConfigurations.getClass().getMethod("set", java.util.List.class);
-                                org.gradle.api.artifacts.Configuration implementationConfig = project.getConfigurations().findByName("implementation");
-                                org.gradle.api.artifacts.Configuration runtimeOnlyConfig = project.getConfigurations().findByName("runtimeOnly");
-                                java.util.List<org.gradle.api.artifacts.Configuration> configsToInclude = new java.util.ArrayList<>();
-                                if (implementationConfig != null) {
-                                    configsToInclude.add(implementationConfig);
+                            java.lang.reflect.Method excludeMethod = shadowTask.getClass().getMethod("exclude", String.class);
+                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
+                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
+                                    String group = apiDep.getGroup();
+                                    if (group != null && !group.isEmpty()) {
+                                        String excludePattern = group.replace(".", "/") + "/**";
+                                        excludeMethod.invoke(shadowTask, excludePattern);
+                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
+                                    }
                                 }
-                                if (runtimeOnlyConfig != null) {
-                                    configsToInclude.add(runtimeOnlyConfig);
+                            }
+                        } catch (NoSuchMethodException e) {
+                            // exclude(String)이 없으면 Spec으로 시도
+                            java.lang.reflect.Method excludeSpecMethod = shadowTask.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
+                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
+                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
+                                    String group = apiDep.getGroup();
+                                    if (group != null && !group.isEmpty()) {
+                                        String groupPath = group.replace(".", "/");
+                                        org.gradle.api.specs.Spec<org.gradle.api.file.FileTreeElement> excludeSpec = (org.gradle.api.file.FileTreeElement element) -> {
+                                            String path = element.getRelativePath().getPathString();
+                                            return path.startsWith(groupPath + "/");
+                                        };
+                                        excludeSpecMethod.invoke(shadowTask, excludeSpec);
+                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + groupPath + "/**");
+                                    }
                                 }
-                                setMethod.invoke(shadowConfigurations, configsToInclude);
-                            } catch (Exception e2) {
-                                project.getLogger().warn("⚠️  [Shadow] configurations 설정 중 오류: " + e2.getMessage());
                             }
                         }
                     }
+                } catch (Exception e) {
+                    project.getLogger().warn("⚠️  [Shadow] api 의존성 제외 설정 중 오류: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                project.getLogger().warn("⚠️  [Shadow] Shadow 확장 configurations 접근 중 오류: " + e.getMessage());
             }
 
-            // 동적 쉐이딩 설정 (relocate) - implementation/runtimeOnly 의존성의 패키지를 kr.s2.shaded.*로 이동
-            org.gradle.api.artifacts.Configuration implementationConfig = project.getConfigurations().findByName("implementation");
-            org.gradle.api.artifacts.Configuration runtimeOnlyConfig = project.getConfigurations().findByName("runtimeOnly");
+            // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
+            Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
             try {
                 java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
                 if (relocateMethod != null) {
-                    // implementation 의존성에 대한 동적 쉐이딩
-                    if (implementationConfig != null) {
-                        Set<String> processedGroups = new java.util.HashSet<>();
-                        for (org.gradle.api.artifacts.Dependency dependency : implementationConfig.getAllDependencies()) {
-                            if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                String group = dependency.getGroup();
-                                if (group != null && !group.isEmpty() && !processedGroups.contains(group)) {
-                                    processedGroups.add(group);
-                                    // group을 패키지 경로로 변환: com.example -> com/example
-                                    String fromPackage = group.replace(".", "/");
-                                    // kr.s2.shaded.*로 relocate (패턴 매칭을 위해 끝에 ** 추가)
-                                    String toPackage = "kr/s2/shaded/" + fromPackage;
-                                    relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                                }
-                            }
-                        }
-                    }
-
-                    // runtimeOnly 의존성에 대한 동적 쉐이딩
-                    if (runtimeOnlyConfig != null) {
-                        Set<String> processedGroups = new java.util.HashSet<>();
-                        for (org.gradle.api.artifacts.Dependency dependency : runtimeOnlyConfig.getAllDependencies()) {
-                            if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                String group = dependency.getGroup();
-                                if (group != null && !group.isEmpty() && !processedGroups.contains(group)) {
-                                    processedGroups.add(group);
-                                    // group을 패키지 경로로 변환: com.example -> com/example
-                                    String fromPackage = group.replace(".", "/");
-                                    // kr.s2.shaded.*로 relocate (패턴 매칭을 위해 끝에 ** 추가)
-                                    String toPackage = "kr/s2/shaded/" + fromPackage;
-                                    relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                                }
-                            }
-                        }
+                    for (String pkg : packagesToRelocate) {
+                        String fromPackage = pkg;
+                        String toPackage = "kr.s2.shaded." + pkg;
+                        relocateMethod.invoke(shadowTask, fromPackage, toPackage);
+                        project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
                     }
                 }
             } catch (NoSuchMethodException e) {
@@ -1761,4 +1786,111 @@ public class S2BuildUtils {
         }
     }
 
+    // ========================================================================
+    // ⭐ Advanced Shadow Relocation: JAR 정밀 스캔 헬퍼 메서드
+    // implementation/runtimeOnly 의존성만 골라내어 패키지를 추출하고 Relocation 대상으로 선정
+    // ========================================================================
+
+    /**
+     * Relocation 대상이 되는 패키지 목록을 추출한다.
+     * 1. runtimeClasspath의 모든 아티팩트를 Resolve
+     * 2. api Configuration의 의존성을 식별하여 제외
+     * 3. 남은 아티팩트(JAR)를 스캔하여 최상위 패키지 추출
+     *
+     * @param project Gradle 프로젝트
+     * @return Relocation 대상 패키지 목록
+     */
+    private static Set<String> extractPackagesToRelocate(Project project) {
+        Set<String> packagesToRelocate = new java.util.HashSet<>();
+
+        // 1. API 의존성 식별자 수집 (group:name)
+        Set<String> apiDependencyIds = new java.util.HashSet<>();
+        org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
+        if (apiConfig != null) {
+            for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
+                if (dep.getGroup() != null && dep.getName() != null) {
+                    apiDependencyIds.add(dep.getGroup() + ":" + dep.getName());
+                }
+            }
+        }
+
+        // 2. runtimeClasspath Resolve (실제 JAR 파일 획득)
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+        if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
+            try {
+                Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
+                for (ResolvedArtifact artifact : artifacts) {
+                    // API 의존성에 포함되는 아티팩트는 건너뜀
+                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
+                    if (apiDependencyIds.contains(id)) {
+                        continue;
+                    }
+
+                    // s2-util 자기 자신 및 로컬 프로젝트 제외
+                    if (artifact.getId().getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier) {
+                        continue;
+                    }
+
+                    File file = artifact.getFile();
+                    if (file == null || !file.exists() || !file.getName().toLowerCase().endsWith(".jar")) {
+                        continue;
+                    }
+
+                    // JAR 스캔
+                    scanJarForPackages(project, file, packagesToRelocate);
+                }
+            } catch (Exception e) {
+                project.getLogger().warn("⚠️ [Shadow] runtimeClasspath 분석 중 오류: " + e.getMessage());
+            }
+        }
+
+        return packagesToRelocate;
+    }
+
+    private static void scanJarForPackages(Project project, File jarFile, Set<String> packages) {
+        try (JarFile jar = new JarFile(jarFile)) {
+            Enumeration<JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                String name = entry.getName();
+
+                if (entry.isDirectory() || name.startsWith("META-INF") || !name.endsWith(".class")) {
+                    continue;
+                }
+
+                // com/example/MyClass.class -> com.example
+                int lastSlash = name.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    String path = name.substring(0, lastSlash);
+                    String packageName = path.replace('/', '.');
+                    String topLevel = getTopLevelPackage(packageName);
+
+                    if (isValidPackage(topLevel)) {
+                        packages.add(topLevel);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            project.getLogger().warn("⚠️ [Shadow] JAR 스캔 실패 (" + jarFile.getName() + "): " + e.getMessage());
+        }
+    }
+
+    private static String getTopLevelPackage(String packageName) {
+        String[] parts = packageName.split("\\.");
+        if (parts.length >= 2) {
+            // e.g. com.google.common -> com.google
+            return parts[0] + "." + parts[1];
+        }
+        return packageName;
+    }
+
+    private static boolean isValidPackage(String pkg) {
+        return !pkg.startsWith("java.") &&
+                !pkg.startsWith("javax.") &&
+                !pkg.startsWith("sun.") &&
+                !pkg.startsWith("jdk.") &&
+                !pkg.startsWith("kr.s2.") && // 자기 자신의 패키지
+                !pkg.startsWith("org.w3c.") &&
+                !pkg.startsWith("org.xml.");
+    }
 }
