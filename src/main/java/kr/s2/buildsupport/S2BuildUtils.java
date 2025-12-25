@@ -629,23 +629,9 @@ public class S2BuildUtils {
         boolean hasShadowPlugin = hasGradleupShadow || hasJohnrengelmanShadow;
 
         if (!hasShadowPlugin) {
-            // Shadow 플러그인이 없으면 자동으로 적용 (Gradle 9 지원 버전: com.gradleup.shadow 9.3.0 이상)
-            // 플러그인 버전은 buildscript나 plugins 블록에서 지정해야 하므로,
-            // 여기서는 플러그인 적용만 시도하고 버전은 소비자 프로젝트의 build.gradle에서 지정해야 함
-            try {
-                // Shadow 9 버전은 com.gradleup.shadow 사용
-                // 버전은 소비자 프로젝트의 build.gradle에서 지정해야 함
-                project.getPluginManager().apply("com.gradleup.shadow");
-                project.getLogger().lifecycle("🔧 [Shadow] Shadow 플러그인 자동 적용됨 (com.gradleup.shadow)");
-                project.getLogger().lifecycle("⚠️  [Shadow] 버전 9.3.0 이상을 사용하려면 build.gradle에 다음을 추가하세요:");
-                project.getLogger().lifecycle("⚠️  [Shadow]   id 'com.gradleup.shadow' version '9.3.0'");
-                hasShadowPlugin = true;
-            } catch (Exception e) {
-                project.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 적용 실패: " + e.getMessage());
-                project.getLogger().warn("⚠️  [Shadow] build.gradle에 다음을 추가하세요:");
-                project.getLogger().warn("⚠️  [Shadow]   id 'com.gradleup.shadow' version '9.3.0'");
-                hasShadowPlugin = false;
-            }
+            // Shadow 플러그인이 없으면 경고만 출력하고 자동 적용하지 않음 (사용자 제어 존중)
+            project.getLogger().lifecycle("ℹ️ [Shadow] Shadow 플러그인이 감지되지 않았습니다. 기본 JAR 패키징으로 진행합니다.");
+            project.getLogger().debug("ℹ️ [Shadow] Fat JAR(Shaded)가 필요하다면 build.gradle에 'com.gradleup.shadow' 플러그인을 추가하세요.");
         } else {
             String detectedPlugin = hasGradleupShadow ? "com.gradleup.shadow" : "com.github.johnrengelman.shadow";
             project.getLogger().lifecycle("✅ [Shadow] Shadow 플러그인 감지됨 (" + detectedPlugin + ")");
