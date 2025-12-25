@@ -1493,59 +1493,59 @@ public class S2BuildUtils {
 
             // Shadow 9에서는 기본적으로 runtimeClasspath가 포함되므로
             // api 의존성은 exclude하여 shaded되지 않도록 하고, relocate로 implementation/runtimeOnly만 정밀하게 제어
-            org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-            if (apiConfig != null) {
-                try {
-                    // Shadow 9의 CopySpec을 통해 api 의존성 제외
-                    if (shadowTask instanceof org.gradle.api.file.CopySpec) {
-                        org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
-                        for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
-                            if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                String group = apiDep.getGroup();
-                                if (group != null && !group.isEmpty()) {
-                                    // api 의존성의 패키지 경로 패턴으로 exclude: com.example -> com/example/**
-                                    String excludePattern = group.replace(".", "/") + "/**";
-                                    copySpec.exclude(excludePattern);
-                                    project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
-                                }
-                            }
-                        }
-                    } else {
-                        // 리플렉션으로 exclude 메서드 호출
+            // 2. Api 의존성 Artifact 식별 및 ShadowExclude
+            // Shadow Plugin의 dependencies 블록을 사용하여 API 의존성을 명확히 제외
+            java.lang.reflect.Method dependenciesMethod = shadowTask.getClass().getMethod("dependencies", org.gradle.api.Action.class);
+            if (dependenciesMethod != null) {
+                dependenciesMethod.invoke(shadowTask, (org.gradle.api.Action<Object>) dependenciesSpec -> {
+                    try {
+                        java.lang.reflect.Method excludeMethodSpec = dependenciesSpec.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
+
+                        // api 설정 Resolve (transitive=true, JAVA_RUNTIME)
+                        Set<String> apiArtifactIdsForExclude = new java.util.HashSet<>();
                         try {
-                            java.lang.reflect.Method excludeMethod = shadowTask.getClass().getMethod("exclude", String.class);
-                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
-                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                    String group = apiDep.getGroup();
-                                    if (group != null && !group.isEmpty()) {
-                                        String excludePattern = group.replace(".", "/") + "/**";
-                                        excludeMethod.invoke(shadowTask, excludePattern);
-                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
-                                    }
+                            org.gradle.api.artifacts.Configuration apiConfigForExclude = project.getConfigurations().findByName("api");
+                            if (apiConfigForExclude != null) {
+                                org.gradle.api.artifacts.Configuration resolvableApi = project.getConfigurations().detachedConfiguration();
+                                resolvableApi.getDependencies().addAll(apiConfigForExclude.getAllDependencies());
+
+                                resolvableApi.attributes(attrs -> {
+                                    attrs.attribute(
+                                            org.gradle.api.attributes.Usage.USAGE_ATTRIBUTE,
+                                            project.getObjects().named(org.gradle.api.attributes.Usage.class, org.gradle.api.attributes.Usage.JAVA_RUNTIME)
+                                    );
+                                });
+                                resolvableApi.setTransitive(true);
+
+                                for (ResolvedArtifact artifact : resolvableApi.getResolvedConfiguration().getResolvedArtifacts()) {
+                                    apiArtifactIdsForExclude.add(artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName());
                                 }
                             }
-                        } catch (NoSuchMethodException e) {
-                            // exclude(String)이 없으면 Spec으로 시도
-                            java.lang.reflect.Method excludeSpecMethod = shadowTask.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
-                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
-                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                    String group = apiDep.getGroup();
-                                    if (group != null && !group.isEmpty()) {
-                                        String groupPath = group.replace(".", "/");
-                                        org.gradle.api.specs.Spec<org.gradle.api.file.FileTreeElement> excludeSpec = (org.gradle.api.file.FileTreeElement element) -> {
-                                            String path = element.getRelativePath().getPathString();
-                                            return path.startsWith(groupPath + "/");
-                                        };
-                                        excludeSpecMethod.invoke(shadowTask, excludeSpec);
-                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + groupPath + "/**");
-                                    }
+                        } catch (Exception e) {
+                            // Fallback
+                            org.gradle.api.artifacts.Configuration apiConfigFallback = project.getConfigurations().findByName("api");
+                            if (apiConfigFallback != null) {
+                                for (org.gradle.api.artifacts.Dependency dep : apiConfigFallback.getAllDependencies()) {
+                                    if (dep.getGroup() != null && dep.getName() != null)
+                                        apiArtifactIdsForExclude.add(dep.getGroup() + ":" + dep.getName());
                                 }
                             }
                         }
+
+                        // Spec을 통한 제외: dependency(Dependency) -> boolean
+                        // Shadow는 내부적으로 ResolvedDependency를 사용하므로 Spec<ResolvedDependency>로 매칭
+                        excludeMethodSpec.invoke(dependenciesSpec, (org.gradle.api.specs.Spec<org.gradle.api.artifacts.ResolvedDependency>) dependency -> {
+                            String id = dependency.getModuleGroup() + ":" + dependency.getModuleName();
+                            // API 의존성 집합에 포함되면 제외 (true 반환 시 exclude됨)
+                            return apiArtifactIdsForExclude.contains(id);
+                        });
+
+                        project.getLogger().lifecycle("✅ [Shadow] API 의존성(전이 포함) " + apiArtifactIdsForExclude.size() + "개를 Shadow JAR에서 제외 설정했습니다.");
+
+                    } catch (Exception e) {
+                        project.getLogger().warn("⚠️ [Shadow] API 제외 설정(dependencies) 중 오류: " + e.getMessage());
                     }
-                } catch (Exception e) {
-                    project.getLogger().warn("⚠️  [Shadow] api 의존성 제외 설정 중 오류: " + e.getMessage());
-                }
+                });
             }
 
             // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
@@ -1638,7 +1638,7 @@ public class S2BuildUtils {
                 }
 
                 // 소스 JAR 설정 (공개 리포지토리 확인 필요)
-                org.gradle.api.tasks.TaskProvider<?> sourcesJarTask = project.getTasks().named("sourcesJar");
+                org.gradle.api.Task sourcesJarTask = project.getTasks().findByName("sourcesJar");
                 if (sourcesJarTask != null) {
                     // 원격 리포지토리 공개 여부 확인
                     boolean isRemotePublish = project.getGradle().getStartParameter().getTaskNames().stream()
@@ -1770,11 +1770,43 @@ public class S2BuildUtils {
 
         // 1. API 의존성 식별자 수집 (group:name)
         Set<String> apiDependencyIds = new java.util.HashSet<>();
-        org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-        if (apiConfig != null) {
-            for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
-                if (dep.getGroup() != null && dep.getName() != null) {
-                    apiDependencyIds.add(dep.getGroup() + ":" + dep.getName());
+        try {
+            org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
+            if (apiConfig != null) {
+                // api 설정의 의존성들을 런타임 관점에서 Resolve하기 위해 detachedConfiguration 생성
+                org.gradle.api.artifacts.Configuration resolvableApi = project.getConfigurations().detachedConfiguration();
+
+                // api 의존성 복제 (extendsFrom 대신 직접 추가하여 제어력 확보)
+                resolvableApi.getDependencies().addAll(apiConfig.getAllDependencies());
+
+                // 런타임 사용(Usage.JAVA_RUNTIME)으로 속성 강제
+                resolvableApi.attributes(attrs -> {
+                    attrs.attribute(
+                            org.gradle.api.attributes.Usage.USAGE_ATTRIBUTE,
+                            project.getObjects().named(org.gradle.api.attributes.Usage.class, org.gradle.api.attributes.Usage.JAVA_RUNTIME)
+                    );
+                });
+
+                resolvableApi.setTransitive(true);
+
+                Set<ResolvedArtifact> apiArtifacts = resolvableApi.getResolvedConfiguration().getResolvedArtifacts();
+                for (ResolvedArtifact artifact : apiArtifacts) {
+                    String group = artifact.getModuleVersion().getId().getGroup();
+                    String name = artifact.getModuleVersion().getId().getName();
+                    String id = group + ":" + name;
+                    apiDependencyIds.add(id);
+                }
+                project.getLogger().lifecycle("ℹ️ [Shadow] Identified API Artifacts (Runtime Transitive): " + apiDependencyIds);
+            }
+        } catch (Exception e) {
+            // detachedConfiguration이 실패할 경우를 대비한 fallback (직접 의존성만이라도 체크)
+            project.getLogger().debug("⚠️ [Shadow] API 의존성 Resolve 실패 (Fallback 사용): " + e.getMessage());
+            org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
+            if (apiConfig != null) {
+                for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
+                    if (dep.getGroup() != null && dep.getName() != null) {
+                        apiDependencyIds.add(dep.getGroup() + ":" + dep.getName());
+                    }
                 }
             }
         }
