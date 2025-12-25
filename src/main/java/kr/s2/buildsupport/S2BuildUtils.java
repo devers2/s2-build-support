@@ -1383,52 +1383,17 @@ public class S2BuildUtils {
                 }
             }
 
-            // 동적 쉐이딩 설정 (relocate) - implementation/runtimeOnly 의존성의 패키지를 kr.s2.shaded.*로 이동
-            // Shadow 9.3.0의 relocate는 패키지 패턴을 사용: com/example/** -> kr/s2/shaded/com/example/**
-            org.gradle.api.artifacts.Configuration implementationConfig = project.getConfigurations().findByName("implementation");
-            org.gradle.api.artifacts.Configuration runtimeOnlyConfig = project.getConfigurations().findByName("runtimeOnly");
+            // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
+            Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
             try {
                 java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
                 if (relocateMethod != null) {
-                    Set<String> processedGroups = new java.util.HashSet<>();
-
-                    // implementation 의존성에 대한 동적 쉐이딩
-                    if (implementationConfig != null) {
-                        for (org.gradle.api.artifacts.Dependency dependency : implementationConfig.getAllDependencies()) {
-                            if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                String group = dependency.getGroup();
-                                if (group != null && !group.isEmpty() && !processedGroups.contains(group)) {
-                                    processedGroups.add(group);
-                                    // group을 패키지 경로 패턴으로 변환: com.example -> com/example/**
-                                    // **를 추가하여 모든 하위 패키지 포함
-                                    String fromPackage = group.replace(".", "/") + "/**";
-                                    // kr.s2.shaded.*로 relocate
-                                    String toPackage = "kr/s2/shaded/" + group.replace(".", "/") + "/**";
-                                    relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                                    project.getLogger().debug("✅ [Shadow] Relocate: " + fromPackage + " -> " + toPackage);
-                                }
-                            }
-                        }
-                    }
-
-                    // runtimeOnly 의존성에 대한 동적 쉐이딩
-                    if (runtimeOnlyConfig != null) {
-                        for (org.gradle.api.artifacts.Dependency dependency : runtimeOnlyConfig.getAllDependencies()) {
-                            if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                String group = dependency.getGroup();
-                                if (group != null && !group.isEmpty() && !processedGroups.contains(group)) {
-                                    processedGroups.add(group);
-                                    // group을 패키지 경로 패턴으로 변환: com.example -> com/example/**
-                                    // **를 추가하여 모든 하위 패키지 포함
-                                    String fromPackage = group.replace(".", "/") + "/**";
-                                    // kr.s2.shaded.*로 relocate
-                                    String toPackage = "kr/s2/shaded/" + group.replace(".", "/") + "/**";
-                                    relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                                    project.getLogger().debug("✅ [Shadow] Relocate: " + fromPackage + " -> " + toPackage);
-                                }
-                            }
-                        }
+                    for (String pkg : packagesToRelocate) {
+                        String fromPackage = pkg;
+                        String toPackage = "kr.s2.shaded." + pkg;
+                        relocateMethod.invoke(shadowTask, fromPackage, toPackage);
+                        project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
                     }
                 }
             } catch (NoSuchMethodException e) {
@@ -1817,12 +1782,17 @@ public class S2BuildUtils {
         // 2. runtimeClasspath Resolve (실제 JAR 파일 획득)
         org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
         if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
+            project.getLogger().lifecycle("🔍 [Shadow] Relocation 대상 패키지 스캔 시작 (runtimeClasspath)...");
             try {
                 Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
                 for (ResolvedArtifact artifact : artifacts) {
                     // API 의존성에 포함되는 아티팩트는 건너뜀
-                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
+                    String group = artifact.getModuleVersion().getId().getGroup();
+                    String name = artifact.getModuleVersion().getId().getName();
+                    String id = group + ":" + name;
+
                     if (apiDependencyIds.contains(id)) {
+                        project.getLogger().debug("⏭️ [Shadow] Skiping API dependency: " + id);
                         continue;
                     }
 
@@ -1837,6 +1807,7 @@ public class S2BuildUtils {
                     }
 
                     // JAR 스캔
+                    project.getLogger().lifecycle("📦 [Shadow] Scanning JAR: " + file.getName() + " (" + id + ")");
                     scanJarForPackages(project, file, packagesToRelocate);
                 }
             } catch (Exception e) {
