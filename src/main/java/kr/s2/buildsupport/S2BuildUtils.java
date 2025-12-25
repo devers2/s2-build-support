@@ -736,15 +736,6 @@ public class S2BuildUtils {
                 }
             });
 
-            // Shadow JAR를 메인 아티팩트로 설정 (-all 없이)
-            project.getTasks().named("jar").configure(jarTask -> {
-                org.gradle.api.Task shadowTask = project.getTasks().findByName("shadowJar");
-                if (shadowTask != null) {
-                    jarTask.dependsOn(shadowTask);
-                }
-            });
-
-            // application 플러그인 사용 시 Shadow 확장의 application 설정 사용
             // Shadow 플러그인이 자동으로 startShadowScripts를 shadowJar를 사용하도록 설정함
             project.afterEvaluate(p -> {
                 try {
@@ -1305,124 +1296,78 @@ public class S2BuildUtils {
         try {
             project.getLogger().lifecycle("🔧 [Shadow] 빌드 모드: Fat JAR 생성, implementation/runtimeOnly 동적 쉐이딩");
 
-            // Shadow JAR 기본 설정
-            java.lang.reflect.Method getArchiveBaseNameMethod = shadowTask.getClass().getMethod("getArchiveBaseName");
-            if (getArchiveBaseNameMethod != null) {
-                Object archiveBaseNameProp = getArchiveBaseNameMethod.invoke(shadowTask);
-                if (archiveBaseNameProp instanceof org.gradle.api.provider.Property) {
-                    @SuppressWarnings("unchecked")
-                    org.gradle.api.provider.Property<String> prop = (org.gradle.api.provider.Property<String>) archiveBaseNameProp;
-                    prop.set(archiveBaseName);
-                }
+            if (!(shadowTask instanceof com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar)) {
+                project.getLogger().warn("⚠️ [Shadow] 태스크가 ShadowJar 타입이 아닙니다. 설정이 무시될 수 있습니다.");
+                return;
             }
+            com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar shadowJar = (com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) shadowTask;
 
-            java.lang.reflect.Method getArchiveClassifierMethod = shadowTask.getClass().getMethod("getArchiveClassifier");
-            if (getArchiveClassifierMethod != null) {
-                Object archiveClassifierProp = getArchiveClassifierMethod.invoke(shadowTask);
-                if (archiveClassifierProp instanceof org.gradle.api.provider.Property) {
-                    @SuppressWarnings("unchecked")
-                    org.gradle.api.provider.Property<String> prop = (org.gradle.api.provider.Property<String>) archiveClassifierProp;
-                    prop.set("");
-                }
-            }
+            // 0. 아티팩트 충돌 방지 및 실행 순서 제어
+            // jar 태스크는 'original' classifier를 사용하여 표준 JAR 생성
+            project.getTasks().named("jar", org.gradle.api.tasks.bundling.Jar.class, jar -> {
+                jar.getArchiveClassifier().set("original");
+            });
 
-            // Shadow 9에서는 기본적으로 runtimeClasspath가 포함되므로
-            // api 의존성은 exclude하여 shaded되지 않도록 하고, relocate로 implementation/runtimeOnly만 정밀하게 제어
-            org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-            if (apiConfig != null) {
-                try {
-                    // Shadow 9의 CopySpec을 통해 api 의존성 제외
-                    if (shadowTask instanceof org.gradle.api.file.CopySpec) {
-                        org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
-                        for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
-                            if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                String group = apiDep.getGroup();
-                                if (group != null && !group.isEmpty()) {
-                                    // api 의존성의 패키지 경로 패턴으로 exclude: com.example -> com/example/**
-                                    String excludePattern = group.replace(".", "/") + "/**";
-                                    copySpec.exclude(excludePattern);
-                                    project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
-                                }
-                            }
-                        }
-                    } else {
-                        // 리플렉션으로 exclude 메서드 호출
-                        try {
-                            java.lang.reflect.Method excludeMethod = shadowTask.getClass().getMethod("exclude", String.class);
-                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
-                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                    String group = apiDep.getGroup();
-                                    if (group != null && !group.isEmpty()) {
-                                        String excludePattern = group.replace(".", "/") + "/**";
-                                        excludeMethod.invoke(shadowTask, excludePattern);
-                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + excludePattern);
-                                    }
-                                }
-                            }
-                        } catch (NoSuchMethodException e) {
-                            // exclude(String)이 없으면 Spec으로 시도
-                            java.lang.reflect.Method excludeSpecMethod = shadowTask.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
-                            for (org.gradle.api.artifacts.Dependency apiDep : apiConfig.getAllDependencies()) {
-                                if (apiDep instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                    String group = apiDep.getGroup();
-                                    if (group != null && !group.isEmpty()) {
-                                        String groupPath = group.replace(".", "/");
-                                        org.gradle.api.specs.Spec<org.gradle.api.file.FileTreeElement> excludeSpec = (org.gradle.api.file.FileTreeElement element) -> {
-                                            String path = element.getRelativePath().getPathString();
-                                            return path.startsWith(groupPath + "/");
-                                        };
-                                        excludeSpecMethod.invoke(shadowTask, excludeSpec);
-                                        project.getLogger().debug("✅ [Shadow] Exclude (api): " + groupPath + "/**");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    project.getLogger().warn("⚠️  [Shadow] api 의존성 제외 설정 중 오류: " + e.getMessage());
-                }
-            }
+            // shadowJar 태스크 설정: 메인 아티팩트 이름 사용
+            shadowJar.getArchiveBaseName().set(archiveBaseName);
+            shadowJar.getArchiveClassifier().set("");
+            shadowJar.mustRunAfter(project.getTasks().named("jar"));
 
-            // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
-            Set<String> packagesToRelocate = extractPackagesToRelocate(project);
+            // assemble이 shadowJar에 의존하도록 보장
+            project.getTasks().named("assemble").configure(assemble -> assemble.dependsOn(shadowTask));
 
             try {
-                java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
-                if (relocateMethod != null) {
-                    for (String pkg : packagesToRelocate) {
-                        String fromPackage = pkg;
-                        String toPackage = "kr.s2.shaded." + pkg;
-                        relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                        project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                // 0. startShadowScripts 태스크 의존성 해결 (Lazy Configuration)
+                project.getTasks().configureEach(task -> {
+                    if ("startShadowScripts".equals(task.getName())) {
+                        task.dependsOn("jar");
                     }
-                }
-            } catch (NoSuchMethodException e) {
-                project.getLogger().warn("⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage());
-            } catch (Exception e) {
-                project.getLogger().warn("⚠️  [Shadow] relocate 설정 중 오류: " + e.getMessage());
-                e.printStackTrace();
-            }
+                });
 
-            // Manifest 설정
-            java.lang.reflect.Method manifestMethod = shadowTask.getClass().getMethod("manifest", org.gradle.api.Action.class);
-            if (manifestMethod != null) {
-                manifestMethod.invoke(shadowTask, (org.gradle.api.Action<org.gradle.api.java.archives.Manifest>) manifest -> {
+                // 1. 기본 설정 (Configurations) - FatJar 생성
+                org.gradle.api.artifacts.Configuration runtimeClasspath = project.getConfigurations().findByName("runtimeClasspath");
+                if (runtimeClasspath != null) {
+                    // setConfigurations 대신 getConfigurations().add() 사용
+                    // ShadowJar의 configurations는 List<FileCollection> 타입임
+                    shadowJar.getConfigurations().add(runtimeClasspath);
+                    project.getLogger().lifecycle("✅ [Shadow] Configurations 설정을 통한 FatJar 모드 활성화");
+                }
+
+                // 2. 추가 파일 (licenses, META-INF, readme.md) 포함
+                if (extraFiles != null && !extraFiles.isEmpty()) {
+                    shadowJar.from(project.getRootDir(), spec -> spec.include(extraFiles));
+                    project.getLogger().lifecycle("✅ [Shadow] 추가 파일 포함: " + extraFiles);
+                }
+
+                // 4. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
+                Set<String> packagesToRelocate = extractPackagesToRelocate(project);
+
+                // Relocate 설정
+                for (String pkg : packagesToRelocate) {
+                    String fromPackage = pkg;
+                    String toPackage = "kr.s2.shaded." + pkg;
+                    shadowJar.relocate(fromPackage, toPackage);
+                    project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                }
+
+                // Manifest 설정
+                shadowJar.manifest(manifest -> {
                     Map<String, String> attributes = new HashMap<>();
                     attributes.put("Implementation-Title", project.getName());
                     attributes.put("Implementation-Version", version);
                     attributes.put("Built-JDK", System.getProperty("java.version"));
                     manifest.attributes(attributes);
                 });
-            }
 
-            // 중복 파일 처리 전략
-            java.lang.reflect.Method setDuplicatesStrategyMethod = shadowTask.getClass().getMethod("setDuplicatesStrategy", DuplicatesStrategy.class);
-            if (setDuplicatesStrategyMethod != null) {
-                setDuplicatesStrategyMethod.invoke(shadowTask, DuplicatesStrategy.EXCLUDE);
-            }
+                // 중복 파일 처리 전략
+                shadowJar.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
 
+            } catch (Exception e) {
+                project.getLogger().warn("⚠️ [Shadow] 빌드 모드 설정 중 오류: " + e.getMessage());
+                e.printStackTrace();
+            }
         } catch (Exception e) {
-            project.getLogger().warn("⚠️  [Shadow] 빌드 모드 설정 중 오류: " + e.getMessage());
+            project.getLogger().warn("⚠️ [Shadow] 초기 설정 중 오류: " + e.getMessage());
             e.printStackTrace();
         }
     }

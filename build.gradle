@@ -11,6 +11,7 @@ group = project.property('group')
 version = project.property('version')
 repositories {
     mavenCentral()
+    gradlePluginPortal()
 }
 java {
     /**
@@ -26,6 +27,7 @@ java {
 }
 dependencies {
     implementation gradleApi()
+    implementation 'com.gradleup.shadow:shadow-gradle-plugin:9.3.0'
 }
 
 /*
