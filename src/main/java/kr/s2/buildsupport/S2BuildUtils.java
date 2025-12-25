@@ -587,7 +587,8 @@ public class S2BuildUtils {
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정 (기본형)
+     * JAR 및 배포 패키지 통합 설정
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우, 자동으로 Shadow JAR 를 생성하도록 구성된다.
      *
      * @param project Gradle 프로젝트 객체
      */
@@ -596,7 +597,8 @@ public class S2BuildUtils {
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정 (추가 파일 포함형)
+     * JAR 및 배포 패키지 통합 설정
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우, 자동으로 Shadow JAR 를 생성하도록 구성된다.
      *
      * @param project    Gradle 프로젝트 객체
      * @param extraFiles 포함할 추가 파일 경로 목록
@@ -606,11 +608,8 @@ public class S2BuildUtils {
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정 (Javadoc 및 소스 제외 포함)
-     * <p>
-     * JAR 파일 생성, 소스 제외, Javadoc 옵션, 배포 패키지 구성을 한 번에 처리한다.
-     * Shadow 플러그인 지원 포함.
-     * </p>
+     * JAR 및 배포 패키지 통합 설정
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우, 자동으로 Shadow JAR 를 생성하도록 구성된다.
      *
      * @param project             Gradle 프로젝트 객체
      * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
@@ -621,64 +620,40 @@ public class S2BuildUtils {
         applySourceSettings(project, excludedSourcePaths);
 
         // ========================================================================
-        // 0.5. Shadow 플러그인 사용 여부 확인 및 적용
+        // 1. Shadow 플러그인 사용 여부 확인 및 적용
         // ========================================================================
-        // Shadow 9 버전에서는 com.gradleup.shadow를 사용하며, 이전 버전은 com.github.johnrengelman.shadow를 사용
-        boolean hasGradleupShadow = project.getPluginManager().hasPlugin("com.gradleup.shadow");
-        boolean hasJohnrengelmanShadow = project.getPluginManager().hasPlugin("com.github.johnrengelman.shadow");
-        boolean hasShadowPlugin = hasGradleupShadow || hasJohnrengelmanShadow;
+        boolean useShadow = notifyShadowPluginStatus(project);
 
-        if (!hasShadowPlugin) {
-            // Shadow 플러그인이 없으면 경고만 출력하고 자동 적용하지 않음 (사용자 제어 존중)
-            project.getLogger().lifecycle("ℹ️ [Shadow] Shadow 플러그인이 감지되지 않았습니다. 기본 JAR 패키징으로 진행합니다.");
-            project.getLogger().debug("ℹ️ [Shadow] Fat JAR(Shaded)가 필요하다면 build.gradle에 'com.gradleup.shadow' 플러그인을 추가하세요.");
-        } else {
-            String detectedPlugin = hasGradleupShadow ? "com.gradleup.shadow" : "com.github.johnrengelman.shadow";
-            project.getLogger().lifecycle("✅ [Shadow] Shadow 플러그인 감지됨 (" + detectedPlugin + ")");
-        }
-
-        final boolean useShadow = hasShadowPlugin;
         final String archiveBaseName = getArchiveBaseName(project);
         final String version = project.getVersion().toString();
 
-        // ========================================================================
-        // 0.8. Publishing 설정 (Maven Publication 등록)
-        // ========================================================================
-        configurePublications(project, useShadow, archiveBaseName);
-
-        // ========================================================================
-        // 1. Standard JAR 태스크 등록 (배포 전용)
-        // ========================================================================
         /*
+         * ========================================================================
+         * 2. Standard JAR 태스크 등록 (배포 전용)
+         * ========================================================================
          * [목적]
          * - Maven 배포 시 사용할 Standard JAR (의존성 분리) 태스크를 등록
          * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
-         *
-         * [특징]
-         * - archiveBaseName: base.archivesName 또는 project.name에서 자동 추출
-         * - 의존성을 포함하지 않는 순수 프로젝트 코드만 포함
-         * - Manifest 정보 자동 설정
+         * - registerStandardJarTask 헬퍼 메서드 재사용
          */
-        project.getTasks().register("standardJar", Jar.class, task -> {
-            task.getArchiveBaseName().set(archiveBaseName);
-            task.getArchiveClassifier().set(""); // 기본 아티팩트는 classifier 없음
+        registerStandardJarTask(project, archiveBaseName, version, extraFiles);
 
-            // main 소스셋의 출력을 포함
-            SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
-            task.from(sourceSets.getByName("main").getOutput());
+        /*
+         * ========================================================================
+         * 3. Publishing 설정 (Maven Publication 등록)
+         * ========================================================================
+         * - Maven Publication(mavenJava)을 미리 생성하여 이후 단계(Shadow 설정 등)에서 참조 가능하게 함
+         * - Shadow 유무에 따라 아티팩트 설정이 달라짐
+         */
+        configurePublications(project, useShadow, archiveBaseName);
 
-            // 추가 파일 포함 (라이선스 등)
-            includeExtraFiles(task, project, extraFiles);
-
-            // Manifest 설정
-            applyManifest(task, project, version);
-        });
-
-        // ========================================================================
-        // 2. 빌드/배포 모드 판단
-        // ========================================================================
+        /*
+         * ========================================================================
+         * 4. 빌드/배포 모드 및 태스크 분석
+         * ========================================================================
+         */
         List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
-        // 'publish'가 포함된 태스크가 있되, 단순히 메타데이터 파일 생성을 위한 태스크(IDE 동기화 등)는 제외함
+        // 'publish'가 포함된 태스크(publishing)인지 확인 (단순 메타데이터 생성 제외)
         boolean isAnyPublish = taskNames.stream().anyMatch(name -> {
             String lowerName = name.toLowerCase();
             return lowerName.contains("publish") && !lowerName.contains("metadata");
@@ -690,150 +665,169 @@ public class S2BuildUtils {
             return lowerName.contains("build") || lowerName.contains("assemble");
         });
 
-        // ========================================================================
-        // 3. Shadow 플러그인 설정 (사용 시)
-        // ========================================================================
-        if (useShadow) {
-            // Shadow 9에서는 afterEvaluate를 사용하여 태스크 설정
-            // named().configure()는 태스크 생성 시점에 실행되므로 내부 속성 접근 시 오류 발생
-            project.afterEvaluate(p -> {
-                try {
-                    // Shadow 태스크 가져오기
-                    org.gradle.api.Task shadowTask = p.getTasks().findByName("shadowJar");
-                    if (shadowTask == null) {
-                        p.getLogger().warn("⚠️  [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
-                        return;
-                    }
-
-                    // Shadow 설정을 위한 확장 가져오기
-                    Object shadowExtension = p.getExtensions().findByName("shadow");
-                    if (shadowExtension == null) {
-                        p.getLogger().warn("⚠️  [Shadow] Shadow 확장을 찾을 수 없습니다.");
-                        return;
-                    }
-
-                    // Shadow JAR 설정
-                    if (isBuildTask && !isAnyPublish) {
-                        // 빌드 시: Fat JAR 생성, implementation/runtimeOnly만 동적 쉐이딩
-                        configureShadowForBuild(p, shadowTask, shadowExtension, archiveBaseName, version, extraFiles);
-                    } else if (isAnyPublish) {
-                        // 배포 시: 표준 JAR 생성, implementation/runtimeOnly만 동적 쉐이딩 후 jar에 소스 포함
-                        configureShadowForPublish(p, shadowTask, shadowExtension, archiveBaseName, version, extraFiles);
-                    }
-
-                } catch (Exception e) {
-                    p.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 설정 중 오류: " + e.getMessage());
-                    e.printStackTrace();
-                }
-            });
-
-            // Shadow 플러그인이 자동으로 startShadowScripts를 shadowJar를 사용하도록 설정함
-            project.afterEvaluate(p -> {
-                try {
-                    Object shadowExtension = p.getExtensions().findByName("shadow");
-                    if (shadowExtension != null && p.getPluginManager().hasPlugin("application")) {
-                        // Shadow 확장의 application 설정 접근
-                        try {
-                            java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass().getMethod("getApplication");
-                            Object applicationExtension = getApplicationMethod.invoke(shadowExtension);
-                            if (applicationExtension != null) {
-                                // Shadow의 application 확장이 존재하면 자동으로 startShadowScripts가 shadowJar를 사용함
-                                p.getLogger().debug("✅ [Shadow] application 확장 감지됨 - startShadowScripts가 shadowJar를 사용합니다");
-                            }
-                        } catch (NoSuchMethodException e) {
-                            // application 메서드가 없으면 무시
-                        }
-                    }
-                } catch (Exception e) {
-                    // 무시
-                }
-            });
-        }
-
-        // ========================================================================
-        // 4. JAR 태스크 설정 (Shadow 미사용 시)
-        // ========================================================================
-        if (!useShadow) {
-            // Fat JAR 생성 여부 결정
-            boolean buildFatJar;
-            if (project.hasProperty("buildFatJar")) {
-                // 사용자 명시적 지정
-                buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
-            } else {
-                // 자동 판단: 배포 시에는 Standard JAR 강제, 그 외에는 Fat JAR 생성
-                buildFatJar = !isAnyPublish;
-            }
-
-            // 선택된 패키징 모드 로깅
-            if (buildFatJar) {
-                project.getLogger().lifecycle("🚀 [Packaging] Mode: Fat JAR (Includes all dependencies)");
-            } else {
-                project.getLogger().lifecycle("🚀 [Packaging] Mode: Standard JAR (Dependencies excluded for publishing)");
-            }
-
-            final boolean finalBuildFatJar = buildFatJar;
-
-            project.getTasks().named("jar", Jar.class).configure(task -> {
-                if (finalBuildFatJar) {
-                    project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
-                    // 런타임 의존성을 모두 포함 (Lazy evaluation: 태스크 실행 시점에 평가)
-                    task.from(
-                            (Callable<Object>) () -> project.getConfigurations().getByName("runtimeClasspath").getFiles()
-                                    .stream()
-                                    .map(file -> file.isDirectory() ? file : project.zipTree(file))
-                                    .collect(Collectors.toList())
-                    );
-                } else {
-                    project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
-                }
-
-                // 추가 파일 포함 (라이선스 등)
-                includeExtraFiles(task, project, extraFiles);
-
-                // 중복 파일 처리 전략 (Fat JAR 생성 시 필수)
-                task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
-
-                // Manifest 설정
-                applyManifest(task, project, version);
-
-                /*
-                 * [참고] 재현 가능한 빌드 (Reproducible Builds)
-                 * Gradle은 빌드 결과물의 일관성을 위해 JAR 내부 파일의 타임스탬프를 1980-02-01로 고정한다.
-                 * 이를 통해 동일한 소스에서 항상 바이트 단위까지 동일한 JAR가 생성되며, 빌드 캐시 효율이 극대화된다.
-                 */
-            });
-        }
-
-        // ========================================================================
-        // 5. 배포 패키지 생성 (Distributions)
-        // ========================================================================
         /*
-         * [목적]
+         * ========================================================================
+         * 5. 패키징 모드별 설정 (Shadow vs Standard)
+         * ========================================================================
+         */
+        if (useShadow) {
+            // [Shadow 모드] Fat JAR(Shaded) 생성 및 Publish 연동
+            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, extraFiles);
+        } else {
+            // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
+            configureStandardMode(project, isAnyPublish, extraFiles, version);
+        }
+
+        /*
+         * ========================================================================
+         * 6. 배포 패키지 생성 (Distributions)
+         * ========================================================================
          * - 라이선스 파일 + JAR + 의존성을 포함한 ZIP 패키지 생성
          * - 'Gradle > Tasks > distribution > distZip' 실행 시 생성됨
          */
         configureDistributions(project, extraFiles);
 
-        // ========================================================================
-        // 6. 메타데이터 생성 및 스마트 배포 전략 설정
-        // ========================================================================
         /*
-         * [afterEvaluate 사용 이유]
-         * publishing 블록은 Configuration Phase에서 평가되며,
-         * 이때 generateMetadataFileForMavenJavaPublication 태스크가 생성됨
-         * - 해당 태스크에 의존성을 설정하려면 태스크가 먼저 생성되어야 하므로
-         * afterEvaluate를 사용하여 모든 평가가 완료된 후에 실행
+         * ========================================================================
+         * 7. 메타데이터 생성 및 스마트 배포 전략 설정
+         * ========================================================================
+         * [afterEvaluate 사용]
+         * - Publishing 설정을 보완하고 태스크 의존성을 교정하기 위해 모든 평가가 끝난 후 실행
          */
         project.afterEvaluate(p -> {
-            // 메타데이터 생성 태스크 의존성 설정 (standardJar가 먼저 실행되도록)
+            // 메타데이터 생성 태스크 의존성 설정
             fixMetadataGeneration(p);
-            // 스마트 배포 전략 (이미 배포된 아티팩트는 건너뛰기)
+            // 스마트 배포 전략
             MavenPublishStrategy.configureSmartPublishing(p);
-
-            // Shadow 사용 시 publishing 설정
+            // Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
             if (useShadow) {
                 configurePublishingForShadow(p);
             }
+        });
+    }
+
+    /**
+     * Shadow 플러그인 감지 및 상태 로깅
+     *
+     * @param project Gradle 프로젝트 객체
+     * @return Shadow 플러그인 사용 여부
+     */
+    private static boolean notifyShadowPluginStatus(Project project) {
+        boolean hasGradleupShadow = project.getPluginManager().hasPlugin("com.gradleup.shadow");
+        boolean hasJohnrengelmanShadow = project.getPluginManager().hasPlugin("com.github.johnrengelman.shadow");
+        boolean hasShadowPlugin = hasGradleupShadow || hasJohnrengelmanShadow;
+
+        if (!hasShadowPlugin) {
+            project.getLogger().lifecycle("ℹ️ [Shadow] Shadow 플러그인이 감지되지 않았습니다. 기본 JAR 패키징으로 진행합니다.");
+            project.getLogger().debug("ℹ️ [Shadow] Fat JAR(Shaded)가 필요하다면 build.gradle에 'com.gradleup.shadow' 플러그인을 추가하세요.");
+        } else {
+            String detectedPlugin = hasGradleupShadow ? "com.gradleup.shadow" : "com.github.johnrengelman.shadow";
+            project.getLogger().lifecycle("✅ [Shadow] Shadow 플러그인 감지됨 (" + detectedPlugin + ")");
+        }
+        return hasShadowPlugin;
+    }
+
+    /**
+     * Shadow 통합 설정 (Fat JAR & Publishing)
+     * <p>
+     * ShadowJar 태스크를 구성하고, 빌드/배포 모드에 따라 동작을 분기합니다.
+     * </p>
+     */
+    private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish,
+            String archiveBaseName, String version, Set<String> extraFiles) {
+        // Shadow 9에서는 afterEvaluate를 사용하여 태스크 설정을 권장 (NamedDomainObjectContainer 이슈 방지)
+        project.afterEvaluate(p -> {
+            try {
+                org.gradle.api.Task shadowTask = p.getTasks().findByName("shadowJar");
+                if (shadowTask == null) {
+                    p.getLogger().warn("⚠️  [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
+                    return;
+                }
+
+                Object shadowExtension = p.getExtensions().findByName("shadow");
+                if (shadowExtension == null) {
+                    p.getLogger().warn("⚠️  [Shadow] Shadow 확장을 찾을 수 없습니다.");
+                    return;
+                }
+
+                // Shadow JAR 상세 설정 분기
+                if (isBuildTask && !isAnyPublish) {
+                    // [빌드 모드]: Fat JAR 생성 (Shaded + All Dependencies)
+                    configureShadowForBuild(p, shadowTask, shadowExtension, archiveBaseName, version, extraFiles);
+                } else if (isAnyPublish) {
+                    // [배포 모드]: Standard JAR 생성, 구현체만 Shaded (pom 의존성을 위해)
+                    configureShadowForPublish(p, shadowTask, shadowExtension, archiveBaseName, version, extraFiles);
+                }
+
+            } catch (Exception e) {
+                p.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 설정 중 오류: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+
+        // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
+        project.afterEvaluate(p -> {
+            try {
+                Object shadowExtension = p.getExtensions().findByName("shadow");
+                if (shadowExtension != null && p.getPluginManager().hasPlugin("application")) {
+                    try {
+                        java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass().getMethod("getApplication");
+                        Object applicationExtension = getApplicationMethod.invoke(shadowExtension);
+                        if (applicationExtension != null) {
+                            p.getLogger().debug("✅ [Shadow] application 확장 감지됨 - startShadowScripts -> shadowJar");
+                        }
+                    } catch (NoSuchMethodException ignored) {
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /**
+     * Standard 모드 (Non-Shadow) 패키징 설정
+     * <p>
+     * 기본 jar 태스크를 설정하고, 필요 시 Fat JAR 기능을 활성화합니다.
+     * </p>
+     */
+    private static void configureStandardMode(Project project, boolean isAnyPublish, Set<String> extraFiles, String version) {
+        // Fat JAR 생성 여부 결정 (배포 시에는 항상 Standard JAR)
+        boolean buildFatJar;
+        if (project.hasProperty("buildFatJar")) {
+            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
+        } else {
+            buildFatJar = !isAnyPublish;
+        }
+
+        if (buildFatJar) {
+            project.getLogger().lifecycle("🚀 [Packaging] Mode: Fat JAR (Includes all dependencies)");
+        } else {
+            project.getLogger().lifecycle("🚀 [Packaging] Mode: Standard JAR (Dependencies excluded for publishing)");
+        }
+
+        final boolean finalBuildFatJar = buildFatJar;
+
+        project.getTasks().named("jar", Jar.class).configure(task -> {
+            if (finalBuildFatJar) {
+                project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
+                task.from(
+                        (Callable<Object>) () -> project.getConfigurations().getByName("runtimeClasspath").getFiles()
+                                .stream()
+                                .map(file -> file.isDirectory() ? file : project.zipTree(file))
+                                .collect(Collectors.toList())
+                );
+            } else {
+                project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
+            }
+
+            // 추가 파일 포함
+            includeExtraFiles(task, project, extraFiles);
+
+            // 중복 파일 처리 전략
+            task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
+
+            // Manifest 설정
+            applyManifest(task, project, version);
         });
     }
 
@@ -1214,60 +1208,6 @@ public class S2BuildUtils {
                 spec.include(extraFiles);
             });
         }
-    }
-
-    /**
-     * ShadowJar의 from 메서드를 호출하는 헬퍼 메서드
-     * Shadow 9에서는 CopySpec을 상속받으므로 from 메서드를 직접 사용
-     *
-     * @param shadowTask Shadow JAR 태스크
-     * @param source     from 메서드에 전달할 소스
-     * @param project    Gradle 프로젝트 객체
-     */
-    private static void invokeFromMethod(org.gradle.api.Task shadowTask, Object source, Project project) {
-        // Shadow 9에서는 CopySpec 인터페이스를 통해 from 메서드 호출
-        // ShadowJar는 CopySpec을 구현하므로, CopySpec으로 캐스팅하여 사용
-        try {
-            // Shadow 9 API: CopySpec 인터페이스의 from 메서드 사용
-            if (shadowTask instanceof org.gradle.api.file.CopySpec) {
-                org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
-                copySpec.from(source);
-                return;
-            }
-
-            // CopySpec이 아닌 경우 리플렉션으로 시도
-            // Shadow 9의 from 메서드는 Object, Object[], FileCollection, Configuration 등을 받을 수 있음
-            java.lang.reflect.Method[] methods = shadowTask.getClass().getMethods();
-            for (java.lang.reflect.Method m : methods) {
-                if (m.getName().equals("from")) {
-                    try {
-                        if (m.getParameterCount() == 1) {
-                            // from(Object) 또는 from(Object...)
-                            if (m.isVarArgs()) {
-                                m.invoke(shadowTask, new Object[] {source});
-                            } else {
-                                m.invoke(shadowTask, source);
-                            }
-                            return;
-                        }
-                    } catch (IllegalArgumentException | java.lang.reflect.InvocationTargetException e) {
-                        // 타입 불일치 - 다음 메서드 시도
-                        continue;
-                    }
-                }
-            }
-
-            // 모든 from 메서드 시도 실패
-            project.getLogger().warn("⚠️  [Shadow] from 메서드를 찾을 수 없습니다. source 타입: " + source.getClass().getName());
-        } catch (Exception e) {
-            project.getLogger().warn("⚠️  [Shadow] from 메서드 호출 실패: " + e.getMessage() + ", source 타입: " + source.getClass().getName());
-        }
-
-        // 모든 시도 실패
-        project.getLogger().error("❌ [Shadow] from 메서드를 호출할 수 없습니다.");
-        project.getLogger().error("❌ [Shadow] shadowTask 타입: " + shadowTask.getClass().getName());
-        project.getLogger().error("❌ [Shadow] source 타입: " + source.getClass().getName());
-        throw new IllegalStateException("ShadowJar의 from 메서드를 호출할 수 없습니다. Shadow 9 API를 확인하세요.");
     }
 
     /**
