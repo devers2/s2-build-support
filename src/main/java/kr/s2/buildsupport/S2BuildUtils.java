@@ -3,6 +3,10 @@ package kr.s2.buildsupport;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
@@ -21,6 +25,8 @@ import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.tasks.Copy;
@@ -1813,4 +1819,112 @@ public class S2BuildUtils {
                 !pkg.startsWith("org.w3c.") &&
                 !pkg.startsWith("org.xml.");
     }
+
+    /**
+     * README 파일의 버전 정보를 업데이트하고, 필요한 경우 런타임 의존성 가이드를 추가한다.
+     * <p>
+     * 1. 버전 업데이트: "Implementation-Version" 패턴 등을 찾아 현재 프로젝트 버전으로 교체
+     * 2. 의존성 가이드: 'compileOnly'로 선언된 특정 라이브러리(예: PDF 관련)가 있다면,
+     * 소비자가 이를 런타임에 추가해야 함을 알리는 문구를 README에 삽입하거나 업데이트 한다.
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     * @param file    대상 파일 (주로 README.md)
+     */
+    public static void updateReadmeWithVersionAndDependencies(Project project, File file) {
+        if (!file.exists())
+            return;
+
+        try {
+            String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            String currentVersion = project.getVersion().toString();
+            String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+            // 1. 버전 및 날짜 업데이트 로직 (버전이 바뀔 때만 날짜 변경함)
+            Pattern vPattern = Pattern.compile("s2 Product Version: (\\d+\\.\\d+\\.\\d+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
+            Matcher vMatcher = vPattern.matcher(content);
+            if (vMatcher.find()) {
+                String existingVersion = vMatcher.group(1);
+                // 버전이 기존과 다를 경우에만 전체 문구 교체함
+                if (!existingVersion.equals(currentVersion)) {
+                    content = content.replace(vMatcher.group(0), "s2 Product Version: " + currentVersion + " (" + today + ")");
+                }
+            }
+
+            // 2. 의존성 정보 수집함
+            List<String> depLines = collectDependencies(project);
+
+            // 3. 마커 및 블록 처리함 (따옴표와 괄호 혼용 문제를 해결하기 위해 범용 패턴 사용함)
+            // 아래 패턴은 [//]: # '...' 또는 [//]: # (...) 형식을 모두 찾아냄
+            String startMarkerPattern = "\\[//\\]: # [\\(\']S2_DEPS_INFO_START[\\)\']";
+            String endMarkerPattern = "\\[//\\]: # [\\(\']S2_DEPS_INFO_END[\\)\']";
+
+            // 표준 마커 (업데이트 시 이 형식으로 통일함)
+            String stdStartMarker = "[//]: # (S2_DEPS_INFO_START)";
+            String stdEndMarker = "[//]: # (S2_DEPS_INFO_END)";
+
+            StringBuilder depsBlock = new StringBuilder();
+            if (!depLines.isEmpty()) {
+                depsBlock.append("\n").append(stdStartMarker).append("\n\n---\n\n");
+                depsBlock.append("**To use certain functionalities (e.g., S2PdfUtil), the end-user project must explicitly add the following dependencies to be available at runtime.** ");
+                depsBlock.append("Failure to include these dependencies will result in a `java.lang.NoClassDefFoundError` at runtime.\n\n");
+                depsBlock.append("**[For Gradle Users]**\n\n```groovy\ndependencies {\n");
+                depsBlock.append("    // Essential runtime dependencies for optional functionalities\n");
+                for (String dl : depLines)
+                    depsBlock.append(dl).append("\n");
+                depsBlock.append("}\n```\n\n").append(stdEndMarker);
+            }
+
+            // 4. 기존 블록 교체 또는 추가 로직임
+            Pattern fullBlockPattern = Pattern.compile("\n?" + startMarkerPattern + ".*?" + endMarkerPattern, Pattern.DOTALL);
+            if (fullBlockPattern.matcher(content).find()) {
+                // 기존에 어떤 형태의 마커가 있든 새 블록으로 교체함 (중복 방지 핵심)
+                content = fullBlockPattern.matcher(content).replaceAll(depsBlock.toString());
+            } else if (!depLines.isEmpty()) {
+                // 아예 없으면 파일 끝에 추가함
+                content = content.trim() + "\n" + depsBlock.toString();
+            }
+
+            // 5. 파일 저장함
+            Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
+            project.getLogger().lifecycle("ℹ️ [README] 최신화 작업을 완료했습니다.");
+
+        } catch (IOException e) {
+            project.getLogger().warn("⚠️ [README] 업데이트 실패: " + e.getMessage());
+        }
+    }
+
+    private static List<String> collectDependencies(Project project) {
+        List<String> depLines = new ArrayList<>();
+        String[] targets = {"compileOnly", "compileOnlyApi", "provided"};
+
+        for (String target : targets) {
+            Configuration config = project.getConfigurations().findByName(target);
+            if (config == null)
+                continue;
+
+            for (Dependency dep : config.getDependencies()) {
+                String g = dep.getGroup();
+                String n = dep.getName();
+                String v = dep.getVersion();
+                if (n == null || "unspecified".equals(n) || isCommonLibrary(g, n))
+                    continue;
+
+                String notation = (g != null && v != null) ? g + ":" + n + ":" + v : (g != null ? g + ":" + n : n);
+                String line = "    implementation '" + notation + "'";
+                if (!depLines.contains(line))
+                    depLines.add(line);
+            }
+        }
+        return depLines;
+    }
+
+    private static boolean isCommonLibrary(String group, String name) {
+        if (group == null || name == null)
+            return false;
+        return group.startsWith("org.springframework") || group.startsWith("com.fasterxml.jackson") ||
+                group.startsWith("org.aspectj") || group.contains("google.code.findbugs") ||
+                name.contains("spring") || name.contains("jackson");
+    }
+
 }
