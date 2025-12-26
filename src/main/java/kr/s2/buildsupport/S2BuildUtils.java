@@ -393,7 +393,7 @@ public class S2BuildUtils {
             StringBuilder regexBuilder = new StringBuilder();
 
             for (int i = 0; i < literals.length; i++) {
-                if (!literals[i].isEmpty()) {
+                if (!literals[i].isBlank()) {
                     regexBuilder.append(Pattern.quote(literals[i]));
                 }
                 if (i < placeholders.size()) {
@@ -473,7 +473,7 @@ public class S2BuildUtils {
                 .append("-")
                 .append(version);
 
-        if (classifier != null && !classifier.isEmpty()) {
+        if (classifier != null && !classifier.isBlank()) {
             sb.append("-").append(classifier);
         }
 

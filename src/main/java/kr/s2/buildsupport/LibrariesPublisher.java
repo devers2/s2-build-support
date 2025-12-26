@@ -236,7 +236,7 @@ public class LibrariesPublisher {
      * @return Maven 아티팩트 ID 규격에 맞는 kebab-case 문자열
      */
     public static String toMavenArtifactId(String input) {
-        if (input == null || input.trim().isEmpty())
+        if (input == null || input.isBlank())
             return "";
         return input.trim()
                 .replaceAll("(.)([A-Z][a-z]+)", "$1-$2")
@@ -385,7 +385,7 @@ public class LibrariesPublisher {
      * @return VersionInfo 객체 (baseName, version, hasVersion 포함)
      */
     public static VersionInfo extractVersion(String fileName, String[] exceptionalVersions) {
-        if (fileName == null || fileName.trim().isEmpty()) {
+        if (fileName == null || fileName.isBlank()) {
             return new VersionInfo("", null, false);
         }
 

@@ -100,7 +100,7 @@ public class MavenPublishStrategy {
         for (ArtifactInfo artifact : artifacts) {
             // 아티팩트 파일명 생성 (classifier 고려)
             String artifactName;
-            if (artifact.classifier != null && !artifact.classifier.isEmpty()) {
+            if (artifact.classifier != null && !artifact.classifier.isBlank()) {
                 artifactName = artifactId + "-" + version + "-" + artifact.classifier + "." + artifact.extension;
             } else {
                 artifactName = artifactId + "-" + version + "." + artifact.extension;
