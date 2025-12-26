@@ -1572,7 +1572,7 @@ public class S2BuildUtils {
 
                     if (isRemotePublish) {
                         // 원격 배포 시 리포지토리 공개 여부 확인
-                        final boolean[] shouldAddSourceJar = {true};
+                        final boolean[] shouldAddSourceJar = { true };
 
                         publishing.getRepositories().forEach(repo -> {
                             if (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
@@ -1863,8 +1863,8 @@ public class S2BuildUtils {
             String endMarkerPattern = "\\[//\\]: # [\\(\']S2_DEPS_INFO_END[\\)\']";
 
             // 표준 마커 (업데이트 시 이 형식으로 통일함)
-            String stdStartMarker = "[//]: # (S2_DEPS_INFO_START)";
-            String stdEndMarker = "[//]: # (S2_DEPS_INFO_END)";
+            String stdStartMarker = "[//]: # 'S2_DEPS_INFO_START'";
+            String stdEndMarker = "[//]: # 'S2_DEPS_INFO_END'";
 
             StringBuilder depsBlock = new StringBuilder();
             if (!depLines.isEmpty()) {
@@ -1899,7 +1899,7 @@ public class S2BuildUtils {
 
     private static List<String> collectDependencies(Project project) {
         List<String> depLines = new ArrayList<>();
-        String[] targets = {"compileOnly", "compileOnlyApi", "provided"};
+        String[] targets = { "compileOnly", "compileOnlyApi", "provided" };
 
         for (String target : targets) {
             Configuration config = project.getConfigurations().findByName(target);
