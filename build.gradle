@@ -65,7 +65,7 @@ dependencies {
  *
  * 2. build.gradle에 플러그인 적용:
  *    plugins {
- *        id 'kr.s2.buildsupport' version '1.0.0'
+ *        id 'kr.s2.buildsupport' version '2.0.0'
  *    }
  */
 gradlePlugin {
