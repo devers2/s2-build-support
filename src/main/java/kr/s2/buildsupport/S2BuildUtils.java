@@ -594,7 +594,8 @@ public class S2BuildUtils {
 
     /**
      * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우, 자동으로 Shadow JAR 를 생성하도록 구성된다.
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
+     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
      *
      * @param project Gradle 프로젝트 객체
      */
@@ -604,7 +605,8 @@ public class S2BuildUtils {
 
     /**
      * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우, 자동으로 Shadow JAR 를 생성하도록 구성된다.
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
+     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
      *
      * @param project    Gradle 프로젝트 객체
      * @param extraFiles 포함할 추가 파일 경로 목록
@@ -615,7 +617,8 @@ public class S2BuildUtils {
 
     /**
      * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우, 자동으로 Shadow JAR 를 생성하도록 구성된다.
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
+     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
      *
      * @param project             Gradle 프로젝트 객체
      * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
