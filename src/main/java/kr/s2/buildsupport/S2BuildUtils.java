@@ -1224,6 +1224,12 @@ public class S2BuildUtils {
      * - Fat JAR 생성
      * - implementation/runtimeOnly 의존성만 동적 쉐이딩
      *
+     * <p>
+     * <b>[Conditional Relocation]</b><br>
+     * 프로젝트의 {@code ext.shadedPackagePrefix} 속성이 설정된 경우에만 패키지 재배치(Relocation)를 수행합니다.<br>
+     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "kr.devers2.s2util.shaded" }}
+     * </p>
+     *
      * @param project         Gradle 프로젝트 객체
      * @param shadowTask      Shadow JAR 태스크
      * @param shadowExtension Shadow 확장 객체
@@ -1280,14 +1286,20 @@ public class S2BuildUtils {
                 }
 
                 // 4. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
-                Set<String> packagesToRelocate = extractPackagesToRelocate(project);
+                // ext.shadedPackagePrefix 가 있을 때만 Relocate 진행
+                if (project.hasProperty("shadedPackagePrefix")) {
+                    String prefix = project.findProperty("shadedPackagePrefix").toString();
+                    Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
-                // Relocate 설정
-                for (String pkg : packagesToRelocate) {
-                    String fromPackage = pkg;
-                    String toPackage = "kr.s2.shaded." + pkg;
-                    shadowJar.relocate(fromPackage, toPackage);
-                    project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                    // Relocate 설정
+                    for (String pkg : packagesToRelocate) {
+                        String fromPackage = pkg;
+                        String toPackage = prefix + "." + pkg;
+                        shadowJar.relocate(fromPackage, toPackage);
+                        project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                    }
+                } else {
+                    project.getLogger().lifecycle("ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 없어 Relocation을 건너뜁니다.");
                 }
 
                 // Manifest 설정
@@ -1358,6 +1370,12 @@ public class S2BuildUtils {
      * - 표준 JAR 생성
      * - implementation/runtimeOnly 의존성만 동적 쉐이딩 후 jar에 소스 포함
      * - api 의존성은 pom에만 추가
+     *
+     * <p>
+     * <b>[Conditional Relocation]</b><br>
+     * 프로젝트의 {@code ext.shadedPackagePrefix} 속성이 설정된 경우에만 패키지 재배치(Relocation)를 수행합니다.<br>
+     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "kr.s2.shaded" }}
+     * </p>
      *
      * @param project         Gradle 프로젝트 객체
      * @param shadowTask      Shadow JAR 태스크
@@ -1475,20 +1493,26 @@ public class S2BuildUtils {
             }
 
             // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
-            Set<String> packagesToRelocate = extractPackagesToRelocate(project);
+            // ext.shadedPackagePrefix 가 있을 때만 Relocate 진행
+            if (project.hasProperty("shadedPackagePrefix")) {
+                String prefix = project.findProperty("shadedPackagePrefix").toString();
+                Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
-            try {
-                java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
-                if (relocateMethod != null) {
-                    for (String pkg : packagesToRelocate) {
-                        String fromPackage = pkg;
-                        String toPackage = "kr.s2.shaded." + pkg;
-                        relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                        project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                try {
+                    java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
+                    if (relocateMethod != null) {
+                        for (String pkg : packagesToRelocate) {
+                            String fromPackage = pkg;
+                            String toPackage = prefix + "." + pkg;
+                            relocateMethod.invoke(shadowTask, fromPackage, toPackage);
+                            project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                        }
                     }
+                } catch (NoSuchMethodException e) {
+                    project.getLogger().warn("⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage());
                 }
-            } catch (NoSuchMethodException e) {
-                project.getLogger().warn("⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage());
+            } else {
+                project.getLogger().lifecycle("ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 없어 Relocation을 건너뜁니다.");
             }
 
             // Manifest 설정
