@@ -166,7 +166,7 @@ public class MavenPublishStrategy {
     public static void configureSmartPublishing(Project project, String repositoryName) {
         project.getTasks().withType(PublishToMavenRepository.class).configureEach(task -> {
             // 특정 리포지토리에만 적용
-            if (repositoryName.equals(task.getRepository().getName())) {
+            if (task.getRepository() != null && repositoryName.equals(task.getRepository().getName())) {
                 task.onlyIf(t -> evaluatePublishDecision(project, (PublishToMavenRepository) t));
             }
         });
