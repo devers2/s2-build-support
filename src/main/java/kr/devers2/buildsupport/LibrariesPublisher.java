@@ -1,4 +1,4 @@
-package kr.s2.buildsupport;
+package kr.devers2.buildsupport;
 
 import java.io.File;
 import java.util.ArrayList;

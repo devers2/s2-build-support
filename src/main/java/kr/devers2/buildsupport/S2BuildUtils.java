@@ -1,4 +1,4 @@
-package kr.s2.buildsupport;
+package kr.devers2.buildsupport;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -347,7 +347,7 @@ public class S2BuildUtils {
      *
      * <pre>{@code
      * // 1. build.gradle에서 다음과 같이 호출
-     * kr.s2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: {{=version}} ({{=release-date}})", project.version.toString());
+     * kr.devers2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: {{=version}} ({{=release-date}})", project.version.toString());
      *
      * // 2. README.md 파일에 아래 내용이 있다고 가정:
      * // ### Version: 1.0.0 (2023-01-01)
@@ -1374,7 +1374,7 @@ public class S2BuildUtils {
      * <p>
      * <b>[Conditional Relocation]</b><br>
      * 프로젝트의 {@code ext.shadedPackagePrefix} 속성이 설정된 경우에만 패키지 재배치(Relocation)를 수행합니다.<br>
-     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "kr.s2.shaded" }}
+     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "kr.devers2.s2util.shaded" }}
      * </p>
      *
      * @param project         Gradle 프로젝트 객체
@@ -1842,7 +1842,7 @@ public class S2BuildUtils {
                 !pkg.startsWith("javax.") &&
                 !pkg.startsWith("sun.") &&
                 !pkg.startsWith("jdk.") &&
-                !pkg.startsWith("kr.s2.") && // 자기 자신의 패키지
+                !pkg.startsWith("kr.devers2.") && // 자기 자신의 패키지
                 !pkg.startsWith("org.w3c.") &&
                 !pkg.startsWith("org.xml.");
     }

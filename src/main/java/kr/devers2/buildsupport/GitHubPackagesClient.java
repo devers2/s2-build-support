@@ -1,4 +1,4 @@
-package kr.s2.buildsupport;
+package kr.devers2.buildsupport;
 
 import java.io.BufferedReader;
 import java.io.IOException;

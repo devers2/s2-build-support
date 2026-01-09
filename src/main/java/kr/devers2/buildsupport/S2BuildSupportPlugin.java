@@ -1,4 +1,4 @@
-package kr.s2.buildsupport;
+package kr.devers2.buildsupport;
 
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
