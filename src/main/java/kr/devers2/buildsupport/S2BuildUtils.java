@@ -646,14 +646,7 @@ public class S2BuildUtils {
          */
         registerStandardJarTask(project, archiveBaseName, version, extraFiles);
 
-        /*
-         * ========================================================================
-         * 3. Publishing 설정 (Maven Publication 등록)
-         * ========================================================================
-         * - Maven Publication(mavenJava)을 미리 생성하여 이후 단계(Shadow 설정 등)에서 참조 가능하게 함
-         * - Shadow 유무에 따라 아티팩트 설정이 달라짐
-         */
-        configurePublications(project, useShadow, archiveBaseName);
+        // configurePublications is now called within afterEvaluate to ensure all plugins are loaded.
 
         /*
          * ========================================================================
@@ -703,11 +696,15 @@ public class S2BuildUtils {
          * - Publishing 설정을 보완하고 태스크 의존성을 교정하기 위해 모든 평가가 끝난 후 실행
          */
         project.afterEvaluate(p -> {
-            // 메타데이터 생성 태스크 의존성 설정
+            // 1. 메타데이터 생성 및 스마트 배포 전략 설정
             fixMetadataGeneration(p);
-            // 스마트 배포 전략
             MavenPublishStrategy.configureSmartPublishing(p);
-            // Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
+
+            // 2. 배포 설정 (Maven Publication 등록)
+            // afterEvaluate에서 실행되어야 java-gradle-plugin 등을 확실히 감지할 수 있음
+            configurePublications(p, useShadow, archiveBaseName);
+
+            // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
             if (useShadow) {
                 configurePublishingForShadow(p);
             }
@@ -1248,14 +1245,22 @@ public class S2BuildUtils {
             com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar shadowJar = (com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) shadowTask;
 
             // 0. 아티팩트 충돌 방지 및 실행 순서 제어
-            // jar 태스크는 'original' classifier를 사용하여 표준 JAR 생성
-            project.getTasks().named("jar", org.gradle.api.tasks.bundling.Jar.class, jar -> {
-                jar.getArchiveClassifier().set("original");
-            });
+            // jar 태스크의 출력 경로를 분리하여 shadowJar와 파일명이 겹치지 않게 한다. (Classifier 대신 폴더 분리)
+            // 단, Gradle Plugin 프로젝트의 경우 메타데이터 유효성 검사 오류 방지를 위해 분리를 피한다.
+            if (!project.getPluginManager().hasPlugin("java-gradle-plugin")) {
+                project.getTasks().named("jar", org.gradle.api.tasks.bundling.Jar.class, jar -> {
+                    jar.getDestinationDirectory().set(project.getLayout().getBuildDirectory().dir("libs/original"));
+                });
+            }
 
             // shadowJar 태스크 설정: 메인 아티팩트 이름 사용
             shadowJar.getArchiveBaseName().set(archiveBaseName);
-            shadowJar.getArchiveClassifier().set("");
+            // Gradle Plugin 프로젝트의 경우 메타데이터 충돌 방지를 위해 -shaded classifier 사용
+            if (project.getPluginManager().hasPlugin("java-gradle-plugin")) {
+                shadowJar.getArchiveClassifier().set("shaded");
+            } else {
+                shadowJar.getArchiveClassifier().set("");
+            }
             shadowJar.mustRunAfter(project.getTasks().named("jar"));
 
             // assemble이 shadowJar에 의존하도록 보장
@@ -1341,6 +1346,12 @@ public class S2BuildUtils {
             return;
         }
 
+        // Gradle Plugin 프로젝트의 경우 java-gradle-plugin이 이미 Publication을 생성하므로 중복 생성을 피한다.
+        if (project.getPluginManager().hasPlugin("java-gradle-plugin")) {
+            project.getLogger().lifecycle("ℹ️ [Publishing] Gradle Plugin 프로젝트 감지됨. 별도의 mavenJava Publication 생성을 건너뜁니다.");
+            return;
+        }
+
         project.getExtensions().configure("publishing", (org.gradle.api.publish.PublishingExtension publishing) -> {
             publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class, publication -> {
                 publication.setArtifactId(artifactId);
@@ -1389,10 +1400,13 @@ public class S2BuildUtils {
             project.getLogger().lifecycle("🔧 [Shadow] 배포 모드: 표준 JAR 생성, implementation/runtimeOnly 동적 쉐이딩");
 
             // 0. 아티팩트 충돌 방지 및 실행 순서 제어
-            // jar 태스크는 'original' classifier를 사용하여 표준 JAR 생성
-            project.getTasks().named("jar", org.gradle.api.tasks.bundling.Jar.class, jar -> {
-                jar.getArchiveClassifier().set("original");
-            });
+            // jar 태스크의 출력 경로를 분리하여 shadowJar와 파일명이 겹치지 않게 한다. (Classifier 대신 폴더 분리)
+            // 단, Gradle Plugin 프로젝트의 경우 메타데이터 유효성 검사 오류 방지를 위해 분리를 피한다.
+            if (!project.getPluginManager().hasPlugin("java-gradle-plugin")) {
+                project.getTasks().named("jar", org.gradle.api.tasks.bundling.Jar.class, jar -> {
+                    jar.getDestinationDirectory().set(project.getLayout().getBuildDirectory().dir("libs/original"));
+                });
+            }
 
             // Shadow JAR 기본 설정
             java.lang.reflect.Method getArchiveBaseNameMethod = shadowTask.getClass().getMethod("getArchiveBaseName");
@@ -1411,7 +1425,12 @@ public class S2BuildUtils {
                 if (archiveClassifierProp instanceof org.gradle.api.provider.Property) {
                     @SuppressWarnings("unchecked")
                     org.gradle.api.provider.Property<String> prop = (org.gradle.api.provider.Property<String>) archiveClassifierProp;
-                    prop.set("");
+                    // Gradle Plugin 프로젝트의 경우 메타데이터 충돌 방지를 위해 -shaded classifier 사용
+                    if (project.getPluginManager().hasPlugin("java-gradle-plugin")) {
+                        prop.set("shaded");
+                    } else {
+                        prop.set("");
+                    }
                 }
             }
 
@@ -1557,7 +1576,11 @@ public class S2BuildUtils {
         try {
             org.gradle.api.publish.PublishingExtension publishing = project.getExtensions().getByType(org.gradle.api.publish.PublishingExtension.class);
 
-            publishing.getPublications().withType(org.gradle.api.publish.maven.MavenPublication.class).configureEach(publication -> {
+            // "mavenJava" 명칭을 가진 Publication에 대해서만 Shadow 설정을 적용한다.
+            // (java-gradle-plugin 등에서 자동 생성하는 "pluginMaven" 등과의 충돌 방지)
+            org.gradle.api.specs.Spec<org.gradle.api.publish.Publication> isTargetPub = p -> "mavenJava".equals(p.getName());
+
+            publishing.getPublications().matching(isTargetPub).withType(org.gradle.api.publish.maven.MavenPublication.class).configureEach(publication -> {
                 // Shadow 플러그인 사용 시 from components.java를 사용하면 Gradle Module Metadata 수정 불가 오류 발생
                 // from components.java가 설정되어 있는지 확인
                 boolean hasFromComponents = false;
