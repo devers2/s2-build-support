@@ -25,7 +25,6 @@ import java.util.stream.Collectors;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
-import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.file.DuplicatesStrategy;
@@ -971,7 +970,7 @@ public class S2BuildUtils {
     public static void registerStandardJarTask(Project project, String archiveBaseName, String version, Set<String> licensePaths) {
         project.getTasks().register("standardJar", Jar.class, task -> {
             task.getArchiveBaseName().set(archiveBaseName);
-            task.getArchiveClassifier().set(""); // 기본 아티팩트는 classifier 없음
+            task.getArchiveClassifier().set("standard"); // 기본 jar와 충돌 방지를 위해 standard 사용
 
             // main 소스셋의 출력을 포함
             SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
@@ -1388,6 +1387,12 @@ public class S2BuildUtils {
             Object shadowExtension, String archiveBaseName, String version, Set<String> extraFiles) {
         try {
             project.getLogger().lifecycle("🔧 [Shadow] 배포 모드: 표준 JAR 생성, implementation/runtimeOnly 동적 쉐이딩");
+
+            // 0. 아티팩트 충돌 방지 및 실행 순서 제어
+            // jar 태스크는 'original' classifier를 사용하여 표준 JAR 생성
+            project.getTasks().named("jar", org.gradle.api.tasks.bundling.Jar.class, jar -> {
+                jar.getArchiveClassifier().set("original");
+            });
 
             // Shadow JAR 기본 설정
             java.lang.reflect.Method getArchiveBaseNameMethod = shadowTask.getClass().getMethod("getArchiveBaseName");
@@ -1926,7 +1931,7 @@ public class S2BuildUtils {
         String[] targets = { "compileOnly", "compileOnlyApi", "provided" };
 
         for (String target : targets) {
-            Configuration config = project.getConfigurations().findByName(target);
+            org.gradle.api.artifacts.Configuration config = project.getConfigurations().findByName(target);
             if (config == null)
                 continue;
 
