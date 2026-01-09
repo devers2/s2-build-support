@@ -1082,7 +1082,8 @@ public class S2BuildUtils {
     public static void registerCopyDependenciesTask(Project project) {
         project.getTasks().register("copyDependencies", Copy.class, task -> {
             task.from(project.getConfigurations().getByName("runtimeClasspath"));
-            task.into(project.getLayout().getBuildDirectory().dir("../dependencies"));
+            // 멀티 프로젝트에서도 루트의 dependencies 폴더로 모으기 위해 rootProject 기준 경로 사용
+            task.into(project.getRootProject().getLayout().getProjectDirectory().dir("dependencies"));
         });
     }
 
@@ -1896,7 +1897,8 @@ public class S2BuildUtils {
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
             // 1. 버전 및 날짜 업데이트 로직 (버전이 바뀔 때만 날짜 변경함)
-            Pattern vPattern = Pattern.compile("s2 Product Version: (\\d+\\.\\d+\\.\\d+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
+            // 스냅샷(-SNAPSHOT) 등을 포함한 다양한 버전 형식을 지원하도록 정규식 개선
+            Pattern vPattern = Pattern.compile("s2 Product Version: ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
             Matcher vMatcher = vPattern.matcher(content);
             if (vMatcher.find()) {
                 String existingVersion = vMatcher.group(1);
@@ -1910,9 +1912,9 @@ public class S2BuildUtils {
             List<String> depLines = collectDependencies(project);
 
             // 3. 마커 및 블록 처리함 (따옴표와 괄호 혼용 문제를 해결하기 위해 범용 패턴 사용함)
-            // 아래 패턴은 [//]: # '...' 또는 [//]: # (...) 형식을 모두 찾아냄
-            String startMarkerPattern = "\\[//\\]: # [\\(\']S2_DEPS_INFO_START[\\)\']";
-            String endMarkerPattern = "\\[//\\]: # [\\(\']S2_DEPS_INFO_END[\\)\']";
+            // 아래 패턴은 [//]: # '...' 또는 [//]: # (...) 또는 [//]: # "..." 형식을 모두 찾아냄
+            String startMarkerPattern = "\\[//\\]: # [\\(\\'\\\"]S2_DEPS_INFO_START[\\)\\'\\\"]";
+            String endMarkerPattern = "\\[//\\]: # [\\(\\'\\\"]S2_DEPS_INFO_END[\\)\\'\\\"]";
 
             // 표준 마커 (업데이트 시 이 형식으로 통일함)
             String stdStartMarker = "[//]: # 'S2_DEPS_INFO_START'";
