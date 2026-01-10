@@ -1338,15 +1338,9 @@ public class S2BuildUtils {
             for (String filePath : extraFiles) {
                 // 1. 프로젝트 기준 탐색
                 File file = project.file(filePath);
-                boolean foundInProject = file.exists();
-
-                // 2. 루트 기준 탐색 (프로젝트에 없으면)
-                if (!foundInProject) {
-                    file = project.getRootProject().file(filePath);
-                }
 
                 if (file.exists()) {
-                    String source = foundInProject ? "projectDir" : "rootDir";
+                    String source = "projectDir";
 
                     if (file.isDirectory()) {
                         // 디렉토리인 경우 fileTree 사용
@@ -1367,7 +1361,7 @@ public class S2BuildUtils {
                         jarTask.from(file);
                     }
                 } else {
-                    project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir and rootDir)");
+                    project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir)");
                 }
             }
         }
@@ -1448,15 +1442,9 @@ public class S2BuildUtils {
                     for (String filePath : extraFiles) {
                         // 1. 프로젝트 기준 탐색
                         File file = project.file(filePath);
-                        boolean foundInProject = file.exists();
-
-                        // 2. 루트 기준 탐색 (프로젝트에 없으면)
-                        if (!foundInProject) {
-                            file = project.getRootProject().file(filePath);
-                        }
 
                         if (file.exists()) {
-                            String source = foundInProject ? "projectDir" : "rootDir";
+                            String source = "projectDir";
 
                             if (file.isDirectory()) {
                                 // 디렉토리인 경우 fileTree 사용
@@ -1477,7 +1465,7 @@ public class S2BuildUtils {
                                 shadowJar.from(file);
                             }
                         } else {
-                            project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir and rootDir)");
+                            project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir)");
                         }
                     }
                     project.getLogger().lifecycle("✅ [Shadow] 추가 파일 포함 완료 (" + extraFiles.size() + " items)");
@@ -1640,15 +1628,9 @@ public class S2BuildUtils {
                         for (String filePath : extraFiles) {
                             // 1. 프로젝트 기준 탐색
                             File file = project.file(filePath);
-                            boolean foundInProject = file.exists();
-
-                            // 2. 루트 기준 탐색 (프로젝트에 없으면)
-                            if (!foundInProject) {
-                                file = project.getRootProject().file(filePath);
-                            }
 
                             if (file.exists()) {
-                                String source = foundInProject ? "projectDir" : "rootDir";
+                                String source = "projectDir";
 
                                 if (file.isDirectory()) {
                                     // 디렉토리인 경우 fileTree 사용
@@ -1671,13 +1653,13 @@ public class S2BuildUtils {
                                     copySpec.from(file);
                                 }
                             } else {
-                                project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir and rootDir)");
+                                project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir)");
                             }
                         }
                     } else {
                         // 리플렉션으로 from 메서드 호출
                         java.lang.reflect.Method fromMethod = shadowTask.getClass().getMethod("from", Object.class, org.gradle.api.Action.class);
-                        fromMethod.invoke(shadowTask, project.getRootDir(), (org.gradle.api.Action<org.gradle.api.file.CopySpec>) spec -> {
+                        fromMethod.invoke(shadowTask, project.getProjectDir(), (org.gradle.api.Action<org.gradle.api.file.CopySpec>) spec -> {
                             spec.include(extraFiles);
                         });
                     }
