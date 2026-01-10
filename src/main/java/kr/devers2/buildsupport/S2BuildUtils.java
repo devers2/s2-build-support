@@ -702,7 +702,21 @@ public class S2BuildUtils {
         // extraFiles 초기화 (불변 방지를 위해 복사)
         final Set<String> initialExtraFiles = (extraFiles != null) ? new LinkedHashSet<>(extraFiles) : new LinkedHashSet<>();
 
+        // Shadow 기능 활성화 여부 판단 (Publishing 모드에서의 조건부 활성화)
+        // Publishing: Shadow 플러그인 + shadedPackagePrefix 필수
+        // Build: Shadow 플러그인만 있으면 활성화
+        boolean enableShadowIntegration = false;
         if (useShadow) {
+            if (isAnyPublish) {
+                // 배포 모드: shadedPackagePrefix가 있어야만 Shadow 기능 사용
+                enableShadowIntegration = project.hasProperty("shadedPackagePrefix");
+            } else {
+                // 빌드 모드: Shadow 플러그인만 있으면 항상 사용 (Fat JAR)
+                enableShadowIntegration = true;
+            }
+        }
+
+        if (enableShadowIntegration) {
             // [Shadow 모드] Fat JAR 생성 및 Publish 연동
             // 타이밍 이슈 해결을 위해 내부에서 afterEvaluate를 사용하며, 이 리스너 안에서 라이선스를 재수집
             configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, initialExtraFiles);
@@ -740,11 +754,13 @@ public class S2BuildUtils {
             MavenPublishStrategy.configureSmartPublishing(p);
 
             // 2. 배포 설정 (Maven Publication 등록)
-            // afterEvaluate에서 실행되어야 java-gradle-plugin 등을 확실히 감지할 수 있음
-            configurePublications(p, useShadow, archiveBaseName);
+            // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
+            // configurePackaging 로직과 일치하도록 project 속성을 기준으로 재확인
+            boolean enableShadowPub = useShadow && p.hasProperty("shadedPackagePrefix");
+            configurePublications(p, enableShadowPub, archiveBaseName);
 
             // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
-            if (useShadow) {
+            if (enableShadowPub) {
                 configurePublishingForShadow(p);
             }
         });
@@ -1628,10 +1644,11 @@ public class S2BuildUtils {
 
             // Shadow 9에서는 기본적으로 runtimeClasspath가 포함되므로
             // api 의존성은 exclude하여 shaded되지 않도록 하고, relocate로 implementation/runtimeOnly만 정밀하게 제어
+
             // 2. Api 의존성 Artifact 식별 및 ShadowExclude
             // Shadow Plugin의 dependencies 블록을 사용하여 API 의존성을 명확히 제외
             java.lang.reflect.Method dependenciesMethod = shadowTask.getClass().getMethod("dependencies", org.gradle.api.Action.class);
-            if (dependenciesMethod != null) {
+            if (dependenciesMethod != null && project.hasProperty("shadedPackagePrefix")) {
                 dependenciesMethod.invoke(shadowTask, (org.gradle.api.Action<Object>) dependenciesSpec -> {
                     try {
                         java.lang.reflect.Method excludeMethodSpec = dependenciesSpec.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
@@ -2130,7 +2147,7 @@ public class S2BuildUtils {
                 String g = dep.getGroup();
                 String n = dep.getName();
                 String v = dep.getVersion();
-                if (n == null || "unspecified".equals(n) || isCommonLibrary(g, n))
+                if (n == null || "unspecified".equals(n))
                     continue;
 
                 String notation = (g != null && v != null) ? g + ":" + n + ":" + v : (g != null ? g + ":" + n : n);
@@ -2140,14 +2157,6 @@ public class S2BuildUtils {
             }
         }
         return depLines;
-    }
-
-    private static boolean isCommonLibrary(String group, String name) {
-        if (group == null || name == null)
-            return false;
-        return group.startsWith("org.springframework") || group.startsWith("com.fasterxml.jackson") ||
-                group.startsWith("org.aspectj") || group.contains("google.code.findbugs") ||
-                name.contains("spring") || name.contains("jackson");
     }
 
 }
