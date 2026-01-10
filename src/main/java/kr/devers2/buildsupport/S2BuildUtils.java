@@ -9,8 +9,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -59,17 +61,6 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  */
 public class S2BuildUtils {
 
-    private static final Set<String> DEFAULT_LICENSES = new LinkedHashSet<>();
-
-    static {
-        DEFAULT_LICENSES.add("README.md");
-        DEFAULT_LICENSES.add("licenses/NOTICE");
-        DEFAULT_LICENSES.add("licenses/LICENSE-APACHE-2.0");
-        DEFAULT_LICENSES.add("licenses/LICENSE-EPL-2.0");
-        DEFAULT_LICENSES.add("licenses/LICENSE-MIT");
-        DEFAULT_LICENSES.add("licenses/LICENSE-MPL-2.0");
-    }
-
     // ========================================================================
     // 경로 계산 관련 메서드
     // ========================================================================
@@ -81,26 +72,56 @@ public class S2BuildUtils {
      * @param activeSources     활성화된 추가 소스 목록
      * @return 병합된 라이선스 파일 목록
      */
-    public static Set<String> resolveLicensePaths(Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
-        Set<String> licensePaths = new LinkedHashSet<>(DEFAULT_LICENSES);
+    /**
+     * 활성화된 기능에 따른 라이선스 파일 목록 반환
+     *
+     * @param dynamicSourceInfo 동적 소스 설정 정보 (Map<기능명, Map<설정, 값>>)
+     * @param activeSources     활성화된 추가 소스 목록 (Collection<?>)
+     * @return 병합된 라이선스 파일 목록
+     */
+    public static Set<String> resolveLicensePaths(Map<String, Map<String, Object>> dynamicSourceInfo, Collection<?> activeSources) {
+        Set<String> licensePaths = new LinkedHashSet<>();
 
-        if (dynamicSourceInfo == null || activeSources == null) {
+        if (dynamicSourceInfo == null) {
+            System.err.println("DEBUG: dynamicSourceInfo is null");
+            return licensePaths;
+        }
+        if (activeSources == null || activeSources.isEmpty()) {
+            System.err.println("DEBUG: activeSources is null or empty: " + activeSources);
             return licensePaths;
         }
 
+        System.err.println("DEBUG: resolveLicensePaths called with activeSources=" + activeSources + ", dynamicSourceInfo keys=" + dynamicSourceInfo.keySet());
+
+        // activeSources를 String Set으로 변환하여 조회 속도 및 타입 안전성 확보
+        Set<String> activeFeatureNames = new HashSet<>();
+        for (Object source : activeSources) {
+            if (source != null) {
+                String s = String.valueOf(source).trim();
+                activeFeatureNames.add(s);
+                // System.err.println("DEBUG: Added active feature: '" + s + "'");
+            }
+        }
+
         for (String featureName : dynamicSourceInfo.keySet()) {
-            if (activeSources.contains(featureName)) {
+            if (activeFeatureNames.contains(featureName)) {
                 Map<String, Object> config = dynamicSourceInfo.get(featureName);
                 if (config != null) {
                     Object licensesObj = config.get("licenses");
                     if (licensesObj instanceof Collection) {
                         for (Object license : (Collection<?>) licensesObj) {
-                            licensePaths.add(String.valueOf(license));
+                            if (license != null) {
+                                licensePaths.add(String.valueOf(license));
+                            }
                         }
                     }
                 }
+            } else {
+                // System.err.println("DEBUG: Feature '" + featureName + "' not in active list");
             }
         }
+
+        System.err.println("DEBUG: Resolved paths: " + licensePaths);
         return licensePaths;
     }
 
@@ -624,6 +645,12 @@ public class S2BuildUtils {
      * @param excludedSourcePaths 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
      */
     public static void configurePackaging(Project project, Set<String> extraFiles, Set<String> excludedSourcePaths) {
+        if (extraFiles != null && !extraFiles.isEmpty()) {
+            project.getLogger().lifecycle("🔍 [Packaging Debug] " + project.getName() + " extraFiles: " + extraFiles);
+        } else {
+            project.getLogger().lifecycle("⚠️ [Packaging Debug] " + project.getName() + " extraFiles is empty or null");
+        }
+
         // 0. 소스 및 Javadoc 설정 통합 처리
         applySourceSettings(project, excludedSourcePaths);
 
@@ -660,10 +687,10 @@ public class S2BuildUtils {
             return lowerName.contains("publish") && !lowerName.contains("metadata");
         });
 
-        // 'build', 'assemble' 등 빌드 태스크 확인
+        // 'build', 'assemble', 'shadow' 등 빌드 태스크 확인
         boolean isBuildTask = taskNames.stream().anyMatch(name -> {
             String lowerName = name.toLowerCase();
-            return lowerName.contains("build") || lowerName.contains("assemble");
+            return lowerName.contains("build") || lowerName.contains("assemble") || lowerName.contains("shadow");
         });
 
         /*
@@ -671,12 +698,24 @@ public class S2BuildUtils {
          * 5. 패키징 모드별 설정 (Shadow vs Standard)
          * ========================================================================
          */
+
+        // extraFiles 초기화 (불변 방지를 위해 복사)
+        final Set<String> initialExtraFiles = (extraFiles != null) ? new LinkedHashSet<>(extraFiles) : new LinkedHashSet<>();
+
         if (useShadow) {
-            // [Shadow 모드] Fat JAR(Shaded) 생성 및 Publish 연동
-            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, extraFiles);
+            // [Shadow 모드] Fat JAR 생성 및 Publish 연동
+            // 타이밍 이슈 해결을 위해 내부에서 afterEvaluate를 사용하며, 이 리스너 안에서 라이선스를 재수집
+            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, initialExtraFiles);
         } else {
             // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
-            configureStandardMode(project, isAnyPublish, extraFiles, version);
+            // afterEvaluate 를 통해 licensePaths 가 최종 확정된 후 설정되도록 보장
+            project.afterEvaluate(p -> {
+                // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
+                Set<String> combinedExtraFiles = new LinkedHashSet<>(initialExtraFiles);
+                combinedExtraFiles.addAll(collectDynamicLicenses(p));
+
+                configureStandardMode(p, isAnyPublish, combinedExtraFiles, version);
+            });
         }
 
         /*
@@ -740,9 +779,14 @@ public class S2BuildUtils {
      */
     private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish,
             String archiveBaseName, String version, Set<String> extraFiles) {
-        // Shadow 9에서는 afterEvaluate를 사용하여 태스크 설정을 권장 (NamedDomainObjectContainer 이슈 방지)
+
+        // afterEvaluate: 플러그인 적용 및 설정 완료 후 실행 보장
         project.afterEvaluate(p -> {
             try {
+                // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
+                Set<String> combinedExtraFiles = new LinkedHashSet<>(extraFiles != null ? extraFiles : Collections.emptySet());
+                combinedExtraFiles.addAll(collectDynamicLicenses(p));
+
                 org.gradle.api.Task shadowTask = p.getTasks().findByName("shadowJar");
                 if (shadowTask == null) {
                     p.getLogger().warn("⚠️  [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
@@ -750,30 +794,18 @@ public class S2BuildUtils {
                 }
 
                 Object shadowExtension = p.getExtensions().findByName("shadow");
-                if (shadowExtension == null) {
-                    p.getLogger().warn("⚠️  [Shadow] Shadow 확장을 찾을 수 없습니다.");
-                    return;
-                }
+                // shadowExtension은 null일 수도 있음 (Shadow 9.x 일부 버전 등)
 
                 // Shadow JAR 상세 설정 분기
                 if (isBuildTask && !isAnyPublish) {
                     // [빌드 모드]: Fat JAR 생성 (Shaded + All Dependencies)
-                    configureShadowForBuild(p, shadowTask, shadowExtension, archiveBaseName, version, extraFiles);
+                    configureShadowForBuild(p, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
                 } else if (isAnyPublish) {
                     // [배포 모드]: Standard JAR 생성, 구현체만 Shaded (pom 의존성을 위해)
-                    configureShadowForPublish(p, shadowTask, shadowExtension, archiveBaseName, version, extraFiles);
+                    configureShadowForPublish(p, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
                 }
 
-            } catch (Exception e) {
-                p.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 설정 중 오류: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
-
-        // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
-        project.afterEvaluate(p -> {
-            try {
-                Object shadowExtension = p.getExtensions().findByName("shadow");
+                // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
                 if (shadowExtension != null && p.getPluginManager().hasPlugin("application")) {
                     try {
                         java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass().getMethod("getApplication");
@@ -782,11 +814,42 @@ public class S2BuildUtils {
                             p.getLogger().debug("✅ [Shadow] application 확장 감지됨 - startShadowScripts -> shadowJar");
                         }
                     } catch (NoSuchMethodException ignored) {
+                        // ignore
                     }
                 }
-            } catch (Exception ignored) {
+
+            } catch (Exception e) {
+                p.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 설정 중 오류: " + e.getMessage());
+                e.printStackTrace();
             }
         });
+    }
+
+    /**
+     * 프로젝트 속성을 기반으로 동적 라이선스 파일을 수집한다.
+     * (Configuration 단계 이후에 호출되어야 함 - afterEvaluate 내부 등)
+     */
+    private static Set<String> collectDynamicLicenses(Project project) {
+        Set<String> licenses = new LinkedHashSet<>();
+        try {
+            // activeFeatures와 dynamicSourceInfo는 Configuration 단계에서 설정되므로
+            // afterEvaluate 시점에는 안전하게 접근 가능
+            Object activeFeatures = project.findProperty("activeFeatures");
+            Object dynamicSourceInfo = project.findProperty("dynamicSourceInfo");
+
+            if (activeFeatures instanceof Collection && dynamicSourceInfo instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Map<String, Object>> sourceInfoMap = (Map<String, Map<String, Object>>) dynamicSourceInfo;
+                licenses.addAll(resolveLicensePaths(sourceInfoMap, (Collection<?>) activeFeatures));
+
+                if (!licenses.isEmpty()) {
+                    project.getLogger().lifecycle("🔍 [Dynamic License Collection] Found additional files: " + licenses);
+                }
+            }
+        } catch (Exception e) {
+            project.getLogger().warn("⚠️ [Dynamic License Collection] Failed to collect licenses: " + e.getMessage());
+        }
+        return licenses;
     }
 
     /**
@@ -1210,9 +1273,43 @@ public class S2BuildUtils {
      */
     private static void includeExtraFiles(Jar jarTask, Project project, Set<String> extraFiles) {
         if (extraFiles != null && !extraFiles.isEmpty()) {
-            jarTask.from(project.getRootDir(), spec -> {
-                spec.include(extraFiles);
-            });
+            project.getLogger().lifecycle("📋 [JAR Packaging] Including extra files into " + jarTask.getName());
+
+            for (String filePath : extraFiles) {
+                // 1. 프로젝트 기준 탐색
+                File file = project.file(filePath);
+                boolean foundInProject = file.exists();
+
+                // 2. 루트 기준 탐색 (프로젝트에 없으면)
+                if (!foundInProject) {
+                    file = project.getRootProject().file(filePath);
+                }
+
+                if (file.exists()) {
+                    String source = foundInProject ? "projectDir" : "rootDir";
+
+                    if (file.isDirectory()) {
+                        // 디렉토리인 경우 fileTree 사용
+                        project.getLogger().lifecycle("   ✅ Adding directory [" + source + "]: " + filePath);
+                        jarTask.from(project.fileTree(file));
+                    } else if (filePath.contains("/")) {
+                        // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
+                        String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
+                        project.getLogger().lifecycle("   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+
+                        File finalFile = file;
+                        jarTask.from(finalFile, copySpec -> {
+                            copySpec.into(parentPath);
+                        });
+                    } else {
+                        // 루트 레벨 파일 (예: README.md) -> 루트에 저장
+                        project.getLogger().lifecycle("   ✅ Adding root file [" + source + "]: " + filePath);
+                        jarTask.from(file);
+                    }
+                } else {
+                    project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir and rootDir)");
+                }
+            }
         }
     }
 
@@ -1286,8 +1383,44 @@ public class S2BuildUtils {
 
                 // 2. 추가 파일 (licenses, META-INF, readme.md) 포함
                 if (extraFiles != null && !extraFiles.isEmpty()) {
-                    shadowJar.from(project.getRootDir(), spec -> spec.include(extraFiles));
-                    project.getLogger().lifecycle("✅ [Shadow] 추가 파일 포함: " + extraFiles);
+                    project.getLogger().lifecycle("📋 [Shadow JAR] Including extra files into " + shadowJar.getName());
+
+                    for (String filePath : extraFiles) {
+                        // 1. 프로젝트 기준 탐색
+                        File file = project.file(filePath);
+                        boolean foundInProject = file.exists();
+
+                        // 2. 루트 기준 탐색 (프로젝트에 없으면)
+                        if (!foundInProject) {
+                            file = project.getRootProject().file(filePath);
+                        }
+
+                        if (file.exists()) {
+                            String source = foundInProject ? "projectDir" : "rootDir";
+
+                            if (file.isDirectory()) {
+                                // 디렉토리인 경우 fileTree 사용
+                                project.getLogger().lifecycle("   ✅ Adding directory [" + source + "]: " + filePath);
+                                shadowJar.from(project.fileTree(file));
+                            } else if (filePath.contains("/")) {
+                                // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
+                                String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
+                                project.getLogger().lifecycle("   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+
+                                File finalFile = file;
+                                shadowJar.from(finalFile, copySpec -> {
+                                    copySpec.into(parentPath);
+                                });
+                            } else {
+                                // 루트 레벨 파일 (예: README.md) -> 루트에 저장
+                                project.getLogger().lifecycle("   ✅ Adding root file [" + source + "]: " + filePath);
+                                shadowJar.from(file);
+                            }
+                        } else {
+                            project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir and rootDir)");
+                        }
+                    }
+                    project.getLogger().lifecycle("✅ [Shadow] 추가 파일 포함 완료 (" + extraFiles.size() + " items)");
                 }
 
                 // 4. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
@@ -1442,12 +1575,45 @@ public class S2BuildUtils {
                     // Shadow 9에서는 CopySpec으로 캐스팅하여 from 메서드 호출
                     if (shadowTask instanceof org.gradle.api.file.CopySpec) {
                         org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
-                        copySpec.from(project.getRootDir(), spec -> {
-                            if (spec instanceof org.gradle.api.file.CopySpec) {
-                                org.gradle.api.file.CopySpec copySpec2 = (org.gradle.api.file.CopySpec) spec;
-                                copySpec2.include(extraFiles);
+                        project.getLogger().lifecycle("📋 [Shadow Publish] Including extra files into " + shadowTask.getName());
+
+                        for (String filePath : extraFiles) {
+                            // 1. 프로젝트 기준 탐색
+                            File file = project.file(filePath);
+                            boolean foundInProject = file.exists();
+
+                            // 2. 루트 기준 탐색 (프로젝트에 없으면)
+                            if (!foundInProject) {
+                                file = project.getRootProject().file(filePath);
                             }
-                        });
+
+                            if (file.exists()) {
+                                String source = foundInProject ? "projectDir" : "rootDir";
+
+                                if (file.isDirectory()) {
+                                    // 디렉토리인 경우 fileTree 사용
+                                    project.getLogger().lifecycle("   ✅ Adding directory [" + source + "]: " + filePath);
+                                    copySpec.from(project.fileTree(file));
+                                } else if (filePath.contains("/")) {
+                                    // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
+                                    String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
+                                    project.getLogger().lifecycle("   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+
+                                    File finalFile = file;
+                                    copySpec.from(finalFile, spec -> {
+                                        if (spec instanceof org.gradle.api.file.CopySpec) {
+                                            ((org.gradle.api.file.CopySpec) spec).into(parentPath);
+                                        }
+                                    });
+                                } else {
+                                    // 루트 레벨 파일 (예: README.md) -> 루트에 저장
+                                    project.getLogger().lifecycle("   ✅ Adding root file [" + source + "]: " + filePath);
+                                    copySpec.from(file);
+                                }
+                            } else {
+                                project.getLogger().warn("   ⚠️  File not found: " + filePath + " (checked projectDir and rootDir)");
+                            }
+                        }
                     } else {
                         // 리플렉션으로 from 메서드 호출
                         java.lang.reflect.Method fromMethod = shadowTask.getClass().getMethod("from", Object.class, org.gradle.api.Action.class);
