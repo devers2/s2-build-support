@@ -29,6 +29,8 @@ import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.ResolvedArtifact;
+import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.tasks.Copy;
 import org.gradle.api.tasks.SourceSetContainer;
@@ -1204,9 +1206,44 @@ public class S2BuildUtils {
      */
     public static void registerCopyDependenciesTask(Project project) {
         project.getTasks().register("copyDependencies", Copy.class, task -> {
-            task.from(project.getConfigurations().getByName("runtimeClasspath"));
+            // Lazy configuration via provider
+            task.from(project.getProviders().provider(() -> {
+                List<File> filesToCopy = new ArrayList<>();
+                org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+
+                if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
+                    // Use resolved configuration to access artifacts and their metadata
+                    for (ResolvedArtifact artifact : runtimeConfig.getResolvedConfiguration().getResolvedArtifacts()) {
+                        ComponentIdentifier id = artifact.getId().getComponentIdentifier();
+
+                        // 1. 로컬 프로젝트 제외 (s2-core 등)
+                        if (id instanceof ProjectComponentIdentifier) {
+                            continue;
+                        }
+
+                        // 2. Gradle 시스템 라이브러리 및 빌드 도구 제외
+                        // (Gradle Plugin 프로젝트 특성상 runtimeClasspath에 Gradle API가 포함될 수 있음)
+                        String group = artifact.getModuleVersion().getId().getGroup();
+                        if (group != null) {
+                            if (group.startsWith("org.gradle") ||
+                                    group.startsWith("org.codehaus.groovy") || // Gradle bundled Groovy
+                                    group.startsWith("org.jetbrains.kotlin") || // Gradle bundled Kotlin
+                                    group.startsWith("ant")) { // Often bundled with Gradle
+                                continue;
+                            }
+                        }
+
+                        filesToCopy.add(artifact.getFile());
+                    }
+                }
+                return filesToCopy;
+            }));
+
             // 멀티 프로젝트에서도 루트의 dependencies 폴더로 모으기 위해 rootProject 기준 경로 사용
             task.into(project.getRootProject().getLayout().getProjectDirectory().dir("dependencies"));
+
+            // 중복 파일 허용 (여러 모듈이 동일 라이브러리 의존 시)
+            task.setDuplicatesStrategy(DuplicatesStrategy.INCLUDE);
         });
     }
 
