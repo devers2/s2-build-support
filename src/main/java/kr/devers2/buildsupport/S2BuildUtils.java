@@ -42,18 +42,62 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  *
  * <p>
  * 이 클래스는 build.gradle에서 사용하는 복잡한 빌드 로직을 Java 코드로 캡슐화하여
- * 재사용성과 유지보수성을 높이는 핵심 유틸리티
+ * 재사용성과 유지보수성을 높이는 핵심 유틸리티입니다.
  * </p>
  *
- * <p>
- * 주요 기능 영역:
- * </p>
+ * <h3>📦 패키징 전략 (Packaging Strategies)</h3>
+ *
+ * <h4>1. Publishing (Standard) - 'shadedPackagePrefix' 미설정 시</h4>
  * <ul>
- * <li><b>경로 계산</b>: 라이선스 경로, 제외 경로 해석</li>
- * <li><b>소스 토글</b>: 동적 기능별 소스 파일 활성화/비활성화</li>
- * <li><b>Import 변환</b>: Java 버전별 Servlet import 자동 전환</li>
- * <li><b>파일 업데이트</b>: 저작권 연도, README.md 버전 자동 갱신</li>
- * <li><b>JAR 생성</b>: Classifier 생성, 파일명 생성 유틸리티</li>
+ * <li>결과물: Standard JAR (Shadow OFF)</li>
+ * <li>특징: 의존성을 포함하지 않음. POM을 통해 api(compile), implementation(runtime) 전이.</li>
+ * </ul>
+ *
+ * <h4>2. Publishing (Shaded) - 'shadedPackagePrefix' 설정 시</h4>
+ * <ul>
+ * <li>결과물: Shaded JAR (Shadow ON)</li>
+ * <li>특징: implementation/runtimeOnly 의존성을 Relocate하여 JAR에 포함.</li>
+ * <li>전이: api는 JAR에서 제외하고 POM에 compile 스코프로 주입. implementation은 POM에서 제거.</li>
+ * </ul>
+ *
+ * <h4>3. Build (Fat JAR) - 'shadedPackagePrefix' 미설정 시</h4>
+ * <ul>
+ * <li>결과물: Fat JAR (Shadow ON)</li>
+ * <li>특징: Relocation 없이 모든 의존성을 JAR에 포함.</li>
+ * </ul>
+ *
+ * <h4>4. Build (Relocated Fat JAR) - 'shadedPackagePrefix' 설정 시</h4>
+ * <ul>
+ * <li>결과물: Fat JAR with Relocation (Shadow ON)</li>
+ * <li>특징: 모든 의존성을 지정된 패키지로 Relocate하여 JAR에 포함.</li>
+ * </ul>
+ *
+ * <h3>🔗 의존성 전이 및 패키징 규칙 (Dependency Rules)</h3>
+ * <ul>
+ * <li><b>api</b>: 라이브러리 공개 인터페이스에 노출되는 의존성.
+ * <ul>
+ * <li>Standard: POM에 'compile' 스코프로 유지됨.</li>
+ * <li>Shaded: JAR에서는 제외되나, POM에 'compile' 스코프로 수동 주입되어 전이됨.</li>
+ * </ul>
+ * </li>
+ * <li><b>implementation</b>: 내부 구현 전용 의존성.
+ * <ul>
+ * <li>Standard: POM에 'runtime' 스코프로 유지됨.</li>
+ * <li>Shaded: JAR에 포함(Relocate)되며, POM에서는 제거됨 (전이 차단).</li>
+ * </ul>
+ * </li>
+ * <li><b>compileOnly / compileOnlyApi / provided</b>: 빌드 시에만 필요하거나 런타임에 별도로 제공됨.
+ * <ul>
+ * <li>Standard & Shaded: JAR와 POM 모두에서 제외됨.</li>
+ * <li>특이사항: S2BuildUtils에 의해 README.md의 'Manual Setup' 권장 목록에 포함될 수 있음.</li>
+ * </ul>
+ * </li>
+ * <li><b>runtimeOnly</b>: 실행 시에만 필요한 의존성.
+ * <ul>
+ * <li>Standard: POM에 'runtime' 스코프로 유지됨.</li>
+ * <li>Shaded: JAR에 포함(Relocate)되며, POM에서는 제거됨.</li>
+ * </ul>
+ * </li>
  * </ul>
  *
  * @see LibrariesPublisher
