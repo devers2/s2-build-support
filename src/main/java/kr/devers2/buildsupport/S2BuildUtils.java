@@ -1857,54 +1857,60 @@ public class S2BuildUtils {
                     publication.artifact(javadocJarTask);
                 }
 
-                // POM 설정: implementation/runtimeOnly 제외, api만 포함
-                publication.pom(pom -> {
-                    pom.withXml(xml -> {
-                        org.w3c.dom.Document doc = xml.asElement().getOwnerDocument();
-                        org.w3c.dom.Element root = xml.asElement();
+                // POM 설정: api 의존성을 수동으로 추가 (Shaded 모드에서는 components.java를 못 쓰므로)
+                // ProjectDependency(예: project(':s2-core'))도 올바르게 GAV로 변환하여 추가함
+                org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
+                if (apiConfig != null) {
+                    publication.pom(pom -> {
+                        pom.withXml(xml -> {
+                            // Groovy Node 사용
+                            Object rootObj = xml.asNode();
+                            groovy.util.Node root = (groovy.util.Node) rootObj;
 
-                        // dependencies 요소 찾기 또는 생성
-                        org.w3c.dom.NodeList dependenciesList = root.getElementsByTagName("dependencies");
-                        org.w3c.dom.Element dependencies;
-                        if (dependenciesList.getLength() > 0) {
-                            dependencies = (org.w3c.dom.Element) dependenciesList.item(0);
-                        } else {
-                            dependencies = doc.createElement("dependencies");
-                            root.appendChild(dependencies);
-                        }
+                            groovy.util.Node dependenciesNode;
+                            java.util.List<?> depNodes = (java.util.List<?>) root.get("dependencies");
+                            if (depNodes != null && !depNodes.isEmpty()) {
+                                dependenciesNode = (groovy.util.Node) depNodes.get(0);
+                            } else {
+                                dependenciesNode = root.appendNode("dependencies");
+                            }
 
-                        // 기존 dependency 제거
-                        while (dependencies.getFirstChild() != null) {
-                            dependencies.removeChild(dependencies.getFirstChild());
-                        }
+                            // 기존 하위 노드 제거 (중복 방지)
+                            dependenciesNode.children().clear();
 
-                        // api 의존성만 추가
-                        org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-                        if (apiConfig != null) {
-                            for (org.gradle.api.artifacts.Dependency dependency : apiConfig.getAllDependencies()) {
-                                if (dependency instanceof org.gradle.api.artifacts.ExternalDependency) {
-                                    org.gradle.api.artifacts.ExternalDependency extDep = (org.gradle.api.artifacts.ExternalDependency) dependency;
+                            for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
+                                String g = dep.getGroup();
+                                String a = dep.getName();
+                                String v = dep.getVersion();
 
-                                    org.w3c.dom.Element dependencyEl = doc.createElement("dependency");
+                                // Project Dependency 처리
+                                if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
+                                    try {
+                                        java.lang.reflect.Method getProjectMethod = dep.getClass().getMethod("getDependencyProject");
+                                        org.gradle.api.Project depProject = (org.gradle.api.Project) getProjectMethod.invoke(dep);
+                                        g = depProject.getGroup().toString();
+                                        a = depProject.getName();
+                                        v = depProject.getVersion().toString();
+                                    } catch (Exception e) {
+                                        // Reflection failed or method not found
+                                        project.getLogger().warn("⚠️ [Shadow Publish] Failed to resolve ProjectDependency via reflection: " + e.getMessage());
+                                    }
+                                }
 
-                                    org.w3c.dom.Element groupId = doc.createElement("groupId");
-                                    groupId.setTextContent(extDep.getGroup());
-                                    dependencyEl.appendChild(groupId);
-
-                                    org.w3c.dom.Element artifactId = doc.createElement("artifactId");
-                                    artifactId.setTextContent(extDep.getName());
-                                    dependencyEl.appendChild(artifactId);
-
-                                    org.w3c.dom.Element versionEl = doc.createElement("version");
-                                    versionEl.setTextContent(extDep.getVersion());
-                                    dependencyEl.appendChild(versionEl);
-
-                                    dependencies.appendChild(dependencyEl);
+                                if (g != null && a != null && !"unspecified".equals(a)) {
+                                    groovy.util.Node depNode = dependenciesNode.appendNode("dependency");
+                                    depNode.appendNode("groupId", g);
+                                    depNode.appendNode("artifactId", a);
+                                    if (v != null && !v.isEmpty() && !"unspecified".equals(v)) {
+                                        depNode.appendNode("version", v);
+                                    }
+                                    depNode.appendNode("scope", "compile");
                                 }
                             }
-                        }
+                        });
                     });
-                });
+                    project.getLogger().lifecycle("✅ [Shadow Publish] Generated POM includes 'api' dependencies manually.");
+                }
             });
 
         } catch (Exception e) {
