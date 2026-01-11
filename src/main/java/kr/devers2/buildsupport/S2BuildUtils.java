@@ -1881,14 +1881,14 @@ public class S2BuildUtils {
     /**
      * Shadow JAR 안정성 검증을 위한 테스크 등록
      * <p>
-     * build.gradle의 ext.artifactTestClassName 설정이 있는 경우,
+     * build.gradle의 ext.artifactTestClassNames 설정이 있는 경우,
      * 해당 클래스를 최종 생성된 JAR를 클래스패스로 하여 실행하는 testArtifact 태스크를 생성합니다.
      * </p>
      */
     private static void registerTestArtifactTask(Project project, org.gradle.api.Task shadowJar) {
         List<String> verifyClasses = new ArrayList<>();
-        if (project.hasProperty("artifactTestClassName")) {
-            Object prop = project.findProperty("artifactTestClassName");
+        if (project.hasProperty("artifactTestClassNames")) {
+            Object prop = project.findProperty("artifactTestClassNames");
             if (prop instanceof Collection) {
                 for (Object o : (Collection<?>) prop) {
                     if (o != null)
@@ -1923,14 +1923,14 @@ public class S2BuildUtils {
 
             // 3. 일반 test 태스크 비활성화 (검증 클래스가 지정된 경우 'testArtifact'로 검증을 일원화)
             project.getTasks().withType(org.gradle.api.tasks.testing.Test.class).configureEach(testTask -> {
-                project.getLogger().info("ℹ️ [Shadow] 'artifactTestClassName' 설정이 감지되어 일반 test 태스크를 비활성화하고 'testArtifact'로 검증을 이관합니다.");
+                project.getLogger().info("ℹ️ [Shadow] 'artifactTestClassNames' 설정이 감지되어 일반 test 태스크를 비활성화하고 'testArtifact'로 검증을 이관합니다.");
                 testTask.setEnabled(false);
             });
 
             project.getLogger().lifecycle("✅ [Shadow] 'testArtifact' 태스크가 빌드 사이클에 등록되었습니다. (대상: " + verifyClasses + ")");
         } else {
             // 가이드 로그 출력 (Cyan)
-            project.getLogger().lifecycle(ANSI_CYAN + "📘 [Guide] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassName = [\"패키지.클래스1\", \"패키지.클래스2\"]'를 설정하세요." + ANSI_RESET);
+            project.getLogger().lifecycle(ANSI_CYAN + "📘 [Guide] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassNames = [\"패키지.클래스1\", \"패키지.클래스2\"]'를 설정하세요." + ANSI_RESET);
             project.getLogger().lifecycle(ANSI_CYAN + "   -> 설정 시 './gradlew testArtifact'를 통해 최종 JAR를 클래스패스로 하여 테스트를 실행할 수 있습니다." + ANSI_RESET);
         }
     }
@@ -1956,9 +1956,19 @@ public class S2BuildUtils {
                 // Test SourceSet이 없는 경우 무시
             }
 
-            task.getMainClass().set(targetClass);
+            // 3. S2TestLauncher를 실행하기 위해 build-support 클래스패스 추가
+            try {
+                java.io.File supportJar = new java.io.File(S2BuildUtils.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+                task.setClasspath(task.getClasspath().plus(project.files(supportJar)));
+            } catch (Exception e) {
+                project.getLogger().warn("⚠️ [Shadow] S2TestLauncher 클래스패스 추가 실패: " + e.getMessage());
+            }
 
-            // 3. 작업 시작 전 안내 로그 (Cyan 색상 적용)
+            // 4. 실행 MainClass를 S2TestLauncher로 설정하고 타겟 클래스를 첫 번째 인자로 전달
+            task.getMainClass().set("kr.devers2.buildsupport.S2TestLauncher");
+            task.setArgs(java.util.List.of(targetClass));
+
+            // 5. 작업 시작 전 안내 로그 (Cyan 색상 적용)
             task.doFirst(t -> {
                 project.getLogger().lifecycle(ANSI_CYAN + "🚀 [Verification] 'built-artifact'를 클래스패스 최우선으로 하여 런타임 검증을 수행합니다. (Target: " + targetClass + ")" + ANSI_RESET);
             });
