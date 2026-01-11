@@ -1089,6 +1089,9 @@ public class S2BuildUtils {
                     configureShadowForPublish(p, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
                 }
 
+                // 7. Shadow JAR 검증 태스크 등록 (사용자 설정 시) - 모든 모드 공통
+                registerTestArtifactTask(p, shadowTask);
+
                 // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
                 if (shadowExtension != null && p.getPluginManager().hasPlugin("application")) {
                     try {
@@ -1763,9 +1766,6 @@ public class S2BuildUtils {
                 // 6. Minimize (최적화) 적용 - 로컬 프로젝트 제외
                 applyMinimize(shadowJar, project);
 
-                // 7. Shadow JAR 검증 태스크 등록 (사용자 설정 시)
-                registerShadowJarVerificationTask(project, shadowJar);
-
             } catch (Exception e) {
                 project.getLogger().warn("⚠️ [Shadow] 빌드 모드 설정 중 오류: " + e.getMessage());
                 e.printStackTrace();
@@ -1885,44 +1885,84 @@ public class S2BuildUtils {
      * 해당 클래스를 최종 생성된 JAR를 클래스패스로 하여 실행하는 testArtifact 태스크를 생성합니다.
      * </p>
      */
-    private static void registerShadowJarVerificationTask(Project project, org.gradle.api.Task shadowJar) {
-        String verifyClass = null;
+    private static void registerTestArtifactTask(Project project, org.gradle.api.Task shadowJar) {
+        List<String> verifyClasses = new ArrayList<>();
         if (project.hasProperty("artifactTestClassName")) {
-            verifyClass = project.findProperty("artifactTestClassName").toString();
+            Object prop = project.findProperty("artifactTestClassName");
+            if (prop instanceof Collection) {
+                for (Object o : (Collection<?>) prop) {
+                    if (o != null)
+                        verifyClasses.add(o.toString());
+                }
+            } else if (prop != null) {
+                String s = prop.toString();
+                if (!s.isEmpty())
+                    verifyClasses.add(s);
+            }
         }
 
-        if (verifyClass != null && !verifyClass.isEmpty()) {
-            final String targetClass = verifyClass;
-            project.getTasks().register("testArtifact", JavaExec.class, task -> {
-                task.setGroup("verification");
-                task.setDescription("Minimize가 적용된 Shadow JAR를 기반으로 런타임 안정성을 검증합니다.");
-                task.dependsOn(shadowJar);
+        if (!verifyClasses.isEmpty()) {
+            // 1. 단일 또는 다중 실행 태스크 등록
+            if (verifyClasses.size() == 1) {
+                registerTestArtifactJavaExecTask(project, shadowJar, "testArtifact", verifyClasses.get(0));
+            } else {
+                // Lifecycle task
+                org.gradle.api.Task rootTask = project.getTasks().maybeCreate("testArtifact");
+                rootTask.setGroup("verification");
+                rootTask.setDescription("Minimize가 적용된 Shadow JAR를 기반으로 등록된 모든 검증 클래스를 실행합니다.");
 
-                // 1. Shadow JAR를 클래스패스 최우선순위로 설정
-                task.setClasspath(project.files(shadowJar.getOutputs().getFiles()));
-
-                // 2. 테스트 환경 구동을 위해 필요한 경우 Test Runtime Classpath 추가 (JUnit, 컴파일된 테스트 클래스 등)
-                try {
-                    SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
-                    SourceSet testSourceSet = sourceSets.getByName("test");
-                    task.setClasspath(task.getClasspath().plus(testSourceSet.getRuntimeClasspath()));
-                } catch (Exception ignored) {
-                    // Test SourceSet이 없는 경우 무시
+                for (String cls : verifyClasses) {
+                    String subTaskName = "testArtifact_" + cls.substring(cls.lastIndexOf('.') + 1);
+                    registerTestArtifactJavaExecTask(project, shadowJar, subTaskName, cls);
+                    rootTask.dependsOn(subTaskName);
                 }
+            }
 
-                task.getMainClass().set(targetClass);
+            // 2. 빌드 사이클에 통합: 'check' 태스크가 'testArtifact'에 의존하게 하여 빌드 시 자동 실행
+            project.getTasks().named("check").configure(check -> check.dependsOn("testArtifact"));
 
-                // 3. 작업 시작 전 안내 로그
-                task.doFirst(t -> {
-                    project.getLogger().lifecycle("🚀 [Verification] Shadow JAR 기반 런타임 검증 시작: " + targetClass);
-                });
+            // 3. 일반 test 태스크 비활성화 (검증 클래스가 지정된 경우 'testArtifact'로 검증을 일원화)
+            project.getTasks().withType(org.gradle.api.tasks.testing.Test.class).configureEach(testTask -> {
+                project.getLogger().info("ℹ️ [Shadow] 'artifactTestClassName' 설정이 감지되어 일반 test 태스크를 비활성화하고 'testArtifact'로 검증을 이관합니다.");
+                testTask.setEnabled(false);
             });
-            project.getLogger().lifecycle("✅ [Shadow] 'testArtifact' 태스크가 등록되었습니다. (대상: " + verifyClass + ")");
+
+            project.getLogger().lifecycle("✅ [Shadow] 'testArtifact' 태스크가 빌드 사이클에 등록되었습니다. (대상: " + verifyClasses + ")");
         } else {
             // 가이드 로그 출력 (Cyan)
-            project.getLogger().lifecycle(ANSI_CYAN + "📘 [Guide] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassName = \"패키지.클래스명\"'을 설정하세요." + ANSI_RESET);
+            project.getLogger().lifecycle(ANSI_CYAN + "📘 [Guide] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassName = [\"패키지.클래스1\", \"패키지.클래스2\"]'를 설정하세요." + ANSI_RESET);
             project.getLogger().lifecycle(ANSI_CYAN + "   -> 설정 시 './gradlew testArtifact'를 통해 최종 JAR를 클래스패스로 하여 테스트를 실행할 수 있습니다." + ANSI_RESET);
         }
+    }
+
+    /**
+     * JavaExec 기반의 검증 태스크를 내부적으로 등록한다.
+     */
+    private static void registerTestArtifactJavaExecTask(Project project, org.gradle.api.Task shadowJar, String taskName, String targetClass) {
+        project.getTasks().register(taskName, JavaExec.class, task -> {
+            task.setGroup("verification");
+            task.setDescription("Minimize가 적용된 Shadow JAR를 기반으로 [" + targetClass + "]를 실행하여 안정성을 검증합니다.");
+            task.dependsOn(shadowJar);
+
+            // 1. Shadow JAR를 클래스패스 최우선순위로 설정
+            task.setClasspath(project.files(shadowJar.getOutputs().getFiles()));
+
+            // 2. 테스트 환경 구동을 위해 필요한 경우 Test Runtime Classpath 추가
+            try {
+                SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
+                SourceSet testSourceSet = sourceSets.getByName("test");
+                task.setClasspath(task.getClasspath().plus(testSourceSet.getRuntimeClasspath()));
+            } catch (Exception ignored) {
+                // Test SourceSet이 없는 경우 무시
+            }
+
+            task.getMainClass().set(targetClass);
+
+            // 3. 작업 시작 전 안내 로그 (Cyan 색상 적용)
+            task.doFirst(t -> {
+                project.getLogger().lifecycle(ANSI_CYAN + "🚀 [Verification] 'built-artifact'를 클래스패스 최우선으로 하여 런타임 검증을 수행합니다. (Target: " + targetClass + ")" + ANSI_RESET);
+            });
+        });
     }
 
     // ========================================================================
