@@ -822,7 +822,6 @@ public class S2BuildUtils {
         Collection<?> activeFeatures = (activeFeaturesObj instanceof Collection) ? (Collection<?>) activeFeaturesObj : new java.util.ArrayList<>();
         Map<String, Map<String, Object>> sourceInfoMap = new java.util.HashMap<>();
         if (dynamicSourceInfoObj instanceof Map) {
-            @SuppressWarnings("unchecked")
             Map<?, ?> rawMap = (Map<?, ?>) dynamicSourceInfoObj;
             rawMap.forEach((k, v) -> {
                 if (k != null && v instanceof Map) {
