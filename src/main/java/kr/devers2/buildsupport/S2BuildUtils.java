@@ -112,93 +112,6 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
-     * 활성화된 기능에 따른 라이선스 파일 목록 반환 (자동 감지 기능 포함)
-     * - 프로젝트 루트의 README.md 자동 포함
-     * - 프로젝트 루트의 licenses/ 폴더 내 모든 파일 자동 포함
-     *
-     * @param project           Gradle 프로젝트 객체
-     * @param dynamicSourceInfo 동적 소스 설정 정보 (Map<기능명, Map<설정, 값>>)
-     * @param activeSources     활성화된 추가 소스 목록 (Collection<?>)
-     * @return 병합된 라이선스 파일 목록
-     */
-    public static Set<String> resolveLicensePaths(org.gradle.api.Project project, Map<String, Map<String, Object>> dynamicSourceInfo, Collection<?> activeSources) {
-        Set<String> licensePaths = new LinkedHashSet<>();
-
-        // 1. 자동 감지: 상속받은 라이선스 파일 (README*.md, licenses/*)
-        File rootDir = project.getProjectDir();
-        File[] rootFiles = rootDir.listFiles();
-        if (rootFiles != null) {
-            java.util.Arrays.sort(rootFiles, (a, b) -> a.getName().compareTo(b.getName()));
-            for (File f : rootFiles) {
-                if (f.isFile() && (f.getName().equals("README.md") || (f.getName().startsWith("README") && f.getName().endsWith(".md")))) {
-                    licensePaths.add(f.getName());
-                }
-            }
-        }
-
-        File licenseDir = project.file("licenses");
-        if (licenseDir.exists() && licenseDir.isDirectory()) {
-            File[] files = licenseDir.listFiles();
-            if (files != null) {
-                // 이름 순 정렬하여 일관성 유지
-                java.util.Arrays.sort(files, (a, b) -> a.getName().compareTo(b.getName()));
-                for (File f : files) {
-                    if (f.isFile()) {
-                        licensePaths.add("licenses/" + f.getName());
-                    }
-                }
-            }
-        }
-
-        // 2. 동적 기능별 명시적 라이선스 병합
-        licensePaths.addAll(resolveLicensePaths(dynamicSourceInfo, activeSources));
-
-        return licensePaths;
-    }
-
-    /**
-     * 활성화된 기능에 따른 라이선스 파일 목록 반환
-     *
-     * @param dynamicSourceInfo 동적 소스 설정 정보 (Map<기능명, Map<설정, 값>>)
-     * @param activeSources     활성화된 추가 소스 목록 (Collection<?>)
-     * @return 병합된 라이선스 파일 목록
-     */
-    public static Set<String> resolveLicensePaths(Map<String, Map<String, Object>> dynamicSourceInfo, Collection<?> activeSources) {
-        Set<String> licensePaths = new LinkedHashSet<>();
-
-        if (dynamicSourceInfo == null || activeSources == null || activeSources.isEmpty()) {
-            return licensePaths;
-        }
-
-        // activeSources를 String Set으로 변환
-        Set<String> activeFeatureNames = new HashSet<>();
-        for (Object source : activeSources) {
-            if (source != null) {
-                activeFeatureNames.add(String.valueOf(source).trim());
-            }
-        }
-
-        for (String featureName : dynamicSourceInfo.keySet()) {
-            if (activeFeatureNames.contains(featureName)) {
-                Object configObj = dynamicSourceInfo.get(featureName);
-                if (configObj instanceof Map) {
-                    Map<?, ?> config = (Map<?, ?>) configObj;
-                    Object licensesObj = config.get("licenses");
-                    if (licensesObj instanceof Collection) {
-                        for (Object license : (Collection<?>) licensesObj) {
-                            if (license != null) {
-                                licensePaths.add(String.valueOf(license));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return licensePaths;
-    }
-
-    /**
      * 비활성화된 기능의 소스 파일 경로(.txt) 목록 반환
      *
      * @param dynamicSourceInfo 동적 소스 설정 정보 (Map<기능명, Map<설정, 값>>)
@@ -233,6 +146,41 @@ public class S2BuildUtils {
     // ========================================================================
     // 동적 의존성 및 라이선스 자동화 (Dynamic Dependency & License Automation)
     // ========================================================================
+
+    /**
+     * 동적 소스 정보에서 라이선스 파일 경로 추출 (Private Helper)
+     */
+    private static Set<String> extractLicensesFromSourceInfo(Map<String, Map<String, Object>> dynamicSourceInfo, Collection<?> activeFeatures) {
+        Set<String> licensePaths = new LinkedHashSet<>();
+        if (dynamicSourceInfo == null || activeFeatures == null) {
+            return licensePaths;
+        }
+
+        Set<String> activeFeatureNames = new HashSet<>();
+        for (Object feature : activeFeatures) {
+            if (feature != null) {
+                activeFeatureNames.add(String.valueOf(feature).trim());
+            }
+        }
+
+        for (String featureName : dynamicSourceInfo.keySet()) {
+            if (activeFeatureNames.contains(featureName)) {
+                Object configObj = dynamicSourceInfo.get(featureName);
+                if (configObj instanceof Map) {
+                    Map<?, ?> config = (Map<?, ?>) configObj;
+                    Object licensesObj = config.get("licenses");
+                    if (licensesObj instanceof Collection) {
+                        for (Object license : (Collection<?>) licensesObj) {
+                            if (license != null) {
+                                licensePaths.add(String.valueOf(license));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return licensePaths;
+    }
 
     /**
      * 동적 기능 의존성 및 라이선스 자동화 설정 (Dynamic Feature & License Configuration)
@@ -844,14 +792,97 @@ public class S2BuildUtils {
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
-     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
+     * JAR 및 배포 패키지 통합 설정 (자동 경로 계산 포함)
+     * <p>
+     * 이 메서드는 다음 프로젝트 속성을 자동으로 읽어 설정을 완료합니다:
+     * - activeFeatures, dynamicSourceInfo: 라이선스 및 제외 경로 계산용
+     * - defaultExcluded, excludedSourcePaths: 추가 제외 경로
+     * </p>
      *
      * @param project Gradle 프로젝트 객체
      */
     public static void configurePackaging(Project project) {
-        configurePackaging(project, null, null);
+        // 1. 동적 기능 정보 수집
+        Object activeFeaturesObj = project.findProperty("activeFeatures");
+        if (activeFeaturesObj == null) {
+            activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
+        }
+        Object dynamicSourceInfoObj = project.findProperty("dynamicSourceInfo");
+        if (dynamicSourceInfoObj == null) {
+            dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
+        }
+
+        // 안정적인 타입 변환
+        Collection<?> activeFeatures = (activeFeaturesObj instanceof Collection) ? (Collection<?>) activeFeaturesObj : new java.util.ArrayList<>();
+        Map<String, Map<String, Object>> sourceInfoMap = new java.util.HashMap<>();
+        if (dynamicSourceInfoObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<?, ?> rawMap = (Map<?, ?>) dynamicSourceInfoObj;
+            rawMap.forEach((k, v) -> {
+                if (k != null && v instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> config = (Map<String, Object>) v;
+                    sourceInfoMap.put(String.valueOf(k), config);
+                }
+            });
+        }
+
+        // 2. 라이선스 경로 계산 (자동 감지 README*.md, licenses/* 포함)
+        Set<String> extraFiles = new LinkedHashSet<>();
+
+        // 2-1. 프로젝트 디렉토리의 README 파일 감지 (README.md, README-KO.md 등)
+        File projectDir = project.getProjectDir();
+        File[] readmeFiles = projectDir.listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD"));
+        if (readmeFiles != null) {
+            for (File f : readmeFiles) {
+                extraFiles.add(f.getName());
+            }
+        }
+
+        // 2-2. licenses/ 디렉토리 내 모든 파일 감지
+        File licensesDir = new File(projectDir, "licenses");
+        if (licensesDir.exists() && licensesDir.isDirectory()) {
+            File[] licenseFiles = licensesDir.listFiles();
+            if (licenseFiles != null) {
+                for (File f : licenseFiles) {
+                    if (f.isFile()) {
+                        extraFiles.add("licenses/" + f.getName());
+                    }
+                }
+            }
+        }
+
+        // 2-3. 동적 소스 정보에서 라이선스 추출 (Private Helper 사용)
+        extraFiles.addAll(extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures));
+
+        // 3. 제외 경로 계산
+        Set<String> activeFeaturesSet = new java.util.HashSet<>();
+        activeFeatures.forEach(f -> {
+            if (f != null)
+                activeFeaturesSet.add(String.valueOf(f).trim());
+        });
+        Set<String> subDynamicExcluded = resolveExcludedPaths(sourceInfoMap, activeFeaturesSet);
+
+        // 4. 추가 제외 경로 병합 (Root 기본 + 프로젝트 개별)
+        Set<String> mergedExcluded = new java.util.LinkedHashSet<>();
+        Object baseExcluded = project.getRootProject().findProperty("defaultExcluded");
+        if (baseExcluded instanceof Collection) {
+            ((Collection<?>) baseExcluded).forEach(e -> {
+                if (e != null)
+                    mergedExcluded.add(String.valueOf(e));
+            });
+        }
+        Object subExcluded = project.findProperty("excludedSourcePaths");
+        if (subExcluded instanceof Collection) {
+            ((Collection<?>) subExcluded).forEach(e -> {
+                if (e != null)
+                    mergedExcluded.add(String.valueOf(e));
+            });
+        }
+        mergedExcluded.addAll(subDynamicExcluded);
+
+        // 5. 핵심 패키징 로직 실행
+        configurePackaging(project, extraFiles, mergedExcluded);
     }
 
     /**
@@ -1087,7 +1118,8 @@ public class S2BuildUtils {
             if (activeFeatures instanceof Collection && dynamicSourceInfo instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Map<String, Object>> sourceInfoMap = (Map<String, Map<String, Object>>) dynamicSourceInfo;
-                licenses.addAll(resolveLicensePaths(sourceInfoMap, (Collection<?>) activeFeatures));
+                // 2. 동적 소스 정보에서 라이선스 추출 (Private Helper 사용)
+                licenses.addAll(extractLicensesFromSourceInfo(sourceInfoMap, (Collection<?>) activeFeatures));
 
                 if (!licenses.isEmpty()) {
                     project.getLogger().lifecycle("🔍 [Dynamic License Collection] Found additional files: " + licenses);
