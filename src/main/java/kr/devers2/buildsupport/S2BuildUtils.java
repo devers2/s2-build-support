@@ -33,6 +33,8 @@ import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.tasks.Copy;
+import org.gradle.api.tasks.JavaExec;
+import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.api.tasks.javadoc.Javadoc;
@@ -106,6 +108,10 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  * @see MavenPublishStrategy
  */
 public class S2BuildUtils {
+
+    // ANSI Color Constants for Terminal Output
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_CYAN = "\u001B[36m";
 
     // ========================================================================
     // 경로 계산 관련 메서드
@@ -1754,6 +1760,12 @@ public class S2BuildUtils {
                 // 중복 파일 처리 전략
                 shadowJar.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
 
+                // 6. Minimize (최적화) 적용 - 로컬 프로젝트 제외
+                applyMinimize(shadowJar, project);
+
+                // 7. Shadow JAR 검증 태스크 등록 (사용자 설정 시)
+                registerShadowJarVerificationTask(project, shadowJar);
+
             } catch (Exception e) {
                 project.getLogger().warn("⚠️ [Shadow] 빌드 모드 설정 중 오류: " + e.getMessage());
                 e.printStackTrace();
@@ -1761,6 +1773,155 @@ public class S2BuildUtils {
         } catch (Exception e) {
             project.getLogger().warn("⚠️ [Shadow] 초기 설정 중 오류: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Shadow JAR Minimize 최적화 적용
+     * <p>
+     * Minimize는 사용되지 않는 클래스를 제거하여 JAR 크기를 줄입니다.
+     * 단, Reflection 등으로 동적 로딩되는 클래스는 안전을 위해 보존합니다.
+     * </p>
+     *
+     * <p>
+     * <b>적용 범위:</b>
+     * </p>
+     * <ul>
+     * <li>Relocation 대상 아티팩트만 Minimize 적용</li>
+     * <li>API 의존성, 로컬 프로젝트는 자동 제외</li>
+     * </ul>
+     *
+     * <p>
+     * <b>사용자 정의 제외 방법 (build.gradle):</b>
+     * </p>
+     *
+     * <pre>{@code
+     * ext {
+     *     // Minimize에서 제외할 라이브러리 지정 (group:name 형식)
+     *     minimizeExcludes = [
+     *         'com.fasterxml.jackson.core:jackson-databind',
+     *         'com.fasterxml.jackson.core:jackson-core'
+     *     ] as Set
+     * }
+     * }</pre>
+     */
+    private static void applyMinimize(org.gradle.api.Task shadowTask, Project project) {
+        try {
+            java.lang.reflect.Method minimizeMethod = shadowTask.getClass().getMethod("minimize", org.gradle.api.Action.class);
+            if (minimizeMethod != null) {
+                // 1. Minimize 허용 대상 (Relocatable Artifacts)
+                Set<String> allowedArtifacts = getRelocatableArtifactIDs(project);
+
+                // 2. 사용자 정의 제외 목록 (ext.minimizeExcludes)
+                Set<String> userExcludes = new HashSet<>();
+                if (project.hasProperty("minimizeExcludes")) {
+                    Object prop = project.findProperty("minimizeExcludes");
+                    if (prop instanceof Collection) {
+                        for (Object o : (Collection<?>) prop) {
+                            userExcludes.add(o.toString());
+                        }
+                    }
+                }
+
+                // 사용자에게 Minimize 적용 및 제외 방법 안내
+                if (userExcludes.isEmpty()) {
+                    project.getLogger().lifecycle("📉 [Shadow] Minimize 최적화 적용 중 (Relocation 대상만)");
+                    project.getLogger().lifecycle(ANSI_CYAN + "   💡 특정 라이브러리 제외 방법: build.gradle에 'ext.minimizeExcludes = [\"group:name\"]' 설정" + ANSI_RESET);
+                } else {
+                    project.getLogger().lifecycle("📉 [Shadow] Minimize 최적화 적용 중 (사용자 제외: " + userExcludes.size() + "개)");
+                    userExcludes.forEach(id -> project.getLogger().lifecycle("   🛡️ [Minimize] 사용자 제외: " + id));
+                }
+
+                minimizeMethod.invoke(shadowTask, (org.gradle.api.Action<Object>) minimizeSpec -> {
+                    try {
+                        java.lang.reflect.Method excludeMethod = minimizeSpec.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
+
+                        // Minimize 제외 조건 설정 (True 반환 시 Exclude/Keep)
+                        excludeMethod.invoke(minimizeSpec, (org.gradle.api.specs.Spec<Object>) item -> {
+                            String id = null;
+
+                            if (item instanceof org.gradle.api.artifacts.ResolvedDependency) {
+                                org.gradle.api.artifacts.ResolvedDependency dep = (org.gradle.api.artifacts.ResolvedDependency) item;
+                                id = dep.getModuleGroup() + ":" + dep.getModuleName();
+                            } else if (item instanceof org.gradle.api.artifacts.Dependency) {
+                                org.gradle.api.artifacts.Dependency dep = (org.gradle.api.artifacts.Dependency) item;
+                                id = dep.getGroup() + ":" + dep.getName();
+                            }
+
+                            if (id != null) {
+                                // 1. 사용자 제외 목록 체크
+                                if (userExcludes.contains(id)) {
+                                    return true; // Exclude (Keep)
+                                }
+
+                                // 2. 허용 대상 여부 체크 (Relocatable 아니면 제외)
+                                if (!allowedArtifacts.contains(id)) {
+                                    return true; // Exclude (Keep)
+                                }
+
+                                // 여기까지 오면 Minimize 대상임
+                                project.getLogger().lifecycle("   ✂️ [Minimize] 최적화 대상 (미사용 코드 제거): " + id);
+                                return false; // Minimize 적용 (Don't exclude)
+                            }
+                            return false;
+                        });
+
+                    } catch (Exception e) {
+                        project.getLogger().warn("⚠️ [Minimize] 제외 설정 중 오류: " + e.getMessage());
+                    }
+                });
+
+                project.getLogger().lifecycle("✅ [Shadow] Minimize 최적화 설정 완료 (대상: " + allowedArtifacts.size() + "개 라이브러리)");
+            }
+        } catch (Exception e) {
+            project.getLogger().warn("⚠️ [Shadow] Minimize 메서드를 찾을 수 없거나 적용 실패: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Shadow JAR 안정성 검증을 위한 테스크 등록
+     * <p>
+     * build.gradle의 ext.artifactTestClassName 설정이 있는 경우,
+     * 해당 클래스를 최종 생성된 JAR를 클래스패스로 하여 실행하는 testArtifact 태스크를 생성합니다.
+     * </p>
+     */
+    private static void registerShadowJarVerificationTask(Project project, org.gradle.api.Task shadowJar) {
+        String verifyClass = null;
+        if (project.hasProperty("artifactTestClassName")) {
+            verifyClass = project.findProperty("artifactTestClassName").toString();
+        }
+
+        if (verifyClass != null && !verifyClass.isEmpty()) {
+            final String targetClass = verifyClass;
+            project.getTasks().register("testArtifact", JavaExec.class, task -> {
+                task.setGroup("verification");
+                task.setDescription("Minimize가 적용된 Shadow JAR를 기반으로 런타임 안정성을 검증합니다.");
+                task.dependsOn(shadowJar);
+
+                // 1. Shadow JAR를 클래스패스 최우선순위로 설정
+                task.setClasspath(project.files(shadowJar.getOutputs().getFiles()));
+
+                // 2. 테스트 환경 구동을 위해 필요한 경우 Test Runtime Classpath 추가 (JUnit, 컴파일된 테스트 클래스 등)
+                try {
+                    SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
+                    SourceSet testSourceSet = sourceSets.getByName("test");
+                    task.setClasspath(task.getClasspath().plus(testSourceSet.getRuntimeClasspath()));
+                } catch (Exception ignored) {
+                    // Test SourceSet이 없는 경우 무시
+                }
+
+                task.getMainClass().set(targetClass);
+
+                // 3. 작업 시작 전 안내 로그
+                task.doFirst(t -> {
+                    project.getLogger().lifecycle("🚀 [Verification] Shadow JAR 기반 런타임 검증 시작: " + targetClass);
+                });
+            });
+            project.getLogger().lifecycle("✅ [Shadow] 'testArtifact' 태스크가 등록되었습니다. (대상: " + verifyClass + ")");
+        } else {
+            // 가이드 로그 출력 (Cyan)
+            project.getLogger().lifecycle(ANSI_CYAN + "📘 [Guide] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassName = \"패키지.클래스명\"'을 설정하세요." + ANSI_RESET);
+            project.getLogger().lifecycle(ANSI_CYAN + "   -> 설정 시 './gradlew testArtifact'를 통해 최종 JAR를 클래스패스로 하여 테스트를 실행할 수 있습니다." + ANSI_RESET);
         }
     }
 
@@ -2021,6 +2182,9 @@ public class S2BuildUtils {
                 setDuplicatesStrategyMethod.invoke(shadowTask, DuplicatesStrategy.EXCLUDE);
             }
 
+            // Minimize (최적화) 적용
+            applyMinimize(shadowTask, project);
+
         } catch (Exception e) {
             project.getLogger().warn("⚠️  [Shadow] 배포 모드 설정 중 오류: " + e.getMessage());
             e.printStackTrace();
@@ -2205,16 +2369,16 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
-     * Relocation 대상이 되는 패키지 목록을 추출한다.
-     * 1. runtimeClasspath의 모든 아티팩트를 Resolve
-     * 2. api Configuration의 의존성을 식별하여 제외
-     * 3. 남은 아티팩트(JAR)를 스캔하여 최상위 패키지 추출
+     * Relocation 및 Minimize 대상이 되는 아티팩트 ID(Group:Name) 목록을 추출한다.
+     * - runtimeClasspath에 포함된 아티팩트 중
+     * - api Configuration에 포함되지 않고 (API 의존성 제외)
+     * - 로컬 프로젝트가 아닌 (외부 라이브러리만 대상)
      *
      * @param project Gradle 프로젝트
-     * @return Relocation 대상 패키지 목록
+     * @return Relocation/Minimize 대상 아티팩트 ID 집합
      */
-    private static Set<String> extractPackagesToRelocate(Project project) {
-        Set<String> packagesToRelocate = new java.util.HashSet<>();
+    private static Set<String> getRelocatableArtifactIDs(Project project) {
+        Set<String> relocatableIds = new java.util.HashSet<>();
 
         // 1. API 의존성 식별자 수집 (group:name)
         Set<String> apiDependencyIds = new java.util.HashSet<>();
@@ -2239,10 +2403,7 @@ public class S2BuildUtils {
 
                 Set<ResolvedArtifact> apiArtifacts = resolvableApi.getResolvedConfiguration().getResolvedArtifacts();
                 for (ResolvedArtifact artifact : apiArtifacts) {
-                    String group = artifact.getModuleVersion().getId().getGroup();
-                    String name = artifact.getModuleVersion().getId().getName();
-                    String id = group + ":" + name;
-                    apiDependencyIds.add(id);
+                    apiDependencyIds.add(artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName());
                 }
                 project.getLogger().lifecycle("ℹ️ [Shadow] Identified API Artifacts (Runtime Transitive): " + apiDependencyIds);
             }
@@ -2262,39 +2423,59 @@ public class S2BuildUtils {
         // 2. runtimeClasspath Resolve (실제 JAR 파일 획득)
         org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
         if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
-            project.getLogger().lifecycle("🔍 [Shadow] Relocation 대상 패키지 스캔 시작 (runtimeClasspath)...");
             try {
                 Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
                 for (ResolvedArtifact artifact : artifacts) {
-                    // API 의존성에 포함되는 아티팩트는 건너뜀
-                    String group = artifact.getModuleVersion().getId().getGroup();
-                    String name = artifact.getModuleVersion().getId().getName();
-                    String id = group + ":" + name;
+                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
 
-                    if (apiDependencyIds.contains(id)) {
-                        project.getLogger().debug("⏭️ [Shadow] Skiping API dependency: " + id);
+                    // API 의존성 제외
+                    if (apiDependencyIds.contains(id))
                         continue;
-                    }
 
-                    // s2-util 자기 자신 및 로컬 프로젝트 제외
-                    if (artifact.getId().getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier) {
+                    // 로컬 프로젝트 제외 (s2-util)
+                    if (artifact.getId().getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier)
                         continue;
-                    }
 
-                    File file = artifact.getFile();
-                    if (file == null || !file.exists() || !file.getName().toLowerCase().endsWith(".jar")) {
-                        continue;
-                    }
-
-                    // JAR 스캔
-                    project.getLogger().lifecycle("📦 [Shadow] Scanning JAR: " + file.getName() + " (" + id + ")");
-                    scanJarForPackages(project, file, packagesToRelocate);
+                    relocatableIds.add(id);
                 }
             } catch (Exception e) {
                 project.getLogger().warn("⚠️ [Shadow] runtimeClasspath 분석 중 오류: " + e.getMessage());
             }
         }
+        return relocatableIds;
+    }
 
+    /**
+     * Relocation 대상이 되는 패키지 목록을 추출한다.
+     * (getRelocatableArtifactIDs를 통해 대상 아티팩트를 식별 후 JAR 스캔)
+     */
+    private static Set<String> extractPackagesToRelocate(Project project) {
+        Set<String> packagesToRelocate = new java.util.HashSet<>();
+        Set<String> targetArtifactIds = getRelocatableArtifactIDs(project);
+
+        project.getLogger().lifecycle("🔍 [Shadow] Relocation 대상 패키지 스캔 시작...");
+
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+        if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
+            try {
+                Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
+                for (ResolvedArtifact artifact : artifacts) {
+                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
+
+                    // 대상 아티팩트만 스캔
+                    if (!targetArtifactIds.contains(id))
+                        continue;
+
+                    File file = artifact.getFile();
+                    if (file == null || !file.exists() || !file.getName().toLowerCase().endsWith(".jar"))
+                        continue;
+
+                    project.getLogger().lifecycle("📦 [Shadow] Scanning JAR: " + file.getName() + " (" + id + ")");
+                    scanJarForPackages(project, file, packagesToRelocate);
+                }
+            } catch (Exception ignored) {
+            }
+        }
         return packagesToRelocate;
     }
 
