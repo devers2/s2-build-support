@@ -360,62 +360,11 @@ public class S2BuildUtils {
     }
 
     /**
-     * 활성화된 기능에 compileOnly 의존성이 있는지 확인
-     */
-    private static boolean hasCompileOnlyDependencies(Project project) {
-        Object activeFeaturesObj = project.hasProperty("activeFeatures") ? project.property("activeFeatures") : null;
-        Object dynamicSourceInfoObj = project.hasProperty("dynamicSourceInfo") ? project.property("dynamicSourceInfo") : null;
-
-        if (activeFeaturesObj == null || dynamicSourceInfoObj == null) {
-            return false;
-        }
-
-        Set<String> activeFeatures = new HashSet<>();
-        if (activeFeaturesObj instanceof Collection) {
-            for (Object f : (Collection<?>) activeFeaturesObj) {
-                activeFeatures.add(String.valueOf(f));
-            }
-        }
-
-        if (!(dynamicSourceInfoObj instanceof Map)) {
-            return false;
-        }
-        Map<?, ?> dynamicSourceInfo = (Map<?, ?>) dynamicSourceInfoObj;
-
-        for (String feature : activeFeatures) {
-            Object featureConfigObj = dynamicSourceInfo.get(feature);
-            if (featureConfigObj instanceof Map) {
-                Map<?, ?> featureConfig = (Map<?, ?>) featureConfigObj;
-                Object dependenciesObj = featureConfig.get("dependencies");
-
-                if (dependenciesObj instanceof Collection) {
-                    Collection<?> depsList = (Collection<?>) dependenciesObj;
-                    for (Object depItem : depsList) {
-                        if (depItem instanceof Map) {
-                            Map<?, ?> depMap = (Map<?, ?>) depItem;
-                            String config = String.valueOf(depMap.get("configuration"));
-                            if ("compileOnly".equals(config)) {
-                                return true; // compileOnly 의존성 발견
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
      * hierynomus.license 플러그인 적용 및 패키징 연동 설정
      */
     private static void configureLicenseAutomation(Project project) {
-        // 활성화된 기능 중 compileOnly 의존성이 있는지 확인
-        boolean hasCompileOnlyDeps = hasCompileOnlyDependencies(project);
-
-        if (!hasCompileOnlyDeps) {
-            project.getLogger().lifecycle("ℹ️ [License] No compileOnly dependencies found in active features. Skipping license automation.");
-            return; // compileOnly 의존성이 없으면 라이선스 플러그인 자체를 적용하지 않음
-        }
+        // 활성화된 기능 중 compileOnly 의존성이 있는지 여부와 상관없이,
+        // 실제 프로젝트에 주입된 의존성을 기반으로 라이선스 자동화를 수행합니다.
 
         // 플러그인 적용
         project.getPluginManager().apply("com.github.hierynomus.license");
