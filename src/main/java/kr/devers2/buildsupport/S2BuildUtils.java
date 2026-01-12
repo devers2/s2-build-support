@@ -1118,14 +1118,10 @@ public class S2BuildUtils {
             configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, initialExtraFiles);
         } else {
             // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
-            // afterEvaluate 를 통해 licensePaths 가 최종 확정된 후 설정되도록 보장
-            project.afterEvaluate(p -> {
-                // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
-                Set<String> combinedExtraFiles = new LinkedHashSet<>(initialExtraFiles);
-                combinedExtraFiles.addAll(collectDynamicLicenses(p));
+            Set<String> combinedExtraFiles = new LinkedHashSet<>(initialExtraFiles);
+            combinedExtraFiles.addAll(collectDynamicLicenses(project));
 
-                configureStandardMode(p, isAnyPublish, combinedExtraFiles, version);
-            });
+            configureStandardMode(project, isAnyPublish, combinedExtraFiles, version);
         }
 
         /*
@@ -1144,24 +1140,22 @@ public class S2BuildUtils {
          * [afterEvaluate 사용]
          * - Publishing 설정을 보완하고 태스크 의존성을 교정하기 위해 모든 평가가 끝난 후 실행
          */
-        project.afterEvaluate(p -> {
-            // 1. 메타데이터 생성 및 스마트 배포 전략 설정
-            fixMetadataGeneration(p);
-            MavenPublishStrategy.configureSmartPublishing(p);
+        // 1. 메타데이터 생성 및 스마트 배포 전략 설정
+        fixMetadataGeneration(project);
+        MavenPublishStrategy.configureSmartPublishing(project);
 
-            // 2. 배포 설정 (Maven Publication 등록)
-            // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
-            // configurePackaging 로직과 일치하도록 project 속성을 기준으로 재확인
-            Object prefix = p.findProperty("shadedPackagePrefix");
-            boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
-            boolean enableShadowPub = useShadow && hasValidPrefix;
-            configurePublications(p, enableShadowPub, archiveBaseName);
+        // 2. 배포 설정 (Maven Publication 등록)
+        // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
+        // configurePackaging 로직과 일치하도록 project 속성을 기준으로 재확인
+        Object prefix = project.findProperty("shadedPackagePrefix");
+        boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
+        boolean enableShadowPub = useShadow && hasValidPrefix;
+        configurePublications(project, enableShadowPub, archiveBaseName);
 
-            // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
-            if (enableShadowPub) {
-                configurePublishingForShadow(p);
-            }
-        });
+        // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
+        if (enableShadowPub) {
+            configurePublishingForShadow(project);
+        }
     }
 
     /**
@@ -1193,69 +1187,65 @@ public class S2BuildUtils {
      */
     private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish,
             String archiveBaseName, String version, Set<String> extraFiles) {
+        try {
+            // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
+            Set<String> combinedExtraFiles = new LinkedHashSet<>(extraFiles != null ? extraFiles : Collections.emptySet());
+            combinedExtraFiles.addAll(collectDynamicLicenses(project));
 
-        // afterEvaluate: 플러그인 적용 및 설정 완료 후 실행 보장
-        project.afterEvaluate(p -> {
-            try {
-                // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
-                Set<String> combinedExtraFiles = new LinkedHashSet<>(extraFiles != null ? extraFiles : Collections.emptySet());
-                combinedExtraFiles.addAll(collectDynamicLicenses(p));
-
-                org.gradle.api.Task shadowTask = p.getTasks().findByName("shadowJar");
-                if (shadowTask == null) {
-                    p.getLogger().warn("⚠️  [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
-                    return;
-                }
-
-                Object shadowExtension = p.getExtensions().findByName("shadow");
-                // shadowExtension은 null일 수도 있음 (Shadow 9.x 일부 버전 등)
-
-                // Shadow JAR 상세 설정 분기
-                if (isBuildTask && !isAnyPublish) {
-                    // [빌드 모드]: Fat JAR 생성 (Shaded + All Dependencies)
-                    configureShadowForBuild(p, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
-                } else if (isAnyPublish) {
-                    // [배포 모드]: Standard JAR 생성, 구현체만 Shaded (pom 의존성을 위해)
-                    configureShadowForPublish(p, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
-                }
-
-                // 7. Shadow JAR 검증 태스크 등록 (사용자 설정 시) - 모든 모드 공통
-                registerTestArtifactTask(p, shadowTask);
-
-                // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
-                if (shadowExtension != null && p.getPluginManager().hasPlugin("application")) {
-                    try {
-                        java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass().getMethod("getApplication");
-                        Object applicationExtension = getApplicationMethod.invoke(shadowExtension);
-                        if (applicationExtension != null) {
-                            p.getLogger().debug("✅ [Shadow] application 확장 감지됨 - startShadowScripts -> shadowJar");
-                        }
-                    } catch (NoSuchMethodException ignored) {
-                        // ignore
-                    }
-                }
-
-                // 8. [Shadow] Outgoing Artifact 교체 (Project Dependency용)
-                // 만약 이 프로젝트가 'shadedPackagePrefix'를 가지고 있다면,
-                // 다른 프로젝트가 이 프로젝트를 의존성으로 참조할 때 Standard JAR 대신 Shadow JAR를 가져가도록 설정한다.
-                if (p.hasProperty("shadedPackagePrefix")) {
-                    p.getLogger().lifecycle("🔧 [Shadow] Outgoing Artifact를 Shadow JAR로 교체합니다. (Project Dependencies용)");
-
-                    // Helper to replace artifacts
-                    org.gradle.api.Action<org.gradle.api.artifacts.Configuration> replaceArtifact = conf -> {
-                        conf.getOutgoing().getArtifacts().clear();
-                        conf.getOutgoing().artifact(shadowTask);
-                    };
-
-                    p.getConfigurations().named("apiElements").configure(replaceArtifact);
-                    p.getConfigurations().named("runtimeElements").configure(replaceArtifact);
-                }
-
-            } catch (Exception e) {
-                p.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 설정 중 오류: " + e.getMessage());
-                e.printStackTrace();
+            org.gradle.api.Task shadowTask = project.getTasks().findByName("shadowJar");
+            if (shadowTask == null) {
+                project.getLogger().warn("⚠️  [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
+                return;
             }
-        });
+
+            Object shadowExtension = project.getExtensions().findByName("shadow");
+            // shadowExtension은 null일 수도 있음 (Shadow 9.x 일부 버전 등)
+
+            // Shadow JAR 상세 설정 분기
+            if (isBuildTask && !isAnyPublish) {
+                // [빌드 모드]: Fat JAR 생성 (Shaded + All Dependencies)
+                configureShadowForBuild(project, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
+            } else if (isAnyPublish) {
+                // [배포 모드]: Standard JAR 생성, 구현체만 Shaded (pom 의존성을 위해)
+                configureShadowForPublish(project, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
+            }
+
+            // 7. Shadow JAR 검증 태스크 등록 (사용자 설정 시) - 모든 모드 공통
+            registerTestArtifactTask(project, shadowTask);
+
+            // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
+            if (shadowExtension != null && project.getPluginManager().hasPlugin("application")) {
+                try {
+                    java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass().getMethod("getApplication");
+                    Object applicationExtension = getApplicationMethod.invoke(shadowExtension);
+                    if (applicationExtension != null) {
+                        project.getLogger().debug("✅ [Shadow] application 확장 감지됨 - startShadowScripts -> shadowJar");
+                    }
+                } catch (NoSuchMethodException ignored) {
+                    // ignore
+                }
+            }
+
+            // 8. [Shadow] Outgoing Artifact 교체 (Project Dependency용)
+            // 만약 이 프로젝트가 'shadedPackagePrefix'를 가지고 있다면,
+            // 다른 프로젝트가 이 프로젝트를 의존성으로 참조할 때 Standard JAR 대신 Shadow JAR를 가져가도록 설정한다.
+            if (project.hasProperty("shadedPackagePrefix")) {
+                project.getLogger().lifecycle("🔧 [Shadow] Outgoing Artifact를 Shadow JAR로 교체합니다. (Project Dependencies용)");
+
+                // Helper to replace artifacts
+                org.gradle.api.Action<org.gradle.api.artifacts.Configuration> replaceArtifact = conf -> {
+                    conf.getOutgoing().getArtifacts().clear();
+                    conf.getOutgoing().artifact(shadowTask);
+                };
+
+                project.getConfigurations().named("apiElements").configure(replaceArtifact);
+                project.getConfigurations().named("runtimeElements").configure(replaceArtifact);
+            }
+
+        } catch (Exception e) {
+            project.getLogger().warn("⚠️  [Shadow] Shadow 플러그인 설정 중 오류: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     /**
