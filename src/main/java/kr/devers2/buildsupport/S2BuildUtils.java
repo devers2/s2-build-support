@@ -132,8 +132,14 @@ public class S2BuildUtils {
     public static void configureProject(Project project) {
         // 모든 의존성 정의가 완료된 후 실행하기 위해 afterEvaluate 사용
         project.afterEvaluate(p -> {
-            // 1. 동적 의존성 주입 및 라이선스 자동화 (가장 먼저 실행)
-            configureDynamicFeatureDependencies(p);
+            Set<String> collectedExtraFiles = new LinkedHashSet<>();
+            Set<String> collectedVariantIds = new LinkedHashSet<>();
+
+            // 1. 동적 의존성 주입 (Dynamic Dependency Injection) 및 추가 파일/variantId 수집
+            injectDynamicDependenciesAndCollect(p, collectedExtraFiles, collectedVariantIds);
+
+            // 2. 라이선스 자동화 설정 (License Plugin Integration)
+            configureLicenseAutomation(p);
 
             // 2. 소스 파일 토글
             Object dynamicSourceInfoObj = p.findProperty("dynamicSourceInfo");
@@ -250,51 +256,39 @@ public class S2BuildUtils {
     }
 
     /**
-     * 동적 기능 의존성 및 라이선스 자동화 설정 (Dynamic Feature & License Configuration)
-     * <p>
-     * 이 메서드는 프로젝트의 `ext.activeFeatures`와 `ext.dynamicSourceInfo`를 읽어 다음 작업을 수행한다:
-     * 1. 활성화된 기능(`activeFeatures`)에 정의된 의존성을 해당 Configuration(implementation, api 등)에 주입한다.
-     * 2. `com.github.hierynomus.license` 플러그인을 적용하고, `downloadLicenses` 태스크를 구성하여 서드파티 라이선스 보고서를 생성한다.
-     * 3. 생성된 라이선스 보고서를 `jar` 및 `shadowJar` 태스크에 자동으로 포함시킨다 (`licenses/third-party` 경로).
-     * </p>
-     *
-     * <p>
-     * <b>Usage in build.gradle:</b>
-     * </p>
-     *
-     * <pre>{@code
-     * S2BuildUtils.configureDynamicFeatureDependencies(project)
-     * }</pre>
-     *
-     * @param project Gradle 프로젝트 객체
+     * activeFeatures 및 dynamicSourceInfo 기반 의존성 주입 구현 및 추가 파일/variantId 수집
      */
-    public static void configureDynamicFeatureDependencies(Project project) {
-        // 1. 동적 의존성 주입 (Dynamic Dependency Injection)
-        injectDynamicDependencies(project);
-
-        // 2. 라이선스 자동화 설정 (License Plugin Integration)
-        configureLicenseAutomation(project);
-    }
-
-    /**
-     * activeFeatures 및 dynamicSourceInfo 기반 의존성 주입 구현
-     */
-    private static void injectDynamicDependencies(Project project) {
-        if (!project.hasProperty("activeFeatures") || !project.hasProperty("dynamicSourceInfo")) {
-            return;
+    private static void injectDynamicDependenciesAndCollect(Project project, Set<String> extraFiles, Set<String> variantIds) {
+        // 안전성: 프로젝트 속성에서 activeFeatures / dynamicSourceInfo 읽기
+        Object activeFeaturesObj = null;
+        Object dynamicSourceInfoObj = null;
+        try {
+            if (project.hasProperty("activeFeatures")) {
+                activeFeaturesObj = project.property("activeFeatures");
+            } else {
+                activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
+            }
+        } catch (Exception ignored) {
         }
-
-        Object activeFeaturesObj = project.property("activeFeatures");
-        Object dynamicSourceInfoObj = project.property("dynamicSourceInfo");
+        try {
+            if (project.hasProperty("dynamicSourceInfo")) {
+                dynamicSourceInfoObj = project.property("dynamicSourceInfo");
+            } else {
+                dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
+            }
+        } catch (Exception ignored) {
+        }
 
         Set<String> activeFeatures = new HashSet<>();
         if (activeFeaturesObj instanceof Collection) {
             for (Object f : (Collection<?>) activeFeaturesObj) {
-                activeFeatures.add(String.valueOf(f));
+                if (f != null)
+                    activeFeatures.add(String.valueOf(f));
             }
         }
 
         if (!(dynamicSourceInfoObj instanceof Map)) {
+            project.getLogger().lifecycle("🔍 [Dynamic Dependencies] No dynamicSourceInfo found, skipping dynamic injection.");
             return;
         }
         Map<?, ?> dynamicSourceInfo = (Map<?, ?>) dynamicSourceInfoObj;
@@ -305,10 +299,11 @@ public class S2BuildUtils {
             Object featureConfigObj = dynamicSourceInfo.get(feature);
             if (featureConfigObj instanceof Map) {
                 Map<?, ?> featureConfig = (Map<?, ?>) featureConfigObj;
+
+                // 1) 의존성 주입 (기존 로직)
                 Object dependenciesObj = featureConfig.get("dependencies");
 
                 if (dependenciesObj instanceof Map) {
-                    // 기존 Map 형태: Map<Configuration, Collection<Notation>>
                     Map<?, ?> dependenciesMap = (Map<?, ?>) dependenciesObj;
                     dependenciesMap.forEach((configurationName, deps) -> {
                         String configNameStr = String.valueOf(configurationName);
@@ -325,7 +320,6 @@ public class S2BuildUtils {
                         }
                     });
                 } else if (dependenciesObj instanceof Collection) {
-                    // 새로운 List<Map> 형태: List<Map<String, String>> (build.gradle 형식)
                     Collection<?> dependenciesList = (Collection<?>) dependenciesObj;
                     for (Object depItem : dependenciesList) {
                         if (depItem instanceof Map) {
@@ -348,6 +342,23 @@ public class S2BuildUtils {
                             }
                         }
                     }
+                }
+
+                // 2) 추가 파일 목록 수집 (keys: files, extraFiles)
+                Object filesObj = featureConfig.get("files");
+                if (filesObj == null)
+                    filesObj = featureConfig.get("extraFiles");
+                if (filesObj instanceof Collection && extraFiles != null) {
+                    for (Object fo : (Collection<?>) filesObj) {
+                        if (fo != null)
+                            extraFiles.add(String.valueOf(fo));
+                    }
+                }
+
+                // 3) variantId 수집 (키: variantId)
+                Object variantObj = featureConfig.get("variantId");
+                if (variantObj != null && variantIds != null) {
+                    variantIds.add(String.valueOf(variantObj));
                 }
             }
         }
@@ -396,39 +407,35 @@ public class S2BuildUtils {
         // 소스 헤더 체크(LicenseCheck) 기능 비활성화 (LICENSE 파일 없음 오류 방지)
         // 우리는 의존성 리포트(downloadLicenses)만 필요함
         // 컴파일 타임에 플러그인 클래스가 없으므로 이름으로 찾아 비활성화
-        project.afterEvaluate(p -> {
-            try {
-                p.getTasks().named("licenseMain").configure(t -> t.setEnabled(false));
-                p.getTasks().named("licenseTest").configure(t -> t.setEnabled(false));
-            } catch (Exception e) {
-                // ignore if tasks don't exist
-            }
-        });
+        try {
+            project.getTasks().named("licenseMain").configure(t -> t.setEnabled(false));
+            project.getTasks().named("licenseTest").configure(t -> t.setEnabled(false));
+        } catch (Exception e) {
+            // ignore if tasks don't exist
+        }
 
         // Jar 및 ShadowJar 패키징 시 라이선스 포함 설정
-        project.afterEvaluate(p -> {
-            p.getTasks().named("downloadLicenses").configure(downloadTask -> {
-                // downloadLicenses 태스크 완료 후 결과물 경로 확인
-                // 기본적으로 build/reports/license 에 생성됨 (플러그인 버전에 따라 다를 수 있음)
-                // 여기서는 downloadLicenses의 출력을 패키징 태스크에 연결
-            });
-
-            // downloadLicenses 태스크 찾기
-            org.gradle.api.Task downloadLicensesTask = p.getTasks().findByName("downloadLicenses");
-            if (downloadLicensesTask != null) {
-                // 출력 디렉토리 (기본값 가정)
-                java.io.File licenseOutputDir = p.getLayout().getBuildDirectory().dir("reports/license").get().getAsFile();
-
-                // 모든 JAR 관련 태스크 (jar, shadowJar)에 포함
-                p.getTasks().withType(org.gradle.api.tasks.bundling.Jar.class).configureEach(jarTask -> {
-                    jarTask.dependsOn(downloadLicensesTask);
-                    jarTask.from(licenseOutputDir, copySpec -> {
-                        copySpec.into("licenses/third-party");
-                    });
-                    p.getLogger().lifecycle("🔗 [License] Linked 'downloadLicenses' to task: " + jarTask.getName());
-                });
-            }
+        project.getTasks().named("downloadLicenses").configure(downloadTask -> {
+            // downloadLicenses 태스크 완료 후 결과물 경로 확인
+            // 기본적으로 build/reports/license 에 생성됨 (플러그인 버전에 따라 다를 수 있음)
+            // 여기서는 downloadLicenses의 출력을 패키징 태스크에 연결
         });
+
+        // downloadLicenses 태스크 찾기
+        org.gradle.api.Task downloadLicensesTask = project.getTasks().findByName("downloadLicenses");
+        if (downloadLicensesTask != null) {
+            // 출력 디렉토리 (기본값 가정)
+            java.io.File licenseOutputDir = project.getLayout().getBuildDirectory().dir("reports/license").get().getAsFile();
+
+            // 모든 JAR 관련 태스크 (jar, shadowJar)에 포함
+            project.getTasks().withType(org.gradle.api.tasks.bundling.Jar.class).configureEach(jarTask -> {
+                jarTask.dependsOn(downloadLicensesTask);
+                jarTask.from(licenseOutputDir, copySpec -> {
+                    copySpec.into("licenses/third-party");
+                });
+                project.getLogger().lifecycle("🔗 [License] Linked 'downloadLicenses' to task: " + jarTask.getName());
+            });
+        }
     }
 
     // ========================================================================
