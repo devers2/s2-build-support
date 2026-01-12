@@ -119,15 +119,6 @@ public class S2BuildUtils {
     /**
      * 프로젝트의 모든 설정을 올바른 순서로 수행하는 통합 메서드
      * <p>
-     * build.gradle에서는 이 메서드만 호출하면 됩니다:
-     *
-     * <pre>
-     * project.afterEvaluate { p ->
-     *     kr.devers2.buildsupport.S2BuildUtils.configureProject(p)
-     * }
-     * </pre>
-     * </p>
-     * <p>
      * 실행 순서:
      * 1. 동적 의존성 주입 (가장 먼저 - compileOnly 의존성 추가)
      * 2. 소스 파일 토글 (활성화된 기능에 따라 .java <-> .java.txt)
@@ -136,48 +127,51 @@ public class S2BuildUtils {
      * 5. README 파일 업데이트
      * </p>
      *
-     * @param project Gradle 프로젝트 객체
+     * @param p Gradle 프로젝트 객체
      */
     public static void configureProject(Project project) {
-        // 1. 동적 의존성 주입 및 라이선스 자동화 (가장 먼저 실행)
-        configureDynamicFeatureDependencies(project);
+        // 모든 의존성 정의가 완료된 후 실행하기 위해 afterEvaluate 사용
+        project.afterEvaluate(p -> {
+            // 1. 동적 의존성 주입 및 라이선스 자동화 (가장 먼저 실행)
+            configureDynamicFeatureDependencies(p);
 
-        // 2. 소스 파일 토글
-        Object dynamicSourceInfoObj = project.findProperty("dynamicSourceInfo");
-        if (dynamicSourceInfoObj == null) {
-            dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
-        }
-        Object activeFeaturesObj = project.findProperty("activeFeatures");
-        if (activeFeaturesObj == null) {
-            activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
-        }
+            // 2. 소스 파일 토글
+            Object dynamicSourceInfoObj = p.findProperty("dynamicSourceInfo");
+            if (dynamicSourceInfoObj == null) {
+                dynamicSourceInfoObj = p.getRootProject().findProperty("dynamicSourceInfo");
+            }
+            Object activeFeaturesObj = p.findProperty("activeFeatures");
+            if (activeFeaturesObj == null) {
+                activeFeaturesObj = p.getRootProject().findProperty("activeFeatures");
+            }
 
-        // 타입 변환
-        @SuppressWarnings("unchecked")
-        Map<String, Map<String, Object>> sourceInfo = (dynamicSourceInfoObj instanceof Map)
-                ? (Map<String, Map<String, Object>>) dynamicSourceInfoObj
-                : new HashMap<>();
+            // 타입 변환
+            @SuppressWarnings("unchecked")
+            Map<String, Map<String, Object>> sourceInfo = (dynamicSourceInfoObj instanceof Map)
+                    ? (Map<String, Map<String, Object>>) dynamicSourceInfoObj
+                    : new HashMap<>();
 
-        @SuppressWarnings("unchecked")
-        Set<String> activeSet = (activeFeaturesObj instanceof Collection)
-                ? new HashSet<>((Collection<String>) activeFeaturesObj)
-                : new HashSet<>();
+            @SuppressWarnings("unchecked")
+            Set<String> activeSet = (activeFeaturesObj instanceof Collection)
+                    ? new HashSet<>((Collection<String>) activeFeaturesObj)
+                    : new HashSet<>();
 
-        performSourceToggle(
-                project,
-                (String) project.getRootProject().findProperty("JAVA_SRC_ROOT"),
-                sourceInfo,
-                activeSet
-        );
+            performSourceToggle(
+                    p,
+                    (String) p.getRootProject().findProperty("JAVA_SRC_ROOT"),
+                    sourceInfo,
+                    activeSet
+            );
 
-        // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
-        // ext.skipPackaging = true인 프로젝트는 패키징 스킵
-        if (!Boolean.TRUE.equals(project.findProperty("skipPackaging"))) {
-            configurePackaging(project);
-        }
+            // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
+            // ext.skipPackaging = true인 프로젝트는 패키징 스킵
+            if (!Boolean.TRUE.equals(p.findProperty("skipPackaging"))) {
+                configurePackaging(p);
+            }
 
-        // 4. README 파일 버전 & 의존성 가이드 업데이트
-        updateReadmeWithVersionAndDependencies(project, project.file("README.md"));
+            // 4. README 파일 버전 & 의존성 가이드 업데이트
+            updateReadmeWithVersionAndDependencies(p, p.file("README.md"));
+        });
     }
 
     // ========================================================================
