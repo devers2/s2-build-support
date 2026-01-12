@@ -132,42 +132,25 @@ public class S2BuildUtils {
     public static void configureProject(Project project) {
         // 모든 의존성 정의가 완료된 후 실행하기 위해 afterEvaluate 사용
         project.afterEvaluate(p -> {
-            Set<String> collectedExtraFiles = new LinkedHashSet<>();
-            Set<String> collectedVariantIds = new LinkedHashSet<>();
+            // 추가할 Variant ID 목록
+            Set<String> variantIds = new LinkedHashSet<>();
+            // 추가할 소스 목록
+            Set<String> extraSources = new LinkedHashSet<>();
+            // 제외할 소스 목록
+            Set<String> excludedSources = new LinkedHashSet<>();
+            // 추가할 의존성 목록
+            Map<String, String> extraDependencyMap = new HashMap<>();
 
-            // 1. 동적 의존성 주입 (Dynamic Dependency Injection) 및 추가 파일/variantId 수집
-            injectDynamicDependenciesAndCollect(p, collectedExtraFiles, collectedVariantIds);
+            analyzeDynamicSourceInfo(project, variantIds, extraSources, excludedSources, extraDependencyMap);
+
+            // 1. 동적 의존성 주입 (Dynamic Dependency Injection) 및 추가 파일/variantId 정보 수집
+            injectDynamicDependencies(p, extraDependencyMap);
 
             // 2. 라이선스 자동화 설정 (License Plugin Integration)
             configureLicenseAutomation(p);
 
-            // 2. 소스 파일 토글
-            Object dynamicSourceInfoObj = p.findProperty("dynamicSourceInfo");
-            if (dynamicSourceInfoObj == null) {
-                dynamicSourceInfoObj = p.getRootProject().findProperty("dynamicSourceInfo");
-            }
-            Object activeFeaturesObj = p.findProperty("activeFeatures");
-            if (activeFeaturesObj == null) {
-                activeFeaturesObj = p.getRootProject().findProperty("activeFeatures");
-            }
-
-            // 타입 변환
-            @SuppressWarnings("unchecked")
-            Map<String, Map<String, Object>> sourceInfo = (dynamicSourceInfoObj instanceof Map)
-                    ? (Map<String, Map<String, Object>>) dynamicSourceInfoObj
-                    : new HashMap<>();
-
-            @SuppressWarnings("unchecked")
-            Set<String> activeSet = (activeFeaturesObj instanceof Collection)
-                    ? new HashSet<>((Collection<String>) activeFeaturesObj)
-                    : new HashSet<>();
-
-            performSourceToggle(
-                    p,
-                    (String) p.getRootProject().findProperty("JAVA_SRC_ROOT"),
-                    sourceInfo,
-                    activeSet
-            );
+            // 3. 소스 파일 토글
+            performSourceToggle(p, extraSources, excludedSources);
 
             // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
             // ext.skipPackaging = true인 프로젝트는 패키징 스킵
@@ -178,6 +161,127 @@ public class S2BuildUtils {
             // 4. README 파일 버전 & 의존성 가이드 업데이트
             updateReadmeWithVersionAndDependencies(p, p.file("README.md"));
         });
+    }
+
+    /**
+     * Variant ID, 추가 소스, 제외 소스 정보 분석
+     *
+     * @param variantIds         추가할 Variant ID 목록
+     * @param extraSources       추가할 소스 목록
+     * @param excludedSources    제외할 소스 목록
+     * @param extraDependencyMap 추가할 의존성 목록
+     */
+    @SuppressWarnings("unchecked")
+    private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources, Set<String> excludedSources, Map<String, String> extraDependencyMap) {
+        Object activeFeaturesObj = null;
+        Object dynamicSourceInfoMapObj = null;
+        try {
+            if (project.hasProperty("activeFeatures")) {
+                activeFeaturesObj = project.property("activeFeatures");
+            } else {
+                activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            if (project.hasProperty("dynamicSourceInfoMap")) {
+                dynamicSourceInfoMapObj = project.property("dynamicSourceInfoMap");
+            } else {
+                dynamicSourceInfoMapObj = project.getRootProject().findProperty("dynamicSourceInfoMap");
+            }
+        } catch (Exception ignored) {
+        }
+
+        if (!(dynamicSourceInfoMapObj instanceof Map)) {
+            project.getLogger().lifecycle("🔍 [Dynamic Dependencies] No dynamicSourceInfo found, skipping dynamic injection.");
+            return;
+        }
+
+        Set<String> activeFeatures = new HashSet<>();
+        if (activeFeaturesObj instanceof Collection) {
+            for (Object f : (Collection<?>) activeFeaturesObj) {
+                if (f != null)
+                    activeFeatures.add(String.valueOf(f));
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, ?> dynamicSourceInfoMap = (Map<String, ?>) dynamicSourceInfoMapObj;
+        for (String key : dynamicSourceInfoMap.keySet()) {
+            Object dynamicSourceInfoObj = dynamicSourceInfoMap.get(key);
+            if (dynamicSourceInfoObj instanceof Map) {
+                Map<String, ?> dynamicSourceInfo = (Map<String, ?>) dynamicSourceInfoObj;
+                if (activeFeatures.contains(key)) {
+                    variantIds.add((String) dynamicSourceInfo.get("variantId"));
+                    extraSources.addAll((Collection<String>) dynamicSourceInfo.get("sources"));
+
+                    List<Map<String, String>> dependencies = (List<Map<String, String>>) dynamicSourceInfo.get("dependencies");
+                    for (Map<String, String> dependency : dependencies) {
+                        String config = dependency.getOrDefault("configuration", "implementation");
+                        String group = dependency.get("group");
+                        String name = dependency.get("name");
+                        String version = dependency.get("version");
+
+                        if (group != null && !group.isBlank() && name != null && !name.isBlank()) {
+                            String notation = (version != null && !version.isBlank()) ? group + ":" + name + ":" + version : group + ":" + name;
+                            extraDependencyMap.put(notation, config);
+                        }
+                    }
+                } else {
+                    excludedSources.addAll((Collection<String>) dynamicSourceInfo.get("sources"));
+                }
+            }
+        }
+    }
+
+    /**
+     * activeFeatures 및 dynamicSourceInfo 기반 의존성 주입 구현
+     *
+     * @param project            프로젝트
+     * @param extraDependencyMap 추가할 의존성 목록
+     */
+    private static void injectDynamicDependencies(Project project, Map<String, String> extraDependencyMap) {
+        for (String notation : extraDependencyMap.keySet()) {
+            String config = extraDependencyMap.get(notation);
+            try {
+                project.getDependencies().add(config, notation);
+                project.getLogger().lifecycle("   ➕ Adding dependency [" + config + "]: " + notation);
+            } catch (Exception e) {
+                project.getLogger().warn("   ⚠️ Failed to add dependency: " + notation + " -> " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 소스 파일 토글 수행 (.java <-> .java.txt)
+     * 초기화 단계에서 실행되며 활성화된 기능에 따라 파일명 변경
+     *
+     * @param project        Gradle 프로젝트 객체
+     * @param javaSourceRoot Java 소스 루트 경로
+     * @param extraSources   활성화된 추가 소스 목록
+     */
+    private static void performSourceToggle(Project project, Set<String> extraSources, Set<String> excludedSources) {
+        String javaSourceRoot = (String) project.getRootProject().findProperty("JAVA_SRC_ROOT");
+
+        for (String extraSource : extraSources) {
+            String fullPathBase = javaSourceRoot + extraSource;
+
+            File fileJava = project.file(fullPathBase);
+            File fileTxt = project.file(fullPathBase + ".txt");
+            if (fileTxt.exists()) {
+                fileTxt.renameTo(fileJava);
+            }
+        }
+
+        for (String excludedSource : excludedSources) {
+            String fullPathBase = javaSourceRoot + excludedSource;
+
+            File fileJava = project.file(fullPathBase);
+            File fileTxt = project.file(fullPathBase + ".txt");
+            if (fileJava.exists()) {
+                fileJava.renameTo(fileTxt);
+            }
+        }
     }
 
     // ========================================================================
@@ -253,115 +357,6 @@ public class S2BuildUtils {
             }
         }
         return licensePaths;
-    }
-
-    /**
-     * activeFeatures 및 dynamicSourceInfo 기반 의존성 주입 구현 및 추가 파일/variantId 수집
-     */
-    private static void injectDynamicDependenciesAndCollect(Project project, Set<String> extraFiles, Set<String> variantIds) {
-        // 안전성: 프로젝트 속성에서 activeFeatures / dynamicSourceInfo 읽기
-        Object activeFeaturesObj = null;
-        Object dynamicSourceInfoObj = null;
-        try {
-            if (project.hasProperty("activeFeatures")) {
-                activeFeaturesObj = project.property("activeFeatures");
-            } else {
-                activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            if (project.hasProperty("dynamicSourceInfo")) {
-                dynamicSourceInfoObj = project.property("dynamicSourceInfo");
-            } else {
-                dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
-            }
-        } catch (Exception ignored) {
-        }
-
-        Set<String> activeFeatures = new HashSet<>();
-        if (activeFeaturesObj instanceof Collection) {
-            for (Object f : (Collection<?>) activeFeaturesObj) {
-                if (f != null)
-                    activeFeatures.add(String.valueOf(f));
-            }
-        }
-
-        if (!(dynamicSourceInfoObj instanceof Map)) {
-            project.getLogger().lifecycle("🔍 [Dynamic Dependencies] No dynamicSourceInfo found, skipping dynamic injection.");
-            return;
-        }
-        Map<?, ?> dynamicSourceInfo = (Map<?, ?>) dynamicSourceInfoObj;
-
-        project.getLogger().lifecycle("🔍 [Dynamic Dependencies] Active Features: " + activeFeatures);
-
-        for (String feature : activeFeatures) {
-            Object featureConfigObj = dynamicSourceInfo.get(feature);
-            if (featureConfigObj instanceof Map) {
-                Map<?, ?> featureConfig = (Map<?, ?>) featureConfigObj;
-
-                // 1) 의존성 주입 (기존 로직)
-                Object dependenciesObj = featureConfig.get("dependencies");
-
-                if (dependenciesObj instanceof Map) {
-                    Map<?, ?> dependenciesMap = (Map<?, ?>) dependenciesObj;
-                    dependenciesMap.forEach((configurationName, deps) -> {
-                        String configNameStr = String.valueOf(configurationName);
-                        if (deps instanceof Collection) {
-                            for (Object dep : (Collection<?>) deps) {
-                                String depStr = String.valueOf(dep);
-                                try {
-                                    project.getDependencies().add(configNameStr, depStr);
-                                    project.getLogger().lifecycle("   ➕ Adding dependency [" + configNameStr + "]: " + depStr + " (Feature: " + feature + ")");
-                                } catch (Exception e) {
-                                    project.getLogger().warn("   ⚠️ Failed to add dependency: " + depStr + " -> " + e.getMessage());
-                                }
-                            }
-                        }
-                    });
-                } else if (dependenciesObj instanceof Collection) {
-                    Collection<?> dependenciesList = (Collection<?>) dependenciesObj;
-                    for (Object depItem : dependenciesList) {
-                        if (depItem instanceof Map) {
-                            @SuppressWarnings("unchecked")
-                            Map<String, String> depMap = (Map<String, String>) depItem;
-                            String config = depMap.getOrDefault("configuration", "implementation");
-                            String group = depMap.get("group");
-                            String name = depMap.get("name");
-                            String version = depMap.get("version");
-
-                            if (group != null && name != null) {
-                                String notation = (version != null && !version.isEmpty()) ? group + ":" + name + ":" + version : group + ":" + name;
-
-                                try {
-                                    project.getDependencies().add(config, notation);
-                                    project.getLogger().lifecycle("   ➕ Adding dependency [" + config + "]: " + notation + " (Feature: " + feature + ")");
-                                } catch (Exception e) {
-                                    project.getLogger().warn("   ⚠️ Failed to add dependency: " + notation + " -> " + e.getMessage());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 2) 추가 파일 목록 수집 (keys: files, extraFiles)
-                Object filesObj = featureConfig.get("files");
-                if (filesObj == null)
-                    filesObj = featureConfig.get("extraFiles");
-                if (filesObj instanceof Collection && extraFiles != null) {
-                    for (Object fo : (Collection<?>) filesObj) {
-                        if (fo != null)
-                            extraFiles.add(String.valueOf(fo));
-                    }
-                }
-
-                // 3) variantId 수집 (키: variantId)
-                Object variantObj = featureConfig.get("variantId");
-                if (variantObj != null && variantIds != null) {
-                    variantIds.add(String.valueOf(variantObj));
-                }
-            }
-        }
     }
 
     /**
@@ -441,63 +436,6 @@ public class S2BuildUtils {
     // ========================================================================
     // 초기화 단계 실행 메서드 (Configuration Phase)
     // ========================================================================
-
-    /**
-     * 소스 파일 토글 수행 (.java <-> .java.txt)
-     * 초기화 단계에서 실행되며 활성화된 기능에 따라 파일명 변경
-     *
-     * @param project           Gradle 프로젝트 객체
-     * @param javaSourceRoot    Java 소스 루트 경로
-     * @param dynamicSourceInfo 동적 소스 설정 정보
-     * @param activeSources     활성화된 추가 소스 목록
-     */
-    public static void performSourceToggle(Project project, String javaSourceRoot, Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
-        if (dynamicSourceInfo == null) {
-            return;
-        }
-
-        if (!javaSourceRoot.endsWith("/")) {
-            javaSourceRoot += "/";
-        }
-
-        for (String featureName : dynamicSourceInfo.keySet()) {
-            boolean shouldBeIncluded = activeSources != null && activeSources.contains(featureName);
-            Map<String, Object> config = dynamicSourceInfo.get(featureName);
-            if (config == null)
-                continue;
-
-            Object sourcesObj = config.get("sources");
-            if (sourcesObj instanceof Collection) {
-                for (Object relPathObj : (Collection<?>) sourcesObj) {
-                    String relativePath = String.valueOf(relPathObj);
-                    String fullPathBase = javaSourceRoot + relativePath;
-
-                    File fileJava = project.file(fullPathBase);
-                    File fileTxt = project.file(fullPathBase + ".txt");
-
-                    if (shouldBeIncluded) {
-                        // 🟩 기능 활성화: .java.txt -> .java 로 복원
-                        if (fileTxt.exists()) {
-                            if (fileTxt.renameTo(fileJava)) {
-                                System.out.println("✅ [Source Toggle] " + fileTxt.getName() + " → " + fileJava.getName() + " (Feature: " + featureName + " ENABLED)");
-                            } else {
-                                System.err.println("❌ [Source Toggle] Failed to rename " + fileTxt.getName() + " → " + fileJava.getName());
-                            }
-                        }
-                    } else {
-                        // 🟥 기능 비활성화: .java -> .java.txt 로 제외
-                        if (fileJava.exists()) {
-                            if (fileJava.renameTo(fileTxt)) {
-                                System.out.println("⚠️  [Source Toggle] " + fileJava.getName() + " → " + fileTxt.getName() + " (Feature: " + featureName + " DISABLED)");
-                            } else {
-                                System.err.println("❌ [Source Toggle] Failed to rename " + fileJava.getName() + " → " + fileTxt.getName());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * Java 버전에 따라 Servlet Import 구문 업데이트
