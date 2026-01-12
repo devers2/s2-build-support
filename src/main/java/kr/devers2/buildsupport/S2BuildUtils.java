@@ -113,6 +113,74 @@ public class S2BuildUtils {
     private static final String ANSI_CYAN = "\u001B[36m";
 
     // ========================================================================
+    // 프로젝트 통합 설정 메서드 (Unified Configuration)
+    // ========================================================================
+
+    /**
+     * 프로젝트의 모든 설정을 올바른 순서로 수행하는 통합 메서드
+     * <p>
+     * build.gradle에서는 이 메서드만 호출하면 됩니다:
+     *
+     * <pre>
+     * project.afterEvaluate { p ->
+     *     kr.devers2.buildsupport.S2BuildUtils.configureProject(p)
+     * }
+     * </pre>
+     * </p>
+     * <p>
+     * 실행 순서:
+     * 1. 동적 의존성 주입 (가장 먼저 - compileOnly 의존성 추가)
+     * 2. 소스 파일 토글 (활성화된 기능에 따라 .java <-> .java.txt)
+     * 3. 패키징 설정 (JAR/Shadow JAR 설정)
+     * 4. 의존성 복사 태스크 등록
+     * 5. README 파일 업데이트
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    public static void configureProject(Project project) {
+        // 1. 동적 의존성 주입 및 라이선스 자동화 (가장 먼저 실행)
+        configureDynamicFeatureDependencies(project);
+
+        // 2. 소스 파일 토글
+        Object dynamicSourceInfoObj = project.findProperty("dynamicSourceInfo");
+        if (dynamicSourceInfoObj == null) {
+            dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
+        }
+        Object activeFeaturesObj = project.findProperty("activeFeatures");
+        if (activeFeaturesObj == null) {
+            activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
+        }
+
+        // 타입 변환
+        @SuppressWarnings("unchecked")
+        Map<String, Map<String, Object>> sourceInfo = (dynamicSourceInfoObj instanceof Map)
+                ? (Map<String, Map<String, Object>>) dynamicSourceInfoObj
+                : new HashMap<>();
+
+        @SuppressWarnings("unchecked")
+        Set<String> activeSet = (activeFeaturesObj instanceof Collection)
+                ? new HashSet<>((Collection<String>) activeFeaturesObj)
+                : new HashSet<>();
+
+        performSourceToggle(
+                project,
+                (String) project.getRootProject().findProperty("JAVA_SRC_ROOT"),
+                sourceInfo,
+                activeSet
+        );
+
+        // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
+        // ext.skipPackaging = true인 프로젝트는 패키징 스킵
+        if (!Boolean.TRUE.equals(project.findProperty("skipPackaging"))) {
+            configurePackaging(project);
+        }
+
+        // 4. README 파일 버전 & 의존성 가이드 업데이트
+        updateReadmeWithVersionAndDependencies(project, project.file("README.md"));
+    }
+
+    // ========================================================================
     // 경로 계산 관련 메서드
     // ========================================================================
 
@@ -246,6 +314,7 @@ public class S2BuildUtils {
                 Object dependenciesObj = featureConfig.get("dependencies");
 
                 if (dependenciesObj instanceof Map) {
+                    // 기존 Map 형태: Map<Configuration, Collection<Notation>>
                     Map<?, ?> dependenciesMap = (Map<?, ?>) dependenciesObj;
                     dependenciesMap.forEach((configurationName, deps) -> {
                         String configNameStr = String.valueOf(configurationName);
@@ -261,15 +330,93 @@ public class S2BuildUtils {
                             }
                         }
                     });
+                } else if (dependenciesObj instanceof Collection) {
+                    // 새로운 List<Map> 형태: List<Map<String, String>> (build.gradle 형식)
+                    Collection<?> dependenciesList = (Collection<?>) dependenciesObj;
+                    for (Object depItem : dependenciesList) {
+                        if (depItem instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, String> depMap = (Map<String, String>) depItem;
+                            String config = depMap.getOrDefault("configuration", "implementation");
+                            String group = depMap.get("group");
+                            String name = depMap.get("name");
+                            String version = depMap.get("version");
+
+                            if (group != null && name != null) {
+                                String notation = (version != null && !version.isEmpty()) ? group + ":" + name + ":" + version : group + ":" + name;
+
+                                try {
+                                    project.getDependencies().add(config, notation);
+                                    project.getLogger().lifecycle("   ➕ Adding dependency [" + config + "]: " + notation + " (Feature: " + feature + ")");
+                                } catch (Exception e) {
+                                    project.getLogger().warn("   ⚠️ Failed to add dependency: " + notation + " -> " + e.getMessage());
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     /**
+     * 활성화된 기능에 compileOnly 의존성이 있는지 확인
+     */
+    private static boolean hasCompileOnlyDependencies(Project project) {
+        Object activeFeaturesObj = project.hasProperty("activeFeatures") ? project.property("activeFeatures") : null;
+        Object dynamicSourceInfoObj = project.hasProperty("dynamicSourceInfo") ? project.property("dynamicSourceInfo") : null;
+
+        if (activeFeaturesObj == null || dynamicSourceInfoObj == null) {
+            return false;
+        }
+
+        Set<String> activeFeatures = new HashSet<>();
+        if (activeFeaturesObj instanceof Collection) {
+            for (Object f : (Collection<?>) activeFeaturesObj) {
+                activeFeatures.add(String.valueOf(f));
+            }
+        }
+
+        if (!(dynamicSourceInfoObj instanceof Map)) {
+            return false;
+        }
+        Map<?, ?> dynamicSourceInfo = (Map<?, ?>) dynamicSourceInfoObj;
+
+        for (String feature : activeFeatures) {
+            Object featureConfigObj = dynamicSourceInfo.get(feature);
+            if (featureConfigObj instanceof Map) {
+                Map<?, ?> featureConfig = (Map<?, ?>) featureConfigObj;
+                Object dependenciesObj = featureConfig.get("dependencies");
+
+                if (dependenciesObj instanceof Collection) {
+                    Collection<?> depsList = (Collection<?>) dependenciesObj;
+                    for (Object depItem : depsList) {
+                        if (depItem instanceof Map) {
+                            Map<?, ?> depMap = (Map<?, ?>) depItem;
+                            String config = String.valueOf(depMap.get("configuration"));
+                            if ("compileOnly".equals(config)) {
+                                return true; // compileOnly 의존성 발견
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * hierynomus.license 플러그인 적용 및 패키징 연동 설정
      */
     private static void configureLicenseAutomation(Project project) {
+        // 활성화된 기능 중 compileOnly 의존성이 있는지 확인
+        boolean hasCompileOnlyDeps = hasCompileOnlyDependencies(project);
+
+        if (!hasCompileOnlyDeps) {
+            project.getLogger().lifecycle("ℹ️ [License] No compileOnly dependencies found in active features. Skipping license automation.");
+            return; // compileOnly 의존성이 없으면 라이선스 플러그인 자체를 적용하지 않음
+        }
+
         // 플러그인 적용
         project.getPluginManager().apply("com.github.hierynomus.license");
 
@@ -835,11 +982,27 @@ public class S2BuildUtils {
         Set<String> extraFiles = new LinkedHashSet<>();
 
         // 2-1. 프로젝트 디렉토리의 README 파일 감지 (README.md, README-KO.md 등)
+        // 단, dynamicSourceInfo에 등록된 라이선스 파일은 activeFeatures에 있을 때만 포함한다.
+        Set<String> allDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, sourceInfoMap.keySet());
+        Set<String> activeDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures);
+
         File projectDir = project.getProjectDir();
         File[] readmeFiles = projectDir.listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD"));
         if (readmeFiles != null) {
             for (File f : readmeFiles) {
-                extraFiles.add(f.getName());
+                String fileName = f.getName();
+
+                // 동적 라이선스 정보에 등록된 파일이라면 활성화 여부를 확인한다.
+                if (allDynamicLicenses.contains(fileName)) {
+                    if (activeDynamicLicenses.contains(fileName)) {
+                        extraFiles.add(fileName); // 활성화된 경우만 포함
+                    } else {
+                        project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + fileName);
+                    }
+                } else {
+                    // 동적 라이선스로 등록되지 않은 일반 README는 항상 포함 (README.md 등)
+                    extraFiles.add(fileName);
+                }
             }
         }
 
@@ -850,7 +1013,23 @@ public class S2BuildUtils {
             if (licenseFiles != null) {
                 for (File f : licenseFiles) {
                     if (f.isFile()) {
-                        extraFiles.add("licenses/" + f.getName());
+                        String relPath = "licenses/" + f.getName();
+
+                        // NOTICE 파일은 동적 업데이트 대상으로 특별 처리
+                        if (f.getName().equals("NOTICE")) {
+                            File processedNotice = updateNoticeFileWithActiveFeatures(project, f);
+                            if (processedNotice != null && processedNotice.exists()) {
+                                extraFiles.add(processedNotice.getAbsolutePath());
+                                continue;
+                            }
+                        }
+
+                        // 동적 라이선스 목록에 있는데 활성화되지 않았으면 제외
+                        if (allDynamicLicenses.contains(relPath) && !activeDynamicLicenses.contains(relPath)) {
+                            project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + relPath);
+                            continue;
+                        }
+                        extraFiles.add(relPath);
                     }
                 }
             }
@@ -1625,12 +1804,26 @@ public class S2BuildUtils {
         if (extraFiles != null && !extraFiles.isEmpty()) {
             project.getLogger().lifecycle("📋 [JAR Packaging] Including extra files into " + jarTask.getName());
 
+            String buildDirPath = project.getLayout().getBuildDirectory().get().getAsFile().getAbsolutePath();
+
             for (String filePath : extraFiles) {
                 // 1. 프로젝트 기준 탐색
                 File file = project.file(filePath);
 
                 if (file.exists()) {
                     String source = "projectDir";
+
+                    // 만약 파일이 build 디렉토리 내에 생성된 것이라면 (예: 동적 NOTICE)
+                    // 파일명과 폴더 구조를 유지하여 포함한다.
+                    if (file.getAbsolutePath().startsWith(buildDirPath)) {
+                        String fileName = file.getName();
+                        if (fileName.equals("NOTICE")) {
+                            jarTask.from(file, copySpec -> copySpec.into("licenses"));
+                        } else {
+                            jarTask.from(file);
+                        }
+                        continue;
+                    }
 
                     if (file.isDirectory()) {
                         // 디렉토리인 경우 fileTree 사용
@@ -2376,8 +2569,8 @@ public class S2BuildUtils {
 
             // 3. 마커 및 블록 처리함 (따옴표와 괄호 혼용 문제를 해결하기 위해 범용 패턴 사용함)
             // 아래 패턴은 [//]: # '...' 또는 [//]: # (...) 또는 [//]: # "..." 형식을 모두 찾아냄
-            String startMarkerPattern = "\\[//\\]: # [\\(\\'\\\"]S2_DEPS_INFO_START[\\)\\'\\\"]";
-            String endMarkerPattern = "\\[//\\]: # [\\(\\'\\\"]S2_DEPS_INFO_END[\\)\\'\\\"]";
+            String startMarkerPattern = "\\[//\\]: # [\\'\\\"\\(]S2_DEPS_INFO_START[\\'\\\"\\)]";
+            String endMarkerPattern = "\\[//\\]: # [\\'\\\"\\(]S2_DEPS_INFO_END[\\'\\\"\\)]";
 
             // 표준 마커 (업데이트 시 이 형식으로 통일함)
             String stdStartMarker = "[//]: # 'S2_DEPS_INFO_START'";
@@ -2401,16 +2594,84 @@ public class S2BuildUtils {
                 // 기존에 어떤 형태의 마커가 있든 새 블록으로 교체함 (중복 방지 핵심)
                 content = fullBlockPattern.matcher(content).replaceAll(depsBlock.toString());
             } else if (!depLines.isEmpty()) {
-                // 아예 없으면 파일 끝에 추가함
-                content = content.trim() + "\n" + depsBlock.toString();
+                // 마커가 없으면 파일 끝에 추가함
+                content = content.trim() + "\n\n" + depsBlock.toString();
             }
 
-            // 5. 파일 저장함
             Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
-            project.getLogger().lifecycle("ℹ️ [README] 최신화 작업을 완료했습니다.");
+        } catch (IOException e) {
+            project.getLogger().warn("⚠️ [README Update] Failed to update " + file.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * NOTICE 파일 내의 특정 섹션을 활성화된 기능(activeFeatures)에 따라 토글하여 임시 파일로 반환한다.
+     * 원본 파일은 변경하지 않고, build/tmp 디렉토리에 새로운 파일을 생성한다.
+     *
+     * @param project    Gradle 프로젝트 객체
+     * @param sourceFile 원본 NOTICE 파일
+     * @return 수정된 내용을 담은 임시 NOTICE 파일 (또는 오류 시 원본 파일)
+     */
+    public static File updateNoticeFileWithActiveFeatures(Project project, File sourceFile) {
+        if (!sourceFile.exists())
+            return sourceFile;
+
+        try {
+            String content = new String(Files.readAllBytes(sourceFile.toPath()), StandardCharsets.UTF_8);
+            Object activeFeaturesObj = project.findProperty("activeFeatures");
+            if (activeFeaturesObj == null) {
+                activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
+            }
+
+            Set<String> activeFeatures = new HashSet<>();
+            if (activeFeaturesObj instanceof Collection) {
+                for (Object f : (Collection<?>) activeFeaturesObj) {
+                    if (f != null)
+                        activeFeatures.add(String.valueOf(f).trim());
+                }
+            }
+
+            // 마커 패턴: [//]: # 'SECTION_START:Key' ... [//]: # 'SECTION_END:Key'
+            Pattern sectionPattern = Pattern.compile(
+                    "\\[//\\]: # [\\'\\\"\\(]SECTION_START:(.*?)[\\'\\\"\\)](.*?)\\[//\\]: # [\\'\\\"\\(]SECTION_END:\\1[\\'\\\"\\)]",
+                    Pattern.DOTALL
+            );
+            Matcher matcher = sectionPattern.matcher(content);
+            StringBuilder sb = new StringBuilder();
+            int lastEnd = 0;
+
+            while (matcher.find()) {
+                sb.append(content, lastEnd, matcher.start());
+                String featureKey = matcher.group(1);
+                String sectionContent = matcher.group(2);
+
+                if (activeFeatures.contains(featureKey)) {
+                    // 기능이 활성화된 경우 내용 유지 (마커는 제거하여 깨끗한 NOTICE 파일 생성)
+                    sb.append(sectionContent.trim()).append("\n");
+                } else {
+                    // 기능이 비활성화된 경우 내용 제거
+                }
+                lastEnd = matcher.end();
+            }
+            sb.append(content.substring(lastEnd));
+
+            String newContent = sb.toString();
+            // 연속된 줄바꿈 정리 (최대 2개까지만 허용)
+            newContent = newContent.replaceAll("(\\r?\\n){3,}", "\n\n");
+
+            // 임시 출력 파일 설정
+            File tempOutputDir = project.getLayout().getBuildDirectory().dir("tmp/licenses").get().getAsFile();
+            if (!tempOutputDir.exists()) {
+                tempOutputDir.mkdirs();
+            }
+            File tempNoticeFile = new File(tempOutputDir, "NOTICE");
+
+            Files.write(tempNoticeFile.toPath(), newContent.getBytes(StandardCharsets.UTF_8));
+            return tempNoticeFile;
 
         } catch (IOException e) {
-            project.getLogger().warn("⚠️ [README] 업데이트 실패: " + e.getMessage());
+            project.getLogger().warn("⚠️ [License] Failed to generate dynamic NOTICE file: " + e.getMessage());
+            return sourceFile;
         }
     }
 
