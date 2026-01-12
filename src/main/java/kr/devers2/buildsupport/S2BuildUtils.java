@@ -1153,8 +1153,9 @@ public class S2BuildUtils {
         boolean enableShadowIntegration = false;
         if (useShadow) {
             if (isAnyPublish) {
-                // 배포 모드: shadedPackagePrefix가 있어야만 Shadow 기능 사용
-                enableShadowIntegration = project.hasProperty("shadedPackagePrefix");
+                // 배포 모드: shadedPackagePrefix가 있어야만 Shadow 기능 사용 (값이 비어있으면 안됨)
+                Object prefix = project.findProperty("shadedPackagePrefix");
+                enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
             } else {
                 // 빌드 모드: Shadow 플러그인만 있으면 항상 사용 (Fat JAR)
                 enableShadowIntegration = true;
@@ -1201,7 +1202,9 @@ public class S2BuildUtils {
             // 2. 배포 설정 (Maven Publication 등록)
             // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
             // configurePackaging 로직과 일치하도록 project 속성을 기준으로 재확인
-            boolean enableShadowPub = useShadow && p.hasProperty("shadedPackagePrefix");
+            Object prefix = p.findProperty("shadedPackagePrefix");
+            boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
+            boolean enableShadowPub = useShadow && hasValidPrefix;
             configurePublications(p, enableShadowPub, archiveBaseName);
 
             // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
@@ -1956,9 +1959,24 @@ public class S2BuildUtils {
                 }
 
                 // 4. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
-                // ext.shadedPackagePrefix 가 있을 때만 Relocate 진행
-                if (project.hasProperty("shadedPackagePrefix")) {
-                    String prefix = project.findProperty("shadedPackagePrefix").toString();
+                // 빌드 모드에서는 relocation을 하지 않음 (명시적으로 전달된 prefix만 사용)
+                // 커맨드라인에서 -PshadedPackagePrefix=... 로 명시적으로 prefix를 전달한 경우에만 relocation 수행
+                boolean hasExplicitPrefix = false;
+                String prefix = "";
+
+                // 커맨드라인 인자 확인
+                java.util.List<String> args = project.getGradle().getStartParameter().getProjectProperties().keySet().stream()
+                        .filter(key -> "shadedPackagePrefix".equals(key))
+                        .map(key -> (String) project.getGradle().getStartParameter().getProjectProperties().get(key))
+                        .collect(java.util.stream.Collectors.toList());
+
+                if (!args.isEmpty()) {
+                    hasExplicitPrefix = true;
+                    prefix = args.get(0);
+                }
+
+                // 빌드 모드: relocation 하지 않음 (prefix가 명시적으로 전달되지 않은 경우)
+                if (hasExplicitPrefix && prefix != null && !prefix.isEmpty()) {
                     Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
                     // Relocate 설정
@@ -1969,7 +1987,7 @@ public class S2BuildUtils {
                         project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
                     }
                 } else {
-                    project.getLogger().lifecycle("ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 없어 Relocation을 건너뜁니다.");
+                    project.getLogger().lifecycle("ℹ️ [Shadow] 빌드 모드: Relocation을 건너뜁니다.");
                 }
 
                 // Manifest 설정
@@ -2169,6 +2187,39 @@ public class S2BuildUtils {
 
             // 로컬 프로젝트의 전이 의존성 제외 처리 (중복 방지)
             excludeTransitiveDependenciesOfLocalProjects(project, shadowJar); // 0. 아티팩트 충돌 방지 및 실행 순서 제어
+
+            // 배포 모드: runtimeClasspath를 포함하지 않음 (Standard JAR는 의존성을 포함하지 않음)
+            // Shadow JAR의 configurations() 메서드를 호출하여 runtimeClasspath 제거
+            try {
+                // ShadowJar의 configurations() 메서드로 configurations 리스트 제거
+                // Shadow 9에서는 getConfigurations()가 List<FileCollection>을 반환
+                java.lang.reflect.Method getConfigsMethod = shadowJar.getClass().getMethod("getConfigurations");
+                if (getConfigsMethod != null) {
+                    Object configsObj = getConfigsMethod.invoke(shadowJar);
+                    if (configsObj instanceof java.util.List) {
+                        java.util.List<?> configs = (java.util.List<?>) configsObj;
+                        // beforeEvaluate 이후 configurations이 설정되므로, doFirst로 연기
+                        shadowJar.doFirst(new org.gradle.api.Action<org.gradle.api.Task>() {
+                            @Override
+                            public void execute(org.gradle.api.Task t) {
+                                try {
+                                    java.lang.reflect.Method getConfigsMethod2 = shadowJar.getClass().getMethod("getConfigurations");
+                                    Object configsObj2 = getConfigsMethod2.invoke(shadowJar);
+                                    if (configsObj2 instanceof java.util.List) {
+                                        ((java.util.List<?>) configsObj2).clear();
+                                        project.getLogger().lifecycle("✅ [Shadow] 배포 모드: configurations 제거 (의존성 미포함)");
+                                    }
+                                } catch (Exception e2) {
+                                    // ignore
+                                }
+                            }
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                // ignore - configurations 없을 수 있음
+            }
+
             // jar 태스크의 출력 경로를 분리하여 shadowJar와 파일명이 겹치지 않게 한다. (Classifier 대신 폴더 분리)
             // 단, Gradle Plugin 프로젝트의 경우 메타데이터 유효성 검사 오류 방지를 위해 분리를 피한다.
             if (!project.getPluginManager().hasPlugin("java-gradle-plugin")) {
@@ -2314,23 +2365,29 @@ public class S2BuildUtils {
             }
 
             // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
-            // ext.shadedPackagePrefix 가 있을 때만 Relocate 진행
+            // ext.shadedPackagePrefix 가 있고 비어있지 않을 때만 Relocate 진행
             if (project.hasProperty("shadedPackagePrefix")) {
                 String prefix = project.findProperty("shadedPackagePrefix").toString();
-                Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
-                try {
-                    java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
-                    if (relocateMethod != null) {
-                        for (String pkg : packagesToRelocate) {
-                            String fromPackage = pkg;
-                            String toPackage = prefix + "." + pkg;
-                            relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                            project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                // 빈 문자열이면 relocation 수행 안 함
+                if (prefix != null && !prefix.isEmpty()) {
+                    Set<String> packagesToRelocate = extractPackagesToRelocate(project);
+
+                    try {
+                        java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
+                        if (relocateMethod != null) {
+                            for (String pkg : packagesToRelocate) {
+                                String fromPackage = pkg;
+                                String toPackage = prefix + "." + pkg;
+                                relocateMethod.invoke(shadowTask, fromPackage, toPackage);
+                                project.getLogger().lifecycle("✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                            }
                         }
+                    } catch (NoSuchMethodException e) {
+                        project.getLogger().warn("⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage());
                     }
-                } catch (NoSuchMethodException e) {
-                    project.getLogger().warn("⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage());
+                } else {
+                    project.getLogger().lifecycle("ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 비어있어 Relocation을 건너뜁니다.");
                 }
             } else {
                 project.getLogger().lifecycle("ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 없어 Relocation을 건너뜁니다.");
@@ -2369,17 +2426,26 @@ public class S2BuildUtils {
      *
      * @param project Gradle 프로젝트 객체
      */
+    /**
+     * Shadow 사용 시 publishing 설정
+     * - Shadow JAR를 메인 아티팩트로 사용 (-all 없이)
+     * - implementation/runtimeOnly 의존성은 pom에서 제외
+     * - api 의존성은 pom에만 추가
+     * - 공개 리포지토리면 소스 Jar 생성 안함
+     *
+     * @param project Gradle 프로젝트 객체
+     */
     private static void configurePublishingForShadow(Project project) {
-        try {
-            org.gradle.api.publish.PublishingExtension publishing = project.getExtensions().getByType(org.gradle.api.publish.PublishingExtension.class);
-
+        project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing -> {
             // "mavenJava" 명칭을 가진 Publication에 대해서만 Shadow 설정을 적용한다.
             // (java-gradle-plugin 등에서 자동 생성하는 "pluginMaven" 등과의 충돌 방지)
-            org.gradle.api.specs.Spec<org.gradle.api.publish.Publication> isTargetPub = p -> "mavenJava".equals(p.getName());
+            publishing.getPublications().withType(org.gradle.api.publish.maven.MavenPublication.class).configureEach(publication -> {
+                if (!"mavenJava".equals(publication.getName())) {
+                    return;
+                }
 
-            publishing.getPublications().matching(isTargetPub).withType(org.gradle.api.publish.maven.MavenPublication.class).configureEach(publication -> {
                 // Shadow 플러그인 사용 시 from components.java를 사용하면 Gradle Module Metadata 수정 불가 오류 발생
-                // from components.java가 설정되어 있는지 확인
+                // from components.java가 설정되어 있는지 확인 (기존 리플렉션 로직 유지하되 안전하게 처리)
                 boolean hasFromComponents = false;
                 try {
                     java.lang.reflect.Method getFromMethod = publication.getClass().getMethod("getFrom");
@@ -2406,118 +2472,118 @@ public class S2BuildUtils {
                 // 기존 아티팩트 제거
                 publication.getArtifacts().clear();
 
-                // Shadow JAR를 메인 아티팩트로 사용
-                org.gradle.api.Task shadowTask = project.getTasks().findByName("shadowJar");
-                if (shadowTask != null) {
-                    publication.artifact(shadowTask);
+                // Shadow JAR를 메인 아티팩트로 사용 (Lazy Configuration 사용)
+                try {
+                    publication.artifact(project.getTasks().named("shadowJar"));
+                } catch (Exception e) {
+                    project.getLogger().warn("⚠️ [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
                 }
 
-                // 소스 JAR 설정 (공개 리포지토리 확인 필요)
-                org.gradle.api.Task sourcesJarTask = project.getTasks().findByName("sourcesJar");
-                if (sourcesJarTask != null) {
+                // Sources JAR 처리 (Lazy Configuration 사용)
+                try {
+                    org.gradle.api.tasks.TaskProvider<?> sourcesJarProvider = project.getTasks().named("sourcesJar");
+
                     // 원격 리포지토리 공개 여부 확인
                     boolean isRemotePublish = project.getGradle().getStartParameter().getTaskNames().stream()
                             .anyMatch(name -> name.toLowerCase().contains("publish") && !name.toLowerCase().contains("local"));
 
-                    if (isRemotePublish) {
-                        // 원격 배포 시 리포지토리 공개 여부 확인
-                        final boolean[] shouldAddSourceJar = { true };
+                    final boolean[] shouldAddSourceJar = { true };
 
-                        publishing.getRepositories().forEach(repo -> {
-                            if (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
-                                org.gradle.api.artifacts.repositories.MavenArtifactRepository mavenRepo = (org.gradle.api.artifacts.repositories.MavenArtifactRepository) repo;
-                                if (mavenRepo.getUrl() != null) {
-                                    String url = mavenRepo.getUrl().toString();
+                    if (isRemotePublish) {
+                        try {
+                            // 원격 배포 시 리포지토리 공개 여부 확인
+                            publishing.getRepositories().withType(org.gradle.api.artifacts.repositories.MavenArtifactRepository.class).forEach(repo -> {
+                                if (repo.getUrl() != null) {
+                                    String url = repo.getUrl().toString();
                                     if (url.contains("github.com") || url.contains("maven.pkg.github.com")) {
                                         // GitHub Packages인 경우
                                         try {
-                                            java.lang.reflect.Method getCredentialsMethod = mavenRepo.getClass().getMethod("getCredentials");
-                                            Object credentials = getCredentialsMethod.invoke(mavenRepo);
-                                            if (credentials != null) {
-                                                java.lang.reflect.Method getPasswordMethod = credentials.getClass().getMethod("getPassword");
-                                                Object password = getPasswordMethod.invoke(credentials);
-
-                                                if (url != null && password != null) {
-                                                    boolean isPrivate = GitHubPackagesClient.isRepoPrivate(url, password.toString());
-                                                    if (!isPrivate) {
-                                                        project.getLogger().lifecycle("🌍 [Shadow] 공개 리포지토리 감지됨. 소스 JAR 생성을 건너뜁니다.");
-                                                        shouldAddSourceJar[0] = false;
-                                                        return; // 소스 JAR 추가 안함
-                                                    }
+                                            org.gradle.api.credentials.PasswordCredentials credentials = repo.getCredentials(org.gradle.api.credentials.PasswordCredentials.class);
+                                            if (credentials != null && credentials.getPassword() != null) {
+                                                boolean isPrivate = GitHubPackagesClient.isRepoPrivate(url, credentials.getPassword());
+                                                if (!isPrivate) {
+                                                    project.getLogger().lifecycle("🌍 [Shadow] 공개 리포지토리 감지됨. 소스 JAR 생성을 건너뜁니다.");
+                                                    shouldAddSourceJar[0] = false;
                                                 }
                                             }
                                         } catch (Exception e) {
-                                            project.getLogger().warn("⚠️  [Shadow] 리포지토리 공개 여부 확인 실패: " + e.getMessage());
+                                            // PasswordCredentials가 아니거나 접근 권한이 없는 경우 무시
+                                            project.getLogger().debug("⚠️ [Shadow] 리포지토리 자격 증명 확인 건너뜀 (표준 API 사용): " + e.getMessage());
                                         }
                                     }
                                 }
-                            }
-                        });
-
-                        // 비공개 리포지토리이거나 확인 실패 시 소스 JAR 추가
-                        if (shouldAddSourceJar[0]) {
-                            publication.artifact(sourcesJarTask);
+                            });
+                        } catch (Exception e) {
+                            project.getLogger().warn("⚠️ [Shadow] 리포지토리 공개 여부 확인 중 오류 발생: " + e.getMessage());
                         }
-                    } else {
-                        // 로컬 배포 시 소스 JAR 추가
-                        publication.artifact(sourcesJarTask);
                     }
+
+                    // 공개 리포지토리(shouldAddSourceJar=false)가 아니라면 소스 JAR 추가
+                    if (shouldAddSourceJar[0]) {
+                        publication.artifact(sourcesJarProvider);
+                    }
+
+                } catch (org.gradle.api.UnknownTaskException e) {
+                    // sourcesJar 태스크가 없으면 무시
                 }
 
-                // Javadoc JAR 추가
-                org.gradle.api.tasks.TaskProvider<?> javadocJarTask = project.getTasks().named("javadocJar");
-                if (javadocJarTask != null) {
-                    publication.artifact(javadocJarTask);
+                // Javadoc JAR 추가 (Lazy Configuration 사용)
+                try {
+                    publication.artifact(project.getTasks().named("javadocJar"));
+                } catch (org.gradle.api.UnknownTaskException e) {
+                    // javadocJar 태스크가 없으면 무시
                 }
 
                 // POM 설정: api 의존성을 수동으로 추가 (Shaded 모드에서는 components.java를 못 쓰므로)
-                // ProjectDependency(예: project(':s2-core'))도 올바르게 GAV로 변환하여 추가함
                 org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
                 if (apiConfig != null) {
                     publication.pom(pom -> {
                         pom.withXml(xml -> {
                             // Groovy Node 사용
                             Object rootObj = xml.asNode();
-                            groovy.util.Node root = (groovy.util.Node) rootObj;
+                            // groovy.util.Node 캐스팅 (Gradle 내장 Groovy 사용)
+                            if (rootObj instanceof groovy.util.Node) {
+                                groovy.util.Node root = (groovy.util.Node) rootObj;
 
-                            groovy.util.Node dependenciesNode;
-                            java.util.List<?> depNodes = (java.util.List<?>) root.get("dependencies");
-                            if (depNodes != null && !depNodes.isEmpty()) {
-                                dependenciesNode = (groovy.util.Node) depNodes.get(0);
-                            } else {
-                                dependenciesNode = root.appendNode("dependencies");
-                            }
-
-                            // 기존 하위 노드 제거 (중복 방지)
-                            dependenciesNode.children().clear();
-
-                            for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
-                                String g = dep.getGroup();
-                                String a = dep.getName();
-                                String v = dep.getVersion();
-
-                                // Project Dependency 처리
-                                if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
-                                    try {
-                                        java.lang.reflect.Method getProjectMethod = dep.getClass().getMethod("getDependencyProject");
-                                        org.gradle.api.Project depProject = (org.gradle.api.Project) getProjectMethod.invoke(dep);
-                                        g = depProject.getGroup().toString();
-                                        a = depProject.getName();
-                                        v = depProject.getVersion().toString();
-                                    } catch (Exception e) {
-                                        // Reflection failed or method not found
-                                        project.getLogger().warn("⚠️ [Shadow Publish] Failed to resolve ProjectDependency via reflection: " + e.getMessage());
-                                    }
+                                groovy.util.Node dependenciesNode;
+                                java.util.List<?> depNodes = (java.util.List<?>) root.get("dependencies");
+                                if (depNodes != null && !depNodes.isEmpty()) {
+                                    dependenciesNode = (groovy.util.Node) depNodes.get(0);
+                                } else {
+                                    dependenciesNode = root.appendNode("dependencies");
                                 }
 
-                                if (g != null && a != null && !"unspecified".equals(a)) {
-                                    groovy.util.Node depNode = dependenciesNode.appendNode("dependency");
-                                    depNode.appendNode("groupId", g);
-                                    depNode.appendNode("artifactId", a);
-                                    if (v != null && !v.isEmpty() && !"unspecified".equals(v)) {
-                                        depNode.appendNode("version", v);
+                                // 기존 하위 노드 제거 (중복 방지)
+                                dependenciesNode.children().clear();
+
+                                for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
+                                    String g = dep.getGroup();
+                                    String a = dep.getName();
+                                    String v = dep.getVersion();
+
+                                    // Project Dependency 처리
+                                    if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
+                                        try {
+                                            java.lang.reflect.Method getProjectMethod = dep.getClass().getMethod("getDependencyProject");
+                                            org.gradle.api.Project depProject = (org.gradle.api.Project) getProjectMethod.invoke(dep);
+                                            g = depProject.getGroup().toString();
+                                            a = depProject.getName();
+                                            v = depProject.getVersion().toString();
+                                        } catch (Exception e) {
+                                            // Reflection failed or method not found
+                                            project.getLogger().warn("⚠️ [Shadow Publish] Failed to resolve ProjectDependency via reflection: " + e.getMessage());
+                                        }
                                     }
-                                    depNode.appendNode("scope", "compile");
+
+                                    if (g != null && a != null && !"unspecified".equals(a)) {
+                                        groovy.util.Node depNode = dependenciesNode.appendNode("dependency");
+                                        depNode.appendNode("groupId", g);
+                                        depNode.appendNode("artifactId", a);
+                                        if (v != null && !v.isEmpty() && !"unspecified".equals(v)) {
+                                            depNode.appendNode("version", v);
+                                        }
+                                        depNode.appendNode("scope", "compile");
+                                    }
                                 }
                             }
                         });
@@ -2525,11 +2591,7 @@ public class S2BuildUtils {
                     project.getLogger().lifecycle("✅ [Shadow Publish] Generated POM includes 'api' dependencies manually.");
                 }
             });
-
-        } catch (Exception e) {
-            project.getLogger().warn("⚠️  [Shadow] Publishing 설정 중 오류: " + e.getMessage());
-            e.printStackTrace();
-        }
+        });
     }
 
     /**
