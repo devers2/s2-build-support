@@ -149,10 +149,10 @@ public class S2BuildUtils {
             // 2. 라이선스 자동화 설정 (License Plugin Integration)
             configureLicenseAutomation(p);
 
-            // 3. 소스 파일 토글
+            // 3. 추가/제외 소스 파일 토글
             performSourceToggle(p, extraSources, excludedSources);
 
-            // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
+            // 4. 패키징 및 빌드 설정 (경로 자동 계산 포함)
             // ext.skipPackaging = true인 프로젝트는 패키징 스킵
             if (!Boolean.TRUE.equals(p.findProperty("skipPackaging"))) {
                 configurePackaging(p);
@@ -961,18 +961,6 @@ public class S2BuildUtils {
      * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
      * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
      *
-     * @param project    Gradle 프로젝트 객체
-     * @param extraFiles 포함할 추가 파일 경로 목록
-     */
-    public static void configurePackaging(Project project, Set<String> extraFiles) {
-        configurePackaging(project, extraFiles, null);
-    }
-
-    /**
-     * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
-     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
-     *
      * @param project             Gradle 프로젝트 객체
      * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
      * @param excludedSourcePaths 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
@@ -1084,7 +1072,6 @@ public class S2BuildUtils {
 
         // 2. 배포 설정 (Maven Publication 등록)
         // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
-        // configurePackaging 로직과 일치하도록 project 속성을 기준으로 재확인
         Object prefix = project.findProperty("shadedPackagePrefix");
         boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
         boolean enableShadowPub = useShadow && hasValidPrefix;
