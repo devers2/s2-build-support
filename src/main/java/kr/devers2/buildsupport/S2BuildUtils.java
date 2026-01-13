@@ -8,8 +8,8 @@ import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -142,7 +142,7 @@ public class S2BuildUtils {
             Set<String> excludedSources = new HashSet<>();
             // 추가할 의존성 목록
             Map<String, String> extraDependencyMap = new HashMap<>();
-            // 추가할 의존성 목록
+            // 추가할 라이선스 목록
             Set<String> extraLicenses = new HashSet<>();
 
             analyzeDynamicSourceInfo(project, variantIds, extraSources, excludedSources, extraDependencyMap, extraLicenses);
@@ -159,7 +159,7 @@ public class S2BuildUtils {
             // 4. 패키징 및 빌드 설정 (경로 자동 계산 포함)
             // ext.skipPackaging = true인 프로젝트는 패키징 스킵
             if (!Boolean.TRUE.equals(p.findProperty("skipPackaging"))) {
-                configurePackaging(p);
+                configurePackaging(p, extraSources, excludedSources, extraLicenses);
             }
 
             // 4. README 파일 버전 & 의존성 가이드 업데이트
@@ -303,141 +303,24 @@ public class S2BuildUtils {
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정 (자동 경로 계산 포함)
-     * <p>
-     * 이 메서드는 다음 프로젝트 속성을 자동으로 읽어 설정을 완료합니다:
-     * - activeFeatures, dynamicSourceInfo: 라이선스 및 제외 경로 계산용
-     * - defaultExcluded, excludedSourcePaths: 추가 제외 경로
-     * </p>
-     *
-     * @param project Gradle 프로젝트 객체
-     */
-    public static void configurePackaging(Project project) {
-        // 1. 동적 기능 정보 수집
-        Object activeFeaturesObj = project.findProperty("activeFeatures");
-        if (activeFeaturesObj == null) {
-            activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
-        }
-        Object dynamicSourceInfoObj = project.findProperty("dynamicSourceInfo");
-        if (dynamicSourceInfoObj == null) {
-            dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
-        }
-
-        // 안정적인 타입 변환
-        Collection<?> activeFeatures = (activeFeaturesObj instanceof Collection) ? (Collection<?>) activeFeaturesObj : new java.util.ArrayList<>();
-        Map<String, Map<String, Object>> sourceInfoMap = new java.util.HashMap<>();
-        if (dynamicSourceInfoObj instanceof Map) {
-            Map<?, ?> rawMap = (Map<?, ?>) dynamicSourceInfoObj;
-            rawMap.forEach((k, v) -> {
-                if (k != null && v instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> config = (Map<String, Object>) v;
-                    sourceInfoMap.put(String.valueOf(k), config);
-                }
-            });
-        }
-
-        // 2. 라이선스 경로 계산 (자동 감지 README*.md, licenses/* 포함)
-        Set<String> extraFiles = new LinkedHashSet<>();
-
-        // 2-1. 프로젝트 디렉토리의 README 파일 감지 (README.md, README-KO.md 등)
-        // 단, dynamicSourceInfo에 등록된 라이선스 파일은 activeFeatures에 있을 때만 포함한다.
-        Set<String> allDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, sourceInfoMap.keySet());
-        Set<String> activeDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures);
-
-        File projectDir = project.getProjectDir();
-        File[] readmeFiles = projectDir.listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD"));
-        if (readmeFiles != null) {
-            for (File f : readmeFiles) {
-                String fileName = f.getName();
-
-                // 동적 라이선스 정보에 등록된 파일이라면 활성화 여부를 확인한다.
-                if (allDynamicLicenses.contains(fileName)) {
-                    if (activeDynamicLicenses.contains(fileName)) {
-                        extraFiles.add(fileName); // 활성화된 경우만 포함
-                    } else {
-                        project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + fileName);
-                    }
-                } else {
-                    // 동적 라이선스로 등록되지 않은 일반 README는 항상 포함 (README.md 등)
-                    extraFiles.add(fileName);
-                }
-            }
-        }
-
-        // 2-2. licenses/ 디렉토리 내 모든 파일 감지
-        File licensesDir = new File(projectDir, "licenses");
-        if (licensesDir.exists() && licensesDir.isDirectory()) {
-            File[] licenseFiles = licensesDir.listFiles();
-            if (licenseFiles != null) {
-                for (File f : licenseFiles) {
-                    if (f.isFile()) {
-                        String relPath = "licenses/" + f.getName();
-
-                        // NOTICE 파일은 동적 업데이트 대상으로 특별 처리
-                        if (f.getName().equals("NOTICE")) {
-                            File processedNotice = updateNoticeFileWithActiveFeatures(project, f);
-                            if (processedNotice != null && processedNotice.exists()) {
-                                extraFiles.add(processedNotice.getAbsolutePath());
-                                continue;
-                            }
-                        }
-
-                        // 동적 라이선스 목록에 있는데 활성화되지 않았으면 제외
-                        if (allDynamicLicenses.contains(relPath) && !activeDynamicLicenses.contains(relPath)) {
-                            project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + relPath);
-                            continue;
-                        }
-                        extraFiles.add(relPath);
-                    }
-                }
-            }
-        }
-
-        // 2-3. 동적 소스 정보에서 라이선스 추출 (Private Helper 사용)
-        extraFiles.addAll(extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures));
-
-        // 3. 제외 경로 계산
-        Set<String> activeFeaturesSet = new java.util.HashSet<>();
-        activeFeatures.forEach(f -> {
-            if (f != null)
-                activeFeaturesSet.add(String.valueOf(f).trim());
-        });
-        Set<String> subDynamicExcluded = resolveExcludedPaths(sourceInfoMap, activeFeaturesSet);
-
-        // 4. 추가 제외 경로 병합 (Root 기본 + 프로젝트 개별)
-        Set<String> mergedExcluded = new java.util.LinkedHashSet<>();
-        Object baseExcluded = project.getRootProject().findProperty("excludedSources");
-        if (baseExcluded instanceof Collection) {
-            ((Collection<?>) baseExcluded).forEach(e -> {
-                if (e != null)
-                    mergedExcluded.add(String.valueOf(e));
-            });
-        }
-        mergedExcluded.addAll(subDynamicExcluded);
-
-        // 5. 핵심 패키징 로직 실행
-        configurePackaging(project, extraFiles, mergedExcluded);
-    }
-
-    /**
      * JAR 및 배포 패키지 통합 설정
      * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
      * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
      *
-     * @param project             Gradle 프로젝트 객체
-     * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
-     * @param excludedSourcePaths 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
+     * @param project         Gradle 프로젝트 객체
+     * @param extraSources    포함할 추가 파일 경로 목록
+     * @param excludedSources 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
+     * @param extraLicenses   포함할 추가 라이선스 파일 경로 목록
      */
-    public static void configurePackaging(Project project, Set<String> extraFiles, Set<String> excludedSourcePaths) {
-        if (extraFiles != null && !extraFiles.isEmpty()) {
-            project.getLogger().lifecycle("🔍 [Packaging Debug] " + project.getName() + " extraFiles: " + extraFiles);
+    public static void configurePackaging(Project project, Set<String> extraSources, Set<String> excludedSources, Set<String> extraLicenses) {
+        if (extraSources != null && !extraSources.isEmpty()) {
+            project.getLogger().lifecycle("🔍 [Packaging Debug] " + project.getName() + " extraSources: " + extraSources);
         } else {
-            project.getLogger().lifecycle("⚠️ [Packaging Debug] " + project.getName() + " extraFiles is empty or null");
+            project.getLogger().lifecycle("⚠️ [Packaging Debug] " + project.getName() + " extraSources is empty or null");
         }
 
         // 0. 소스 및 Javadoc 설정 통합 처리
-        applySourceSettings(project, excludedSourcePaths);
+        applySourceSettings(project, excludedSources);
 
         // ========================================================================
         // 1. Shadow 플러그인 사용 여부 확인 및 적용
@@ -456,7 +339,7 @@ public class S2BuildUtils {
          * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
          * - registerStandardJarTask 헬퍼 메서드 재사용
          */
-        registerStandardJarTask(project, archiveBaseName, version, extraFiles);
+        registerStandardJarTask(project, archiveBaseName, version, extraSources);
 
         // configurePublications is now called within afterEvaluate to ensure all plugins are loaded.
 
@@ -484,8 +367,25 @@ public class S2BuildUtils {
          * ========================================================================
          */
 
-        // extraFiles 초기화 (불변 방지를 위해 복사)
-        final Set<String> initialExtraFiles = (extraFiles != null) ? new LinkedHashSet<>(extraFiles) : new LinkedHashSet<>();
+        final Set<String> combinedExtraFiles = Optional.ofNullable(extraSources)
+                .map(HashSet::new)
+                .orElseGet(HashSet::new);
+
+        Optional.ofNullable(project.getProjectDir().listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD")))
+                .ifPresent(
+                        files -> Arrays.stream(files)
+                                .map(File::getName)
+                                .forEach(combinedExtraFiles::add)
+                );
+
+        Optional.ofNullable(extraLicenses)
+                .ifPresent(
+                        licenses -> licenses.stream()
+                                .filter(Objects::nonNull)
+                                .map(String::valueOf)
+                                .filter(l -> !l.isBlank())
+                                .forEach(combinedExtraFiles::add)
+                );
 
         // Shadow 기능 활성화 여부 판단 (Publishing 모드에서의 조건부 활성화)
         // Publishing: Shadow 플러그인 + shadedPackagePrefix 필수
@@ -505,13 +405,10 @@ public class S2BuildUtils {
         if (enableShadowIntegration) {
             // [Shadow 모드] Fat JAR 생성 및 Publish 연동
             // 타이밍 이슈 해결을 위해 내부에서 afterEvaluate를 사용하며, 이 리스너 안에서 라이선스를 재수집
-            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, initialExtraFiles);
+            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, combinedExtraFiles);
         } else {
             // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
-            Set<String> combinedExtraFiles = new LinkedHashSet<>(initialExtraFiles);
-            combinedExtraFiles.addAll(collectDynamicLicenses(project));
-
-            configureStandardMode(project, isAnyPublish, combinedExtraFiles, version);
+            configureStandardMode(project, isAnyPublish, version, combinedExtraFiles);
         }
 
         /*
@@ -521,7 +418,7 @@ public class S2BuildUtils {
          * - 라이선스 파일 + JAR + 의존성을 포함한 ZIP 패키지 생성
          * - 'Gradle > Tasks > distribution > distZip' 실행 시 생성됨
          */
-        configureDistributions(project, extraFiles);
+        configureDistributions(project, extraSources);
 
         /*
          * ========================================================================
@@ -586,41 +483,6 @@ public class S2BuildUtils {
     // ========================================================================
     // 동적 의존성 및 라이선스 자동화 (Dynamic Dependency & License Automation)
     // ========================================================================
-
-    /**
-     * 동적 소스 정보에서 라이선스 파일 경로 추출 (Private Helper)
-     */
-    private static Set<String> extractLicensesFromSourceInfo(Map<String, Map<String, Object>> dynamicSourceInfo, Collection<?> activeFeatures) {
-        Set<String> licensePaths = new LinkedHashSet<>();
-        if (dynamicSourceInfo == null || activeFeatures == null) {
-            return licensePaths;
-        }
-
-        Set<String> activeFeatureNames = new HashSet<>();
-        for (Object feature : activeFeatures) {
-            if (feature != null) {
-                activeFeatureNames.add(String.valueOf(feature).trim());
-            }
-        }
-
-        for (String featureName : dynamicSourceInfo.keySet()) {
-            if (activeFeatureNames.contains(featureName)) {
-                Object configObj = dynamicSourceInfo.get(featureName);
-                if (configObj instanceof Map) {
-                    Map<?, ?> config = (Map<?, ?>) configObj;
-                    Object licensesObj = config.get("licenses");
-                    if (licensesObj instanceof Collection) {
-                        for (Object license : (Collection<?>) licensesObj) {
-                            if (license != null) {
-                                licensePaths.add(String.valueOf(license));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return licensePaths;
-    }
 
     /**
      * hierynomus.license 플러그인 적용 및 패키징 연동 설정
@@ -1121,13 +983,9 @@ public class S2BuildUtils {
      * ShadowJar 태스크를 구성하고, 빌드/배포 모드에 따라 동작을 분기합니다.
      * </p>
      */
-    private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish,
-            String archiveBaseName, String version, Set<String> extraFiles) {
+    private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish, String archiveBaseName, String version, Set<String> combinedExtraFiles) {
         try {
             // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
-            Set<String> combinedExtraFiles = new LinkedHashSet<>(extraFiles != null ? extraFiles : Collections.emptySet());
-            combinedExtraFiles.addAll(collectDynamicLicenses(project));
-
             org.gradle.api.Task shadowTask = project.getTasks().findByName("shadowJar");
             if (shadowTask == null) {
                 project.getLogger().warn("⚠️  [Shadow] shadowJar 태스크를 찾을 수 없습니다.");
@@ -1185,40 +1043,12 @@ public class S2BuildUtils {
     }
 
     /**
-     * 프로젝트 속성을 기반으로 동적 라이선스 파일을 수집한다.
-     * (Configuration 단계 이후에 호출되어야 함 - afterEvaluate 내부 등)
-     */
-    private static Set<String> collectDynamicLicenses(Project project) {
-        Set<String> licenses = new LinkedHashSet<>();
-        try {
-            // activeFeatures와 dynamicSourceInfo는 Configuration 단계에서 설정되므로
-            // afterEvaluate 시점에는 안전하게 접근 가능
-            Object activeFeatures = project.findProperty("activeFeatures");
-            Object dynamicSourceInfo = project.findProperty("dynamicSourceInfo");
-
-            if (activeFeatures instanceof Collection && dynamicSourceInfo instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Map<String, Object>> sourceInfoMap = (Map<String, Map<String, Object>>) dynamicSourceInfo;
-                // 2. 동적 소스 정보에서 라이선스 추출 (Private Helper 사용)
-                licenses.addAll(extractLicensesFromSourceInfo(sourceInfoMap, (Collection<?>) activeFeatures));
-
-                if (!licenses.isEmpty()) {
-                    project.getLogger().lifecycle("🔍 [Dynamic License Collection] Found additional files: " + licenses);
-                }
-            }
-        } catch (Exception e) {
-            project.getLogger().warn("⚠️ [Dynamic License Collection] Failed to collect licenses: " + e.getMessage());
-        }
-        return licenses;
-    }
-
-    /**
      * Standard 모드 (Non-Shadow) 패키징 설정
      * <p>
      * 기본 jar 태스크를 설정하고, 필요 시 Fat JAR 기능을 활성화합니다.
      * </p>
      */
-    private static void configureStandardMode(Project project, boolean isAnyPublish, Set<String> extraFiles, String version) {
+    private static void configureStandardMode(Project project, boolean isAnyPublish, String version, Set<String> combinedExtraFiles) {
         // Fat JAR 생성 여부 결정 (배포 시에는 항상 Standard JAR)
         boolean buildFatJar;
         if (project.hasProperty("buildFatJar")) {
@@ -1262,7 +1092,7 @@ public class S2BuildUtils {
             }
 
             // 추가 파일 포함
-            includeExtraFiles(task, project, extraFiles);
+            includeExtraFiles(task, project, combinedExtraFiles);
 
             // 중복 파일 처리 전략
             task.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
