@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -133,15 +134,17 @@ public class S2BuildUtils {
         // 모든 의존성 정의가 완료된 후 실행하기 위해 afterEvaluate 사용
         project.afterEvaluate(p -> {
             // 추가할 Variant ID 목록
-            Set<String> variantIds = new LinkedHashSet<>();
+            Set<String> variantIds = new HashSet<>();
             // 추가할 소스 목록
-            Set<String> extraSources = new LinkedHashSet<>();
+            Set<String> extraSources = new HashSet<>();
             // 제외할 소스 목록
-            Set<String> excludedSources = new LinkedHashSet<>();
+            Set<String> excludedSources = new HashSet<>();
             // 추가할 의존성 목록
             Map<String, String> extraDependencyMap = new HashMap<>();
+            // 추가할 의존성 목록
+            Set<String> extraLicenses = new HashSet<>();
 
-            analyzeDynamicSourceInfo(project, variantIds, extraSources, excludedSources, extraDependencyMap);
+            analyzeDynamicSourceInfo(project, variantIds, extraSources, excludedSources, extraDependencyMap, extraLicenses);
 
             // 1. 동적 의존성 주입 (Dynamic Dependency Injection) 및 추가 파일/variantId 정보 수집
             injectDynamicDependencies(p, extraDependencyMap);
@@ -170,9 +173,10 @@ public class S2BuildUtils {
      * @param extraSources       추가할 소스 목록
      * @param excludedSources    제외할 소스 목록
      * @param extraDependencyMap 추가할 의존성 목록
+     * @param extraLicenses      추가할 라이선스 목록
      */
     @SuppressWarnings("unchecked")
-    private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources, Set<String> excludedSources, Map<String, String> extraDependencyMap) {
+    private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources, Set<String> excludedSources, Map<String, String> extraDependencyMap, Set<String> extraLicenses) {
         Object activeFeaturesObj = null;
         Object dynamicSourceInfoMapObj = null;
         try {
@@ -205,15 +209,23 @@ public class S2BuildUtils {
             }
         }
 
-        @SuppressWarnings("unchecked")
         Map<String, ?> dynamicSourceInfoMap = (Map<String, ?>) dynamicSourceInfoMapObj;
         for (String key : dynamicSourceInfoMap.keySet()) {
             Object dynamicSourceInfoObj = dynamicSourceInfoMap.get(key);
             if (dynamicSourceInfoObj instanceof Map) {
                 Map<String, ?> dynamicSourceInfo = (Map<String, ?>) dynamicSourceInfoObj;
                 if (activeFeatures.contains(key)) {
-                    variantIds.add((String) dynamicSourceInfo.get("variantId"));
-                    extraSources.addAll((Collection<String>) dynamicSourceInfo.get("sources"));
+                    Optional.ofNullable(dynamicSourceInfo.get("variantId"))
+                            .map(String.class::cast)
+                            .ifPresent(variantIds::add);
+
+                    Optional.ofNullable(dynamicSourceInfo.get("sources"))
+                            .map(val -> (Collection<String>) val)
+                            .ifPresent(extraSources::addAll);
+
+                    Optional.ofNullable(dynamicSourceInfo.get("licenses"))
+                            .map(val -> (Collection<String>) val)
+                            .ifPresent(extraLicenses::addAll);
 
                     List<Map<String, String>> dependencies = (List<Map<String, String>>) dynamicSourceInfo.get("dependencies");
                     for (Map<String, String> dependency : dependencies) {
