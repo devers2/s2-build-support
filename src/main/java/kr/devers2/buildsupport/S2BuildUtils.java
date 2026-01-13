@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -177,73 +178,78 @@ public class S2BuildUtils {
      */
     @SuppressWarnings("unchecked")
     private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources, Set<String> excludedSources, Map<String, String> extraDependencyMap, Set<String> extraLicenses) {
-        Object activeFeaturesObj = null;
-        Object dynamicSourceInfoMapObj = null;
-        try {
-            if (project.hasProperty("activeFeatures")) {
-                activeFeaturesObj = project.property("activeFeatures");
-            } else {
-                activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            if (project.hasProperty("dynamicSourceInfoMap")) {
-                dynamicSourceInfoMapObj = project.property("dynamicSourceInfoMap");
-            } else {
-                dynamicSourceInfoMapObj = project.getRootProject().findProperty("dynamicSourceInfoMap");
-            }
-        } catch (Exception ignored) {
-        }
-
-        if (!(dynamicSourceInfoMapObj instanceof Map)) {
-            project.getLogger().lifecycle("🔍 [Dynamic Dependencies] No dynamicSourceInfo found, skipping dynamic injection.");
-            return;
-        }
+        Object activeFeaturesObj = project.hasProperty("activeFeatures") ? project.property("activeFeatures") : null;
+        Object dynamicSourceInfoMapObj = project.hasProperty("dynamicSourceInfoMap") ? project.property("dynamicSourceInfoMap") : null;
+        Object excludedSourcesObj = project.hasProperty("excludedSources") ? project.property("excludedSources") : null;
 
         Set<String> activeFeatures = new HashSet<>();
-        if (activeFeaturesObj instanceof Collection) {
-            for (Object f : (Collection<?>) activeFeaturesObj) {
-                if (f != null)
-                    activeFeatures.add(String.valueOf(f));
-            }
-        }
+        Optional.ofNullable(activeFeaturesObj)
+                .filter(Collection.class::isInstance)
+                .map(obj -> (Collection<?>) obj)
+                .ifPresent(
+                        col -> col.stream()
+                                .filter(Objects::nonNull)
+                                .map(String::valueOf)
+                                .filter(s -> !s.isBlank())
+                                .forEach(activeFeatures::add)
+                );
 
-        Map<String, ?> dynamicSourceInfoMap = (Map<String, ?>) dynamicSourceInfoMapObj;
-        for (String key : dynamicSourceInfoMap.keySet()) {
-            Object dynamicSourceInfoObj = dynamicSourceInfoMap.get(key);
-            if (dynamicSourceInfoObj instanceof Map) {
-                Map<String, ?> dynamicSourceInfo = (Map<String, ?>) dynamicSourceInfoObj;
-                if (activeFeatures.contains(key)) {
-                    Optional.ofNullable(dynamicSourceInfo.get("variantId"))
-                            .map(String.class::cast)
-                            .ifPresent(variantIds::add);
+        if (dynamicSourceInfoMapObj instanceof Map) {
+            Map<String, ?> dynamicSourceInfoMap = (Map<String, ?>) dynamicSourceInfoMapObj;
+            for (String key : dynamicSourceInfoMap.keySet()) {
+                Object dynamicSourceInfoObj = dynamicSourceInfoMap.get(key);
+                if (dynamicSourceInfoObj instanceof Map) {
+                    Map<String, ?> dynamicSourceInfo = (Map<String, ?>) dynamicSourceInfoObj;
+                    if (activeFeatures.contains(key)) {
+                        Optional.ofNullable(dynamicSourceInfo.get("variantId"))
+                                .map(String.class::cast)
+                                .ifPresent(variantIds::add);
 
-                    Optional.ofNullable(dynamicSourceInfo.get("sources"))
-                            .map(val -> (Collection<String>) val)
-                            .ifPresent(extraSources::addAll);
+                        Optional.ofNullable(dynamicSourceInfo.get("sources"))
+                                .map(val -> (Collection<String>) val)
+                                .ifPresent(extraSources::addAll);
 
-                    Optional.ofNullable(dynamicSourceInfo.get("licenses"))
-                            .map(val -> (Collection<String>) val)
-                            .ifPresent(extraLicenses::addAll);
+                        Optional.ofNullable(dynamicSourceInfo.get("licenses"))
+                                .map(val -> (Collection<String>) val)
+                                .ifPresent(extraLicenses::addAll);
 
-                    List<Map<String, String>> dependencies = (List<Map<String, String>>) dynamicSourceInfo.get("dependencies");
-                    for (Map<String, String> dependency : dependencies) {
-                        String config = dependency.getOrDefault("configuration", "implementation");
-                        String group = dependency.get("group");
-                        String name = dependency.get("name");
-                        String version = dependency.get("version");
+                        List<Map<String, String>> dependencies = (List<Map<String, String>>) dynamicSourceInfo.get("dependencies");
+                        for (Map<String, String> dependency : dependencies) {
+                            String config = dependency.getOrDefault("configuration", "implementation");
+                            String group = dependency.get("group");
+                            String name = dependency.get("name");
+                            String version = dependency.get("version");
 
-                        if (group != null && !group.isBlank() && name != null && !name.isBlank()) {
-                            String notation = (version != null && !version.isBlank()) ? group + ":" + name + ":" + version : group + ":" + name;
-                            extraDependencyMap.put(notation, config);
+                            if (group != null && !group.isBlank() && name != null && !name.isBlank()) {
+                                String notation = (version != null && !version.isBlank()) ? group + ":" + name + ":" + version : group + ":" + name;
+                                extraDependencyMap.put(notation, config);
+                            }
                         }
+                    } else {
+                        Optional.ofNullable(dynamicSourceInfo.get("sources"))
+                                .map(val -> (Collection<String>) val)
+                                .ifPresent(
+                                        sources -> sources.stream()
+                                                .filter(Objects::nonNull)
+                                                .map(String::valueOf)
+                                                .filter(source -> !source.isBlank())
+                                                .map(source -> source + ".txt")
+                                                .forEach(excludedSources::add)
+                                );
                     }
-                } else {
-                    excludedSources.addAll((Collection<String>) dynamicSourceInfo.get("sources"));
                 }
             }
         }
+
+        Optional.ofNullable(excludedSourcesObj)
+                .map(val -> (Collection<String>) val)
+                .ifPresent(
+                        sources -> sources.stream()
+                                .filter(Objects::nonNull)
+                                .map(String::valueOf)
+                                .filter(source -> !source.isBlank())
+                                .forEach(excludedSources::add)
+                );
     }
 
     /**
@@ -293,6 +299,251 @@ public class S2BuildUtils {
             if (fileJava.exists()) {
                 fileJava.renameTo(fileTxt);
             }
+        }
+    }
+
+    /**
+     * JAR 및 배포 패키지 통합 설정 (자동 경로 계산 포함)
+     * <p>
+     * 이 메서드는 다음 프로젝트 속성을 자동으로 읽어 설정을 완료합니다:
+     * - activeFeatures, dynamicSourceInfo: 라이선스 및 제외 경로 계산용
+     * - defaultExcluded, excludedSourcePaths: 추가 제외 경로
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    public static void configurePackaging(Project project) {
+        // 1. 동적 기능 정보 수집
+        Object activeFeaturesObj = project.findProperty("activeFeatures");
+        if (activeFeaturesObj == null) {
+            activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
+        }
+        Object dynamicSourceInfoObj = project.findProperty("dynamicSourceInfo");
+        if (dynamicSourceInfoObj == null) {
+            dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
+        }
+
+        // 안정적인 타입 변환
+        Collection<?> activeFeatures = (activeFeaturesObj instanceof Collection) ? (Collection<?>) activeFeaturesObj : new java.util.ArrayList<>();
+        Map<String, Map<String, Object>> sourceInfoMap = new java.util.HashMap<>();
+        if (dynamicSourceInfoObj instanceof Map) {
+            Map<?, ?> rawMap = (Map<?, ?>) dynamicSourceInfoObj;
+            rawMap.forEach((k, v) -> {
+                if (k != null && v instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> config = (Map<String, Object>) v;
+                    sourceInfoMap.put(String.valueOf(k), config);
+                }
+            });
+        }
+
+        // 2. 라이선스 경로 계산 (자동 감지 README*.md, licenses/* 포함)
+        Set<String> extraFiles = new LinkedHashSet<>();
+
+        // 2-1. 프로젝트 디렉토리의 README 파일 감지 (README.md, README-KO.md 등)
+        // 단, dynamicSourceInfo에 등록된 라이선스 파일은 activeFeatures에 있을 때만 포함한다.
+        Set<String> allDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, sourceInfoMap.keySet());
+        Set<String> activeDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures);
+
+        File projectDir = project.getProjectDir();
+        File[] readmeFiles = projectDir.listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD"));
+        if (readmeFiles != null) {
+            for (File f : readmeFiles) {
+                String fileName = f.getName();
+
+                // 동적 라이선스 정보에 등록된 파일이라면 활성화 여부를 확인한다.
+                if (allDynamicLicenses.contains(fileName)) {
+                    if (activeDynamicLicenses.contains(fileName)) {
+                        extraFiles.add(fileName); // 활성화된 경우만 포함
+                    } else {
+                        project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + fileName);
+                    }
+                } else {
+                    // 동적 라이선스로 등록되지 않은 일반 README는 항상 포함 (README.md 등)
+                    extraFiles.add(fileName);
+                }
+            }
+        }
+
+        // 2-2. licenses/ 디렉토리 내 모든 파일 감지
+        File licensesDir = new File(projectDir, "licenses");
+        if (licensesDir.exists() && licensesDir.isDirectory()) {
+            File[] licenseFiles = licensesDir.listFiles();
+            if (licenseFiles != null) {
+                for (File f : licenseFiles) {
+                    if (f.isFile()) {
+                        String relPath = "licenses/" + f.getName();
+
+                        // NOTICE 파일은 동적 업데이트 대상으로 특별 처리
+                        if (f.getName().equals("NOTICE")) {
+                            File processedNotice = updateNoticeFileWithActiveFeatures(project, f);
+                            if (processedNotice != null && processedNotice.exists()) {
+                                extraFiles.add(processedNotice.getAbsolutePath());
+                                continue;
+                            }
+                        }
+
+                        // 동적 라이선스 목록에 있는데 활성화되지 않았으면 제외
+                        if (allDynamicLicenses.contains(relPath) && !activeDynamicLicenses.contains(relPath)) {
+                            project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + relPath);
+                            continue;
+                        }
+                        extraFiles.add(relPath);
+                    }
+                }
+            }
+        }
+
+        // 2-3. 동적 소스 정보에서 라이선스 추출 (Private Helper 사용)
+        extraFiles.addAll(extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures));
+
+        // 3. 제외 경로 계산
+        Set<String> activeFeaturesSet = new java.util.HashSet<>();
+        activeFeatures.forEach(f -> {
+            if (f != null)
+                activeFeaturesSet.add(String.valueOf(f).trim());
+        });
+        Set<String> subDynamicExcluded = resolveExcludedPaths(sourceInfoMap, activeFeaturesSet);
+
+        // 4. 추가 제외 경로 병합 (Root 기본 + 프로젝트 개별)
+        Set<String> mergedExcluded = new java.util.LinkedHashSet<>();
+        Object baseExcluded = project.getRootProject().findProperty("excludedSources");
+        if (baseExcluded instanceof Collection) {
+            ((Collection<?>) baseExcluded).forEach(e -> {
+                if (e != null)
+                    mergedExcluded.add(String.valueOf(e));
+            });
+        }
+        mergedExcluded.addAll(subDynamicExcluded);
+
+        // 5. 핵심 패키징 로직 실행
+        configurePackaging(project, extraFiles, mergedExcluded);
+    }
+
+    /**
+     * JAR 및 배포 패키지 통합 설정
+     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
+     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
+     *
+     * @param project             Gradle 프로젝트 객체
+     * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
+     * @param excludedSourcePaths 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
+     */
+    public static void configurePackaging(Project project, Set<String> extraFiles, Set<String> excludedSourcePaths) {
+        if (extraFiles != null && !extraFiles.isEmpty()) {
+            project.getLogger().lifecycle("🔍 [Packaging Debug] " + project.getName() + " extraFiles: " + extraFiles);
+        } else {
+            project.getLogger().lifecycle("⚠️ [Packaging Debug] " + project.getName() + " extraFiles is empty or null");
+        }
+
+        // 0. 소스 및 Javadoc 설정 통합 처리
+        applySourceSettings(project, excludedSourcePaths);
+
+        // ========================================================================
+        // 1. Shadow 플러그인 사용 여부 확인 및 적용
+        // ========================================================================
+        boolean useShadow = notifyShadowPluginStatus(project);
+
+        final String archiveBaseName = getArchiveBaseName(project);
+        final String version = project.getVersion().toString();
+
+        /*
+         * ========================================================================
+         * 2. Standard JAR 태스크 등록 (배포 전용)
+         * ========================================================================
+         * [목적]
+         * - Maven 배포 시 사용할 Standard JAR (의존성 분리) 태스크를 등록
+         * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
+         * - registerStandardJarTask 헬퍼 메서드 재사용
+         */
+        registerStandardJarTask(project, archiveBaseName, version, extraFiles);
+
+        // configurePublications is now called within afterEvaluate to ensure all plugins are loaded.
+
+        /*
+         * ========================================================================
+         * 4. 빌드/배포 모드 및 태스크 분석
+         * ========================================================================
+         */
+        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+        // 'publish'가 포함된 태스크(publishing)인지 확인 (단순 메타데이터 생성 제외)
+        boolean isAnyPublish = taskNames.stream().anyMatch(name -> {
+            String lowerName = name.toLowerCase();
+            return lowerName.contains("publish") && !lowerName.contains("metadata");
+        });
+
+        // 'build', 'assemble', 'shadow' 등 빌드 태스크 확인
+        boolean isBuildTask = taskNames.stream().anyMatch(name -> {
+            String lowerName = name.toLowerCase();
+            return lowerName.contains("build") || lowerName.contains("assemble") || lowerName.contains("shadow");
+        });
+
+        /*
+         * ========================================================================
+         * 5. 패키징 모드별 설정 (Shadow vs Standard)
+         * ========================================================================
+         */
+
+        // extraFiles 초기화 (불변 방지를 위해 복사)
+        final Set<String> initialExtraFiles = (extraFiles != null) ? new LinkedHashSet<>(extraFiles) : new LinkedHashSet<>();
+
+        // Shadow 기능 활성화 여부 판단 (Publishing 모드에서의 조건부 활성화)
+        // Publishing: Shadow 플러그인 + shadedPackagePrefix 필수
+        // Build: Shadow 플러그인만 있으면 활성화
+        boolean enableShadowIntegration = false;
+        if (useShadow) {
+            if (isAnyPublish) {
+                // 배포 모드: shadedPackagePrefix가 있어야만 Shadow 기능 사용 (값이 비어있으면 안됨)
+                Object prefix = project.findProperty("shadedPackagePrefix");
+                enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
+            } else {
+                // 빌드 모드: Shadow 플러그인만 있으면 항상 사용 (Fat JAR)
+                enableShadowIntegration = true;
+            }
+        }
+
+        if (enableShadowIntegration) {
+            // [Shadow 모드] Fat JAR 생성 및 Publish 연동
+            // 타이밍 이슈 해결을 위해 내부에서 afterEvaluate를 사용하며, 이 리스너 안에서 라이선스를 재수집
+            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, initialExtraFiles);
+        } else {
+            // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
+            Set<String> combinedExtraFiles = new LinkedHashSet<>(initialExtraFiles);
+            combinedExtraFiles.addAll(collectDynamicLicenses(project));
+
+            configureStandardMode(project, isAnyPublish, combinedExtraFiles, version);
+        }
+
+        /*
+         * ========================================================================
+         * 6. 배포 패키지 생성 (Distributions)
+         * ========================================================================
+         * - 라이선스 파일 + JAR + 의존성을 포함한 ZIP 패키지 생성
+         * - 'Gradle > Tasks > distribution > distZip' 실행 시 생성됨
+         */
+        configureDistributions(project, extraFiles);
+
+        /*
+         * ========================================================================
+         * 7. 메타데이터 생성 및 스마트 배포 전략 설정
+         * ========================================================================
+         * [afterEvaluate 사용]
+         * - Publishing 설정을 보완하고 태스크 의존성을 교정하기 위해 모든 평가가 끝난 후 실행
+         */
+        // 1. 메타데이터 생성 및 스마트 배포 전략 설정
+        fixMetadataGeneration(project);
+        MavenPublishStrategy.configureSmartPublishing(project);
+
+        // 2. 배포 설정 (Maven Publication 등록)
+        // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
+        Object prefix = project.findProperty("shadedPackagePrefix");
+        boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
+        boolean enableShadowPub = useShadow && hasValidPrefix;
+        configurePublications(project, enableShadowPub, archiveBaseName);
+
+        // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
+        if (enableShadowPub) {
+            configurePublishingForShadow(project);
         }
     }
 
@@ -841,258 +1092,6 @@ public class S2BuildUtils {
                 );
             }
         });
-    }
-
-    /**
-     * JAR 및 배포 패키지 통합 설정 (자동 경로 계산 포함)
-     * <p>
-     * 이 메서드는 다음 프로젝트 속성을 자동으로 읽어 설정을 완료합니다:
-     * - activeFeatures, dynamicSourceInfo: 라이선스 및 제외 경로 계산용
-     * - defaultExcluded, excludedSourcePaths: 추가 제외 경로
-     * </p>
-     *
-     * @param project Gradle 프로젝트 객체
-     */
-    public static void configurePackaging(Project project) {
-        // 1. 동적 기능 정보 수집
-        Object activeFeaturesObj = project.findProperty("activeFeatures");
-        if (activeFeaturesObj == null) {
-            activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
-        }
-        Object dynamicSourceInfoObj = project.findProperty("dynamicSourceInfo");
-        if (dynamicSourceInfoObj == null) {
-            dynamicSourceInfoObj = project.getRootProject().findProperty("dynamicSourceInfo");
-        }
-
-        // 안정적인 타입 변환
-        Collection<?> activeFeatures = (activeFeaturesObj instanceof Collection) ? (Collection<?>) activeFeaturesObj : new java.util.ArrayList<>();
-        Map<String, Map<String, Object>> sourceInfoMap = new java.util.HashMap<>();
-        if (dynamicSourceInfoObj instanceof Map) {
-            Map<?, ?> rawMap = (Map<?, ?>) dynamicSourceInfoObj;
-            rawMap.forEach((k, v) -> {
-                if (k != null && v instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> config = (Map<String, Object>) v;
-                    sourceInfoMap.put(String.valueOf(k), config);
-                }
-            });
-        }
-
-        // 2. 라이선스 경로 계산 (자동 감지 README*.md, licenses/* 포함)
-        Set<String> extraFiles = new LinkedHashSet<>();
-
-        // 2-1. 프로젝트 디렉토리의 README 파일 감지 (README.md, README-KO.md 등)
-        // 단, dynamicSourceInfo에 등록된 라이선스 파일은 activeFeatures에 있을 때만 포함한다.
-        Set<String> allDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, sourceInfoMap.keySet());
-        Set<String> activeDynamicLicenses = extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures);
-
-        File projectDir = project.getProjectDir();
-        File[] readmeFiles = projectDir.listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD"));
-        if (readmeFiles != null) {
-            for (File f : readmeFiles) {
-                String fileName = f.getName();
-
-                // 동적 라이선스 정보에 등록된 파일이라면 활성화 여부를 확인한다.
-                if (allDynamicLicenses.contains(fileName)) {
-                    if (activeDynamicLicenses.contains(fileName)) {
-                        extraFiles.add(fileName); // 활성화된 경우만 포함
-                    } else {
-                        project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + fileName);
-                    }
-                } else {
-                    // 동적 라이선스로 등록되지 않은 일반 README는 항상 포함 (README.md 등)
-                    extraFiles.add(fileName);
-                }
-            }
-        }
-
-        // 2-2. licenses/ 디렉토리 내 모든 파일 감지
-        File licensesDir = new File(projectDir, "licenses");
-        if (licensesDir.exists() && licensesDir.isDirectory()) {
-            File[] licenseFiles = licensesDir.listFiles();
-            if (licenseFiles != null) {
-                for (File f : licenseFiles) {
-                    if (f.isFile()) {
-                        String relPath = "licenses/" + f.getName();
-
-                        // NOTICE 파일은 동적 업데이트 대상으로 특별 처리
-                        if (f.getName().equals("NOTICE")) {
-                            File processedNotice = updateNoticeFileWithActiveFeatures(project, f);
-                            if (processedNotice != null && processedNotice.exists()) {
-                                extraFiles.add(processedNotice.getAbsolutePath());
-                                continue;
-                            }
-                        }
-
-                        // 동적 라이선스 목록에 있는데 활성화되지 않았으면 제외
-                        if (allDynamicLicenses.contains(relPath) && !activeDynamicLicenses.contains(relPath)) {
-                            project.getLogger().lifecycle("⏭️ [License] Skipping inactive dynamic license file: " + relPath);
-                            continue;
-                        }
-                        extraFiles.add(relPath);
-                    }
-                }
-            }
-        }
-
-        // 2-3. 동적 소스 정보에서 라이선스 추출 (Private Helper 사용)
-        extraFiles.addAll(extractLicensesFromSourceInfo(sourceInfoMap, activeFeatures));
-
-        // 3. 제외 경로 계산
-        Set<String> activeFeaturesSet = new java.util.HashSet<>();
-        activeFeatures.forEach(f -> {
-            if (f != null)
-                activeFeaturesSet.add(String.valueOf(f).trim());
-        });
-        Set<String> subDynamicExcluded = resolveExcludedPaths(sourceInfoMap, activeFeaturesSet);
-
-        // 4. 추가 제외 경로 병합 (Root 기본 + 프로젝트 개별)
-        Set<String> mergedExcluded = new java.util.LinkedHashSet<>();
-        Object baseExcluded = project.getRootProject().findProperty("defaultExcluded");
-        if (baseExcluded instanceof Collection) {
-            ((Collection<?>) baseExcluded).forEach(e -> {
-                if (e != null)
-                    mergedExcluded.add(String.valueOf(e));
-            });
-        }
-        Object subExcluded = project.findProperty("excludedSourcePaths");
-        if (subExcluded instanceof Collection) {
-            ((Collection<?>) subExcluded).forEach(e -> {
-                if (e != null)
-                    mergedExcluded.add(String.valueOf(e));
-            });
-        }
-        mergedExcluded.addAll(subDynamicExcluded);
-
-        // 5. 핵심 패키징 로직 실행
-        configurePackaging(project, extraFiles, mergedExcluded);
-    }
-
-    /**
-     * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
-     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
-     *
-     * @param project             Gradle 프로젝트 객체
-     * @param extraFiles          포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
-     * @param excludedSourcePaths 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
-     */
-    public static void configurePackaging(Project project, Set<String> extraFiles, Set<String> excludedSourcePaths) {
-        if (extraFiles != null && !extraFiles.isEmpty()) {
-            project.getLogger().lifecycle("🔍 [Packaging Debug] " + project.getName() + " extraFiles: " + extraFiles);
-        } else {
-            project.getLogger().lifecycle("⚠️ [Packaging Debug] " + project.getName() + " extraFiles is empty or null");
-        }
-
-        // 0. 소스 및 Javadoc 설정 통합 처리
-        applySourceSettings(project, excludedSourcePaths);
-
-        // ========================================================================
-        // 1. Shadow 플러그인 사용 여부 확인 및 적용
-        // ========================================================================
-        boolean useShadow = notifyShadowPluginStatus(project);
-
-        final String archiveBaseName = getArchiveBaseName(project);
-        final String version = project.getVersion().toString();
-
-        /*
-         * ========================================================================
-         * 2. Standard JAR 태스크 등록 (배포 전용)
-         * ========================================================================
-         * [목적]
-         * - Maven 배포 시 사용할 Standard JAR (의존성 분리) 태스크를 등록
-         * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
-         * - registerStandardJarTask 헬퍼 메서드 재사용
-         */
-        registerStandardJarTask(project, archiveBaseName, version, extraFiles);
-
-        // configurePublications is now called within afterEvaluate to ensure all plugins are loaded.
-
-        /*
-         * ========================================================================
-         * 4. 빌드/배포 모드 및 태스크 분석
-         * ========================================================================
-         */
-        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
-        // 'publish'가 포함된 태스크(publishing)인지 확인 (단순 메타데이터 생성 제외)
-        boolean isAnyPublish = taskNames.stream().anyMatch(name -> {
-            String lowerName = name.toLowerCase();
-            return lowerName.contains("publish") && !lowerName.contains("metadata");
-        });
-
-        // 'build', 'assemble', 'shadow' 등 빌드 태스크 확인
-        boolean isBuildTask = taskNames.stream().anyMatch(name -> {
-            String lowerName = name.toLowerCase();
-            return lowerName.contains("build") || lowerName.contains("assemble") || lowerName.contains("shadow");
-        });
-
-        /*
-         * ========================================================================
-         * 5. 패키징 모드별 설정 (Shadow vs Standard)
-         * ========================================================================
-         */
-
-        // extraFiles 초기화 (불변 방지를 위해 복사)
-        final Set<String> initialExtraFiles = (extraFiles != null) ? new LinkedHashSet<>(extraFiles) : new LinkedHashSet<>();
-
-        // Shadow 기능 활성화 여부 판단 (Publishing 모드에서의 조건부 활성화)
-        // Publishing: Shadow 플러그인 + shadedPackagePrefix 필수
-        // Build: Shadow 플러그인만 있으면 활성화
-        boolean enableShadowIntegration = false;
-        if (useShadow) {
-            if (isAnyPublish) {
-                // 배포 모드: shadedPackagePrefix가 있어야만 Shadow 기능 사용 (값이 비어있으면 안됨)
-                Object prefix = project.findProperty("shadedPackagePrefix");
-                enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
-            } else {
-                // 빌드 모드: Shadow 플러그인만 있으면 항상 사용 (Fat JAR)
-                enableShadowIntegration = true;
-            }
-        }
-
-        if (enableShadowIntegration) {
-            // [Shadow 모드] Fat JAR 생성 및 Publish 연동
-            // 타이밍 이슈 해결을 위해 내부에서 afterEvaluate를 사용하며, 이 리스너 안에서 라이선스를 재수집
-            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, initialExtraFiles);
-        } else {
-            // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
-            Set<String> combinedExtraFiles = new LinkedHashSet<>(initialExtraFiles);
-            combinedExtraFiles.addAll(collectDynamicLicenses(project));
-
-            configureStandardMode(project, isAnyPublish, combinedExtraFiles, version);
-        }
-
-        /*
-         * ========================================================================
-         * 6. 배포 패키지 생성 (Distributions)
-         * ========================================================================
-         * - 라이선스 파일 + JAR + 의존성을 포함한 ZIP 패키지 생성
-         * - 'Gradle > Tasks > distribution > distZip' 실행 시 생성됨
-         */
-        configureDistributions(project, extraFiles);
-
-        /*
-         * ========================================================================
-         * 7. 메타데이터 생성 및 스마트 배포 전략 설정
-         * ========================================================================
-         * [afterEvaluate 사용]
-         * - Publishing 설정을 보완하고 태스크 의존성을 교정하기 위해 모든 평가가 끝난 후 실행
-         */
-        // 1. 메타데이터 생성 및 스마트 배포 전략 설정
-        fixMetadataGeneration(project);
-        MavenPublishStrategy.configureSmartPublishing(project);
-
-        // 2. 배포 설정 (Maven Publication 등록)
-        // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
-        Object prefix = project.findProperty("shadedPackagePrefix");
-        boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
-        boolean enableShadowPub = useShadow && hasValidPrefix;
-        configurePublications(project, enableShadowPub, archiveBaseName);
-
-        // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
-        if (enableShadowPub) {
-            configurePublishingForShadow(project);
-        }
     }
 
     /**
