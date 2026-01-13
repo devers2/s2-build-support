@@ -213,18 +213,28 @@ public class S2BuildUtils {
                                 .map(val -> (Collection<String>) val)
                                 .ifPresent(extraLicenses::addAll);
 
-                        List<Map<String, String>> dependencies = (List<Map<String, String>>) dynamicSourceInfo.get("dependencies");
-                        for (Map<String, String> dependency : dependencies) {
-                            String config = dependency.getOrDefault("configuration", "implementation");
-                            String group = dependency.get("group");
-                            String name = dependency.get("name");
-                            String version = dependency.get("version");
+                        Optional.ofNullable(dynamicSourceInfo.get("dependencies"))
+                                .map(val -> (List<Map<String, String>>) val)
+                                .ifPresent(
+                                        dependencies -> dependencies.stream()
+                                                .filter(Objects::nonNull)
+                                                .forEach(dependency -> {
+                                                    String group = dependency.get("group");
+                                                    String name = dependency.get("name");
 
-                            if (group != null && !group.isBlank() && name != null && !name.isBlank()) {
-                                String notation = (version != null && !version.isBlank()) ? group + ":" + name + ":" + version : group + ":" + name;
-                                extraDependencyMap.put(notation, config);
-                            }
-                        }
+                                                    if (group != null && !group.isBlank() && name != null && !name.isBlank()) {
+                                                        String version = dependency.get("version");
+                                                        String config = dependency.getOrDefault("configuration", "implementation");
+
+                                                        // 2. 버전 유무에 따른 notation 생성
+                                                        String notation = (version != null && !version.isBlank())
+                                                                ? group + ":" + name + ":" + version
+                                                                : group + ":" + name;
+
+                                                        extraDependencyMap.put(notation, config);
+                                                    }
+                                                })
+                                );
                     } else {
                         Optional.ofNullable(dynamicSourceInfo.get("sources"))
                                 .map(val -> (Collection<String>) val)
@@ -1901,26 +1911,23 @@ public class S2BuildUtils {
                 // Shadow 9에서는 getConfigurations()가 List<FileCollection>을 반환
                 java.lang.reflect.Method getConfigsMethod = shadowJar.getClass().getMethod("getConfigurations");
                 if (getConfigsMethod != null) {
-                    Object configsObj = getConfigsMethod.invoke(shadowJar);
-                    if (configsObj instanceof java.util.List) {
-                        java.util.List<?> configs = (java.util.List<?>) configsObj;
-                        // beforeEvaluate 이후 configurations이 설정되므로, doFirst로 연기
-                        shadowJar.doFirst(new org.gradle.api.Action<org.gradle.api.Task>() {
-                            @Override
-                            public void execute(org.gradle.api.Task t) {
-                                try {
-                                    java.lang.reflect.Method getConfigsMethod2 = shadowJar.getClass().getMethod("getConfigurations");
-                                    Object configsObj2 = getConfigsMethod2.invoke(shadowJar);
-                                    if (configsObj2 instanceof java.util.List) {
-                                        ((java.util.List<?>) configsObj2).clear();
-                                        project.getLogger().lifecycle("✅ [Shadow] 배포 모드: configurations 제거 (의존성 미포함)");
-                                    }
-                                } catch (Exception e2) {
-                                    // ignore
-                                }
+                    shadowJar.doFirst(new org.gradle.api.Action<org.gradle.api.Task>() {
+                        @Override
+                        public void execute(org.gradle.api.Task t) {
+                            try {
+                                // 외부의 getConfigsMethod를 그대로 사용하여 invoke
+                                Optional.ofNullable(getConfigsMethod.invoke(shadowJar))
+                                        .filter(java.util.List.class::isInstance)
+                                        .map(obj -> (java.util.List<?>) obj)
+                                        .ifPresent(list -> {
+                                            list.clear();
+                                            project.getLogger().lifecycle("✅ [Shadow] 배포 모드: configurations 제거 (의존성 미포함)");
+                                        });
+                            } catch (Exception e2) {
+                                // ignore
                             }
-                        });
-                    }
+                        }
+                    });
                 }
             } catch (Exception e) {
                 // ignore - configurations 없을 수 있음
