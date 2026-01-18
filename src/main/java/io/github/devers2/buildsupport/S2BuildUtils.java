@@ -619,7 +619,7 @@ public class S2BuildUtils {
         String fromPackage = java11OrAbove ? "javax.servlet" : "jakarta.servlet";
         String toPackage = java11OrAbove ? "jakarta.servlet" : "javax.servlet";
 
-        processFilesRecursively(sourceDir, file -> {
+        processFiles(sourceDir, file -> {
             if (!file.getName().endsWith(".java")) {
                 return;
             }
@@ -676,8 +676,8 @@ public class S2BuildUtils {
      */
     public static void updateCopyright(Project project, String[] sourcePaths) {
         String currentYear = String.valueOf(java.time.Year.now().getValue());
-        // 패턴: Copyright (c) 2020 - [연도] devers2
-        java.util.regex.Pattern copyrightPattern = java.util.regex.Pattern.compile("Copyright \\(c\\) 2020 - (\\d{4}) devers2");
+        // 패턴: (Copyright (c) | Copyright | 저작권) 2020 - [연도] devers2
+        java.util.regex.Pattern copyrightPattern = java.util.regex.Pattern.compile("(Copyright(?: \\(c\\))?|저작권) 2020 ?[-–] ?(\\d{4}) devers2");
 
         // 대상 확장자 목록
         Set<String> targetExtensions = new LinkedHashSet<>();
@@ -700,7 +700,7 @@ public class S2BuildUtils {
                 continue;
             }
 
-            processFilesRecursively(sourceDir, file -> {
+            processFiles(sourceDir, file -> {
                 String fileName = file.getName();
                 String extension = getFileExtension(fileName);
 
@@ -713,13 +713,22 @@ public class S2BuildUtils {
                     String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
                     java.util.regex.Matcher matcher = copyrightPattern.matcher(content);
 
-                    if (matcher.find()) {
-                        String oldYear = matcher.group(1);
+                    boolean found = false;
+                    String updatedContent = content;
+
+                    while (matcher.find()) {
+                        String copyrightPrefix = matcher.group(1);
+                        String oldYear = matcher.group(2);
                         if (!oldYear.equals(currentYear)) {
-                            String newContent = matcher.replaceFirst("Copyright (c) 2020 - " + currentYear + " devers2");
-                            java.nio.file.Files.write(path, newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            System.out.println("©️  [Copyright] Updated " + fileName + " (" + oldYear + " → " + currentYear + ")");
+                            String newCopyrightString = copyrightPrefix + " 2020 - " + currentYear + " devers2";
+                            updatedContent = updatedContent.replace(matcher.group(0), newCopyrightString);
+                            found = true;
                         }
+                    }
+
+                    if (found && !content.equals(updatedContent)) {
+                        java.nio.file.Files.write(path, updatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        System.out.println("©️  [Copyright] Updated " + fileName + " (Multiple occurrences or single updated to " + currentYear + ")");
                     }
                 } catch (java.io.IOException e) {
                     System.err.println("❌ [Copyright] Failed to process " + fileName + ": " + e.getMessage());
@@ -882,18 +891,20 @@ public class S2BuildUtils {
      * @param directory     처리할 디렉토리
      * @param fileProcessor 각 파일에 적용할 처리 로직
      */
-    private static void processFilesRecursively(File directory, java.util.function.Consumer<File> fileProcessor) {
-        File[] files = directory.listFiles();
-        if (files == null) {
+    private static void processFiles(File file, java.util.function.Consumer<File> fileProcessor) {
+        if (file == null || !file.exists()) {
             return;
         }
 
-        for (File file : files) {
-            if (file.isDirectory()) {
-                processFilesRecursively(file, fileProcessor);
-            } else {
-                fileProcessor.accept(file);
+        if (file.isDirectory()) {
+            File[] files = file.listFiles();
+            if (files != null) {
+                for (File child : files) {
+                    processFiles(child, fileProcessor);
+                }
             }
+        } else {
+            fileProcessor.accept(file);
         }
     }
 
