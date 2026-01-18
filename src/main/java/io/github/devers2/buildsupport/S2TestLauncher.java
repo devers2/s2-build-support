@@ -22,13 +22,35 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
 /**
- * Shadow JAR 런타임 검증을 위한 스마트 런처
+ * Smart Test Launcher for verifying artifacts (Shadow JARs).
  * <p>
- * 사용자의 요구사항에 따라 다음과 같은 우선순위로 실행을 시도합니다:
- * 1. JUnit 5 의존성이 있으면 JUnit 5 테스트로 실행합니다.
- * 2. JUnit 5가 없으면 타겟 클래스의 public static void main(String[] args) 메서드를 찾아 직접 실행합니다.
- * 3. 둘 다 없으면 사용자에게 명확한 가이드(JUnit 추가 또는 main 구현)를 경고 로그로 출력합니다.
+ * This launcher attempts to execute validation logic with the following priority:
+ * <ol>
+ * <li><b>JUnit 5:</b> If JUnit 5 is detected on the classpath, it runs the class
+ * using {@code ConsoleLauncher}.</li>
+ * <li><b>Standard Main:</b> If JUnit 5 is missing, it looks for a
+ * {@code public static void main(String[] args)} method and executes it.</li>
+ * <li><b>Diagnostic Guide:</b> If neither is found, it prints a detailed setup
+ * guide to the error console.</li>
+ * </ol>
  * </p>
+ *
+ * <p>
+ * <b>[한국어 설명]</b>
+ * </p>
+ * 아티팩트(Shadow JAR 등)의 런타임 정합성을 검증하기 위한 스마트 런처입니다.
+ * <p>
+ * 실행 환경의 의존성 상태에 따라 다음과 같은 우선순위로 검증을 시도합니다:
+ * <ol>
+ * <li><b>JUnit 5:</b> 클래스패스에 JUnit 5가 있으면 {@code ConsoleLauncher}를 통해 테스트로 실행합니다.</li>
+ * <li><b>Standard Main:</b> JUnit 5가 없으면 타겟 클래스의 {@code main} 메서드를 찾아 직접 실행합니다.</li>
+ * <li><b>Diagnostic Guide:</b> 둘 다 없는 경우, 개발자에게JUnit 추가 또는 main 구현을 안내하는 상세 가이드를 출력합니다.</li>
+ * </ol>
+ * </p>
+ *
+ * @author devers2
+ * @version 1.5
+ * @since 1.0
  */
 public class S2TestLauncher {
     public static void main(String[] args) throws Exception {

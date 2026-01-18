@@ -61,14 +61,24 @@ import org.gradle.external.javadoc.JavadocMemberLevel;
 import org.gradle.external.javadoc.StandardJavadocDocletOptions;
 
 /**
- * S2 프로젝트 빌드 관련 공통 유틸리티 클래스
- *
+ * Common build utility class for S2 projects.
  * <p>
- * 이 클래스는 build.gradle에서 사용하는 복잡한 빌드 로직을 Java 코드로 캡슐화하여
- * 재사용성과 유지보수성을 높이는 핵심 유틸리티입니다.
+ * This utility encapsulates complex build logic used in {@code build.gradle} files
+ * into reusable Java code. It manages versioning, dependency injection, packaging
+ * strategies (Standard vs Shaded), and README documentation updates.
  * </p>
  *
- * <h3>📦 패키징 전략 (Packaging Strategies)</h3>
+ * <p>
+ * <b>[한국어 설명]</b>
+ * </p>
+ * S2 프로젝트 빌드 관련 공통 유틸리티 클래스입니다.
+ * <p>
+ * {@code build.gradle}에서 사용하는 복잡한 빌드 로직을 Java 코드로 캡슐화하여 재사용성과 유지보수성을
+ * 높이는 핵심 유틸리티입니다. 버전 관리, 동적 의존성 주입, 패키징 전략(Standard vs Shaded),
+ * 그리고 README 자동 업데이트 기능을 포함합니다.
+ * </p>
+ *
+ * <h3>Packaging Strategies (패키징 전략)</h3>
  *
  * <h4>1. Publishing (Standard) - 'shadedPackagePrefix' 미설정 시</h4>
  * <ul>
@@ -122,9 +132,20 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  * </ul>
  * </li>
  * </ul>
+ * <ul>
+ * <li><b>Standard:</b> Normal JAR without dependencies. Dependencies are listed in the POM.</li>
+ * <li><b>Shaded (Shadow):</b> Fat JAR containing internal dependencies (relocated to avoid conflicts).</li>
+ * </ul>
  *
- * @see LibrariesPublisher
- * @see MavenPublishStrategy
+ * <h3>Dependency Rules (의존성 규칙)</h3>
+ * <ul>
+ * <li><b>api:</b> Public dependencies. Kept in POM, excluded from Shaded JAR.</li>
+ * <li><b>implementation:</b> Internal dependencies. Removed from POM, relocated into Shaded JAR.</li>
+ * </ul>
+ *
+ * @author devers2
+ * @version 1.5
+ * @since 1.0
  */
 public class S2BuildUtils {
 
