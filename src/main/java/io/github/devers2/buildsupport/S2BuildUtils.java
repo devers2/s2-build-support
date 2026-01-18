@@ -158,17 +158,34 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
-     * 프로젝트의 모든 설정을 올바른 순서로 수행하는 통합 메서드
+     * Unified configuration method that performs all project settings in the correct order.
      * <p>
-     * 실행 순서:
-     * 1. 동적 의존성 주입 (가장 먼저 - compileOnly 의존성 추가)
-     * 2. 소스 파일 토글 (활성화된 기능에 따라 .java <-> .java.txt)
-     * 3. 패키징 설정 (JAR/Shadow JAR 설정)
-     * 4. 의존성 복사 태스크 등록
-     * 5. README 파일 업데이트
+     * Execution Order:
+     * <ol>
+     * <li><b>Dynamic Dependency Injection:</b> Adds compileOnly dependencies based on active features.</li>
+     * <li><b>Source File Toggling:</b> Switches between {@code .java} and {@code .java.txt} based on feature flags.</li>
+     * <li><b>Packaging Setup:</b> Configures JAR and Shadow JAR tasks.</li>
+     * <li><b>Dependency Copying:</b> Registers the {@code copyDependencies} task.</li>
+     * <li><b>README Update:</b> Synchronizes version and dependency documentation.</li>
+     * </ol>
      * </p>
      *
-     * @param p Gradle 프로젝트 객체
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 프로젝트의 모든 설정을 올바른 순서로 수행하는 통합 메서드입니다.
+     * <p>
+     * 실행 순서:
+     * <ol>
+     * <li><b>동적 의존성 주입:</b> 활성화된 기능에 따라 compileOnly 의존성을 추가합니다.</li>
+     * <li><b>소스 파일 토글:</b> 기능 플래그에 따라 {@code .java}와 {@code .java.txt} 파일을 전환합니다.</li>
+     * <li><b>패키징 설정:</b> JAR 및 Shadow JAR 태스크를 구성합니다.</li>
+     * <li><b>의존성 복사:</b> {@code copyDependencies} 태스크를 등록합니다.</li>
+     * <li><b>README 업데이트:</b> 버전 및 의존성 가이드를 동기화합니다.</li>
+     * </ol>
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     public static void configureProject(Project project) {
         // 모든 의존성 정의가 완료된 후 실행하기 위해 afterEvaluate 사용
@@ -302,10 +319,15 @@ public class S2BuildUtils {
     }
 
     /**
-     * activeFeatures 및 dynamicSourceInfo 기반 의존성 주입 구현
+     * Implementation of dynamic dependency injection based on active features.
      *
-     * @param project            프로젝트
-     * @param extraDependencyMap 추가할 의존성 목록
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * activeFeatures 및 dynamicSourceInfo 기반 의존성 주입 구현부입니다.
+     *
+     * @param project            The Gradle project instance | Gradle 프로젝트 객체
+     * @param extraDependencyMap Map of dependencies to be added | 추가할 의존성 맵 데이터
      */
     private static void injectDynamicDependencies(Project project, Map<String, String> extraDependencyMap) {
         for (String notation : extraDependencyMap.keySet()) {
@@ -352,14 +374,27 @@ public class S2BuildUtils {
     }
 
     /**
-     * JAR 및 배포 패키지 통합 설정
-     * ⭐ 소비자 프로젝트에서 'com.gradleup.shadow' 플러그인이 적용된 경우,
-     * 자동으로 Shadow JAR 를 생성하도록 구성된다. → implementation, runtimeOnly 의존성은 relocate 처리
+     * Unified configuration for JAR and distribution packaging.
+     * <p>
+     * If the {@code com.gradleup.shadow} plugin is applied, it automatically configures
+     * Shadow JAR generation where {@code implementation} and {@code runtimeOnly}
+     * dependencies are relocated.
+     * </p>
      *
-     * @param project         Gradle 프로젝트 객체
-     * @param extraSources    포함할 추가 파일 경로 목록
-     * @param excludedSources 제외할 소스 경로 목록 (compileJava, javadoc 등에 적용)
-     * @param extraLicenses   포함할 추가 라이선스 파일 경로 목록
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * JAR 및 배포 패키지 통합 설정입니다.
+     * <p>
+     * 소비자 프로젝트에서 {@code com.gradleup.shadow} 플러그인이 적용된 경우, 자동으로
+     * Shadow JAR를 생성하도록 구성하며 {@code implementation} 및 {@code runtimeOnly}
+     * 의존성은 relocate 처리됩니다.
+     * </p>
+     *
+     * @param project         The Gradle project instance | Gradle 프로젝트 객체
+     * @param extraSources    Paths to be included in the artifact | 포함할 추가 파일 경로 목록
+     * @param excludedSources Paths to be excluded from compilation/javadoc | 제외할 소스 경로 목록
+     * @param extraLicenses   Paths to additional license files | 포함할 추가 라이선스 파일 경로 목록
      */
     public static void configurePackaging(Project project, Set<String> extraSources, Set<String> excludedSources, Set<String> extraLicenses) {
         if (extraSources != null && !extraSources.isEmpty()) {
@@ -1320,13 +1355,23 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
-     * Consumer 프로젝트의 Java 컴파일, 테스트, 실행 환경에 UTF-8 인코딩을 중앙에서 강제한다.
-     *
+     * Centrally enforces UTF-8 encoding for Java compilation, testing, and execution environments.
      * <p>
-     * 이 설정은 Windows 환경에서 발생하는 한글 깨짐 문제를 근본적으로 해결하며, 모든 JVM 기반 태스크에 -Dfile.encoding=UTF-8 옵션을 자동으로 주입한다.
+     * This setting fundamentally resolves Korean character corruption issues common on
+     * Windows platforms by automatically injecting {@code -Dfile.encoding=UTF-8} into all
+     * JVM-based tasks.
      * </p>
      *
-     * @param project Gradle 프로젝트 객체
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 프로젝트의 Java 컴파일, 테스트, 실행 환경에 UTF-8 인코딩을 중앙에서 강제합니다.
+     * <p>
+     * 이 설정은 Windows 환경에서 발생하는 한글 깨짐 문제를 근본적으로 해결하며, 모든 JVM 기반 태스크에
+     * {@code -Dfile.encoding=UTF-8} 옵션을 자동으로 주입합니다.
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     @SuppressWarnings("unchecked")
     public static void enforceUtf8Encoding(Project project) {
@@ -1401,9 +1446,21 @@ public class S2BuildUtils {
     }
 
     /**
-     * 의존성 복사 태스크 등록 (copyDependencies)
+     * Registers the {@code copyDependencies} task.
+     * <p>
+     * This task copies all runtime dependencies into a specific directory,
+     * which is useful for manual distribution or artifact analysis.
+     * </p>
      *
-     * @param project Gradle 프로젝트 객체
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 의존성 복사 태스크({@code copyDependencies})를 등록합니다.
+     * <p>
+     * 모든 런타임 의존성을 특정 디렉토리로 복사하여 수동 배포나 아티팩트 분석에 활용할 수 있게 합니다.
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     public static void registerCopyDependenciesTask(Project project) {
         project.getTasks().register("copyDependencies", Copy.class, task -> {

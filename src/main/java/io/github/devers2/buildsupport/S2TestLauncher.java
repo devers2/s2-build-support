@@ -44,15 +44,40 @@ import java.lang.reflect.Modifier;
  * <ol>
  * <li><b>JUnit 5:</b> 클래스패스에 JUnit 5가 있으면 {@code ConsoleLauncher}를 통해 테스트로 실행합니다.</li>
  * <li><b>Standard Main:</b> JUnit 5가 없으면 타겟 클래스의 {@code main} 메서드를 찾아 직접 실행합니다.</li>
- * <li><b>Diagnostic Guide:</b> 둘 다 없는 경우, 개발자에게JUnit 추가 또는 main 구현을 안내하는 상세 가이드를 출력합니다.</li>
+ * <li><b>Diagnostic Guide:</b> 둘 다 없는 경우, 개발자에게 JUnit 추가 또는 main 구현을 안내하는 상세 가이드를 출력합니다.</li>
  * </ol>
  * </p>
+ *
+ * <h3>Diagnostic Guide (진단 가이드)</h3>
+ * If validation fails, ensure one of the following requirements is met:
+ * <ul>
+ * <li><b>JUnit 5:</b> Add {@code org.junit.platform:junit-platform-console} as a {@code testRuntimeOnly} dependency.</li>
+ * <li><b>Main Method:</b> Implement {@code public static void main(String[] args)} in the target class.</li>
+ * </ul>
+ * <p>
+ * <b>[한국어 설명]</b>
+ * </p>
+ * 검증에 실패할 경우 다음 중 하나의 요구 사항이 충족되었는지 확인하십시오:
+ * <ul>
+ * <li><b>JUnit 5:</b> {@code testRuntimeOnly} 의존성으로 {@code org.junit.platform:junit-platform-console}을 추가하십시오.</li>
+ * <li><b>Main 메서드:</b> 대상 클래스에 {@code public static void main(String[] args)} 메서드를 구현하십시오.</li>
+ * </ul>
  *
  * @author devers2
  * @version 1.5
  * @since 1.0
  */
 public class S2TestLauncher {
+    /**
+     * Application entry point for artifact validation.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 아티팩트 검증을 위한 애플리케이션 시작 지점입니다.
+     *
+     * @param args Command-line arguments. The first argument must be the target class name. | 명령행 인자. 첫 번째 인자는 타겟 클래스명이어야 합니다.
+     * @throws Exception If target class loading or execution fails | 타겟 클래스 로드 또는 실행 실패 시 발생
+     */
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("Usage: java io.github.devers2.buildsupport.S2TestLauncher <targetClass> [args...]");
