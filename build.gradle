@@ -36,13 +36,13 @@ dependencies {
  * java-gradle-plugin이 자동으로 2개의 패키지를 생성합니다:
  *
  * 1. Plugin Marker (메타데이터)
- *    - 좌표: kr.devers2.buildsupport:kr.devers2.buildsupport.gradle.plugin:version
- *    - GitHub Packages 표시: kr.devers2.buildsupport.kr.devers2.buildsupport.gradle.plugin
- *    - 역할: 사용자가 'id: kr.devers2.buildsupport'로 플러그인을 적용할 때 실제 JAR를 찾을 수 있도록 하는 메타데이터
+ *    - 좌표: io.github.devers2.buildsupport:io.github.devers2.buildsupport.gradle.plugin:version
+ *    - GitHub Packages 표시: io.github.devers2.buildsupport.io.github.devers2.buildsupport.gradle.plugin
+ *    - 역할: 사용자가 'id: io.github.devers2.buildsupport'로 플러그인을 적용할 때 실제 JAR를 찾을 수 있도록 하는 메타데이터
  *
  * 2. Main JAR (실제 플러그인 코드)
- *    - 좌표: kr.devers2:s2-build-support:version
- *    - GitHub Packages 표시: kr.devers2.s2-build-support
+ *    - 좌표: io.github.devers2:s2-build-support:version
+ *    - GitHub Packages 표시: io.github.devers2.s2-build-support
  *    - 역할: S2BuildSupportPlugin 클래스 등 실제 플러그인 구현 코드 포함
  *
  * 이 두 패키지는 Gradle 플러그인 시스템의 표준 동작이며, 둘 다 필수입니다.
@@ -65,14 +65,14 @@ dependencies {
  *
  * 2. build.gradle에 플러그인 적용:
  *    plugins {
- *        id 'kr.devers2.buildsupport' version '2.0.0'
+ *        id 'io.github.devers2.buildsupport' version '2.0.0'
  *    }
  */
 gradlePlugin {
     plugins {
         s2BuildSupportPlugin {
-            id = 'kr.devers2.buildsupport'
-            implementationClass = 'kr.devers2.buildsupport.S2BuildSupportPlugin'
+            id = 'io.github.devers2.buildsupport'
+            implementationClass = 'io.github.devers2.buildsupport.S2BuildSupportPlugin'
             displayName = 'S2 Build Support'
             description = 'S2 project build utilities'
         }

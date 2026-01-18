@@ -1,4 +1,22 @@
-package kr.devers2.buildsupport;
+/**
+ * S2Util Library
+ *
+ * Copyright 2020 - 2026 devers2 (Daejeon, Korea)
+ * Contact: eseungsu.dev@gmail.com
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.github.devers2.buildsupport;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -721,7 +739,7 @@ public class S2BuildUtils {
      *
      * <pre>{@code
      * // 1. build.gradle에서 다음과 같이 호출
-     * kr.devers2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: {{=version}} ({{=release-date}})", project.version.toString());
+     * io.github.devers2.buildsupport.S2BuildUtils.updateVersionInFile(project, "README.md", "### Version: {{=version}} ({{=release-date}})", project.version.toString());
      *
      * // 2. README.md 파일에 아래 내용이 있다고 가정:
      * // ### Version: 1.0.0 (2023-01-01)
@@ -1577,7 +1595,7 @@ public class S2BuildUtils {
      * <p>
      * <b>[Conditional Relocation]</b><br>
      * 프로젝트의 {@code ext.shadedPackagePrefix} 속성이 설정된 경우에만 패키지 재배치(Relocation)를 수행합니다.<br>
-     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "kr.devers2.s2util.shaded" }}
+     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "io.github.devers2.s2util.shaded" }}
      * </p>
      *
      * @param project         Gradle 프로젝트 객체
@@ -1815,7 +1833,7 @@ public class S2BuildUtils {
             }
 
             // 4. 실행 MainClass를 S2TestLauncher로 설정하고 타겟 클래스를 첫 번째 인자로 전달
-            task.getMainClass().set("kr.devers2.buildsupport.S2TestLauncher");
+            task.getMainClass().set("io.github.devers2.buildsupport.S2TestLauncher");
             task.setArgs(java.util.List.of(targetClass));
 
             // 5. 작업 시작 전 안내 로그 (Cyan 색상 적용)
@@ -1881,7 +1899,7 @@ public class S2BuildUtils {
      * <p>
      * <b>[Conditional Relocation]</b><br>
      * 프로젝트의 {@code ext.shadedPackagePrefix} 속성이 설정된 경우에만 패키지 재배치(Relocation)를 수행합니다.<br>
-     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "kr.devers2.s2util.shaded" }}
+     * 설정 예시 (build.gradle): {@code ext { shadedPackagePrefix = "io.github.devers2.s2util.shaded" }}
      * </p>
      *
      * @param project         Gradle 프로젝트 객체
@@ -2642,6 +2660,6 @@ public class S2BuildUtils {
 
     private static boolean isValidPackage(String pkg) {
         return !pkg.startsWith("java.") && !pkg.startsWith("javax.") && !pkg.startsWith("sun.") && !pkg.startsWith("jdk.") &&
-                !pkg.startsWith("kr.devers2.") && !pkg.startsWith("org.w3c.") && !pkg.startsWith("org.xml.");
+                !pkg.startsWith("io.github.devers2.") && !pkg.startsWith("org.w3c.") && !pkg.startsWith("org.xml.");
     }
 }

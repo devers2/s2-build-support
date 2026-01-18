@@ -1,4 +1,4 @@
-package kr.devers2.buildsupport.gradle.task;
+package io.github.devers2.buildsupport.gradle.task;
 
 import java.io.File;
 import java.util.ArrayList;
