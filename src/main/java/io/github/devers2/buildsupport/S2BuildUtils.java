@@ -180,7 +180,7 @@ public class S2BuildUtils {
                 configurePackaging(p, extraSources, excludedSources, extraLicenses);
             }
 
-            // 4. README 파일 버전 & 의존성 가이드 업데이트
+            // 5. README 파일 버전 & 의존성 가이드 업데이트
             updateReadmeWithVersionAndDependencies(p, p.file("README.md"));
         });
     }
@@ -2357,14 +2357,15 @@ public class S2BuildUtils {
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
             // 1. 버전 및 날짜 업데이트 로직 (버전이 바뀔 때만 날짜 변경함)
-            // 스냅샷(-SNAPSHOT) 등을 포함한 다양한 버전 형식을 지원하도록 정규식 개선
-            Pattern vPattern = Pattern.compile("s2 Product Version: ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
+            // s2-core Version, s2-validator-plugin Version 등 다양한 접두사를 지원하도록 수정
+            Pattern vPattern = Pattern.compile("(s2-[\\w-]+ Version): ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
             Matcher vMatcher = vPattern.matcher(content);
             if (vMatcher.find()) {
-                String existingVersion = vMatcher.group(1);
+                String prefix = vMatcher.group(1); // 예: "s2-core Version"
+                String existingVersion = vMatcher.group(2);
                 // 버전이 기존과 다를 경우에만 전체 문구 교체함
                 if (!existingVersion.equals(currentVersion)) {
-                    content = content.replace(vMatcher.group(0), "s2 Product Version: " + currentVersion + " (" + today + ")");
+                    content = content.replace(vMatcher.group(0), prefix + ": " + currentVersion + " (" + today + ")");
                 }
             }
 
