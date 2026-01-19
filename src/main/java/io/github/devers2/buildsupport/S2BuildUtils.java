@@ -1,20 +1,22 @@
 /**
  * S2Util Library
  *
- * Copyright 2020 - 2026 devers2 (Daejeon, Korea)
+ * Copyright 2020 - 2026 devers2 (이승수, Daejeon, Korea)
  * Contact: eseungsu.dev@gmail.com
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * For more information, please see the LICENSE file in the root directory.
  */
 package io.github.devers2.buildsupport;
 
@@ -1201,7 +1203,7 @@ public class S2BuildUtils {
      * [⭐ 배포 패키지 생성: distributions 블록 ⭐]
      *
      * 목적:
-     * 1. **종합적인 라이선스(LGPL 포함) 준수:** JAR 파일 외부에 README.md (고지)와 licenses 폴더 (전문)를 포함하여 배포
+     * 1. **종합적인 라이선스 준수:** JAR 파일 외부에 README.md (고지)와 licenses 폴더 (전문)를 포함하여 배포
      * (모든 라이선스 정책 이행)
      * 2. **라이브러리 배포:** 최종 JAR 파일과 모든 런타임 의존성 JAR을 하나의 ZIP 파일로 묶어 제공
      * 3. **배포 방법:** 'Gradle > Tasks > distribution > distZip' 실행
