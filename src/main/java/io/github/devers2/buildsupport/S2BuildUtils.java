@@ -1959,25 +1959,36 @@ public class S2BuildUtils {
         }
 
         project.getExtensions().configure("publishing", (org.gradle.api.publish.PublishingExtension publishing) -> {
-            publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class, publication -> {
-                publication.setArtifactId(artifactId);
+            // "mavenJava" Publication이 이미 존재하는지 확인
+            org.gradle.api.publish.maven.MavenPublication publication;
+            if (publishing.getPublications().findByName("mavenJava") != null) {
+                publication = (org.gradle.api.publish.maven.MavenPublication) publishing.getPublications().getByName("mavenJava");
+                project.getLogger().lifecycle("ℹ️ [Publishing] 기존 'mavenJava' Publication을 재사용하여 설정을 업데이트합니다.");
+            } else {
+                publication = publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class);
+            }
 
-                if (!useShadow) {
-                    // 1. Shadow 미사용: Standard 모드
-                    // - from components.java (의존성 정보 자동 포함)
-                    // - java 컴포넌트가 이미 jar, javadoc, sources(조건부)를 포함하므로 추가 조작 불필요
-                    try {
-                        publication.from(project.getComponents().getByName("java"));
-                    } catch (Exception e) {
-                        project.getLogger().warn("⚠️ [Publishing] components.java를 찾을 수 없습니다.");
-                    }
-                } else {
-                    // 2. Shadow 사용: Shadow 모드
-                    // - 여기서는 빈 Publication만 생성하고 artifactId만 설정
-                    // - 실제 아티팩트 및 POM 설정은 configureShadowForPublish (afterEvaluate)에서 처리
-                    // - components.java를 사용하지 않음 (Shadow와 충돌)
+            // 공통 설정 적용
+            publication.setArtifactId(artifactId);
+
+            if (!useShadow) {
+                // 1. Shadow 미사용: Standard 모드
+                // - from components.java (의존성 정보 자동 포함)
+                // - 이미 추가되어 있을 수 있으므로(사용자 정의 등) try-catch로 안전하게 처리
+                try {
+                    // 이미 SoftwareComponent가 셋팅되어 있는지 확인이 어렵으므로 추가 시도를 하고 중복 오류는 무시하거나 경고 처리
+                    publication.from(project.getComponents().getByName("java"));
+                } catch (Exception e) {
+                    // 이미 존재하거나(중복 추가), components.java가 없는 경우
+                    // 로그 레벨을 낮춰서 빌드에 지장을 주지 않도록 함 (INFO or DEBUG)
+                    project.getLogger().info("ℹ️ [Publishing] components.java 추가 건너뜀 (이미 존재하거나 사용할 수 없음): " + e.getMessage());
                 }
-            });
+            } else {
+                // 2. Shadow 사용: Shadow 모드
+                // - 여기서는 빈 Publication만 생성하고 artifactId만 설정
+                // - 실제 아티팩트 및 POM 설정은 configureShadowForPublish (afterEvaluate)에서 처리
+                // - components.java를 사용하지 않음 (Shadow와 충돌)
+            }
         });
     }
 
