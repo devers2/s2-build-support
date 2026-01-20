@@ -489,14 +489,10 @@ public class S2BuildUtils {
         // Build: Shadow 플러그인만 있으면 활성화
         boolean enableShadowIntegration = false;
         if (useShadow) {
-            if (isAnyPublish) {
-                // 배포 모드: shadedPackagePrefix가 있어야만 Shadow 기능 사용 (값이 비어있으면 안됨)
-                Object prefix = project.findProperty("shadedPackagePrefix");
-                enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
-            } else {
-                // 빌드 모드: Shadow 플러그인만 있으면 항상 사용 (Fat JAR)
-                enableShadowIntegration = true;
-            }
+            // Shadow 기능(Fat JAR/Relocation)은 shadedPackagePrefix가 설정된 경우에만 활성화
+            // (Publishing 모드와 일반 Build 모드 모두 동일하게 적용)
+            Object prefix = project.findProperty("shadedPackagePrefix");
+            enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
         }
 
         if (enableShadowIntegration) {
@@ -1379,18 +1375,9 @@ public class S2BuildUtils {
             }
         } else {
             // 4. 로컬 빌드/테스트
-            @SuppressWarnings("unchecked")
-            Set<String> safeTasks = (Set<String>) rootProject.findProperty("safeTasks");
-            if (safeTasks == null) {
-                safeTasks = new HashSet<>(Arrays.asList("assemble", "build", "jar", "sourcesJar", "publishToMavenLocal", "standardJar"));
-            }
-
-            enableSourceJar = safeTasks.stream().anyMatch(taskNames::contains);
-            if (enableSourceJar) {
-                reason = "로컬 빌드/테스트 모드";
-            } else {
-                reason = "소스 JAR 생성 조건 미충족 (Skip)";
-            }
+            // 사용자의 요청으로 로컬 빌드 시에는 무조건 소스 JAR 생성 활성화
+            enableSourceJar = true;
+            reason = "로컬 빌드 시 항상 생성 (User Request)";
         }
 
         // 결과 저장 및 로깅
