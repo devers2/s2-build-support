@@ -6,6 +6,7 @@
 plugins {
     id 'java-gradle-plugin'
     id 'maven-publish'
+    id 'signing'
 }
 group = project.property('group')
 version = project.property('version')
@@ -31,21 +32,9 @@ dependencies {
 }
 
 /*
- * [Gradle 플러그인 배포]
+ * [Gradle 플러그인 배포 - Maven Central]
  *
- * java-gradle-plugin이 자동으로 2개의 패키지를 생성합니다:
- *
- * 1. Plugin Marker (메타데이터)
- *    - 좌표: io.github.devers2.buildsupport:io.github.devers2.buildsupport.gradle.plugin:version
- *    - GitHub Packages 표시: io.github.devers2.buildsupport.io.github.devers2.buildsupport.gradle.plugin
- *    - 역할: 사용자가 'id: io.github.devers2.buildsupport'로 플러그인을 적용할 때 실제 JAR를 찾을 수 있도록 하는 메타데이터
- *
- * 2. Main JAR (실제 플러그인 코드)
- *    - 좌표: io.github.devers2:s2-build-support:version
- *    - GitHub Packages 표시: io.github.devers2.s2-build-support
- *    - 역할: S2BuildSupportPlugin 클래스 등 실제 플러그인 구현 코드 포함
- *
- * 이 두 패키지는 Gradle 플러그인 시스템의 표준 동작이며, 둘 다 필수입니다.
+ * Tasks → publishing → publishAllPublicationsToCentralPortalRepository 태스크 실행
  *
  * [사용 방법]
  *
@@ -53,19 +42,13 @@ dependencies {
  *    pluginManagement {
  *        repositories {
  *            gradlePluginPortal()
- *            maven {
- *                url = uri("https://maven.pkg.github.com/devers2/s2-packages")
- *                credentials {
- *                    username = 'your-github-username'
- *                    password = 'your-github-token'
- *                }
- *            }
+ *            mavenCentral() // 중앙 저장소에서 플러그인을 찾도록 추가
  *        }
  *    }
  *
  * 2. build.gradle에 플러그인 적용:
  *    plugins {
- *        id 'io.github.devers2.buildsupport' version '2.0.0'
+ *        id 'io.github.devers2.buildsupport' version '0.1.0'
  *    }
  */
 gradlePlugin {
@@ -77,17 +60,49 @@ gradlePlugin {
             description = 'S2 project build utilities'
         }
     }
-    // Plugin marker publication을 명시적으로 설정
-    vcsUrl = 'https://github.com/devers2/s2-packages'
 }
 publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            // 생성될 pom.xml 상세 설정 (Maven Central 필수 요건)
+            pom {
+                name = project.name
+                description = 'S2BuildSupport Plugin - A comprehensive utility library for Java'
+                url = 'https://github.com/devers2/s2-build-support'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'devers2'
+                        name = '이승수'
+                        email = 'eseungsu.dev@gmail.com'
+                        organization = 'devers2'
+                        organizationUrl = 'https://github.com/devers2'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/devers2/s2-build-support.git'
+                    developerConnection = 'scm:git:ssh://github.com/devers2/s2-build-support.git'
+                    url = 'https://github.com/devers2/s2-build-support'
+                }
+            }
+        }
+    }
     repositories {
+        // Central Portal 배포 설정
         maven {
-            name = 's2-packages'
-            url = uri("https://maven.pkg.github.com/devers2/s2-packages")
+            name = "CentralPortal"
+            // Central Portal Zip Bundle Upload API (v1)
+            // publishingType → AUTOMATIC : 자동 배포, USER_MANAGED : 사용자 관리 배포 (수동 승인/배포 필요 시)
+            url = "https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED"
             credentials {
-                username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
-                password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
+                username = project.findProperty("centralUsername")
+                password = project.findProperty("centralPassword")
             }
         }
     }
