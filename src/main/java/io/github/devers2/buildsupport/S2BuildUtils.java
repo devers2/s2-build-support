@@ -22,13 +22,19 @@ package io.github.devers2.buildsupport;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -45,6 +51,8 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
@@ -222,6 +230,9 @@ public class S2BuildUtils {
 
             // 5. README 파일 버전 & 의존성 가이드 업데이트
             updateReadmeWithVersionAndDependencies(p, p.file("README.md"));
+
+            // 6. Central Portal 배포 설정 (Hijack Task)
+            configureCentralPortalPublishing(p);
         });
     }
 
@@ -2815,5 +2826,263 @@ public class S2BuildUtils {
     private static boolean isValidPackage(String pkg) {
         return !pkg.startsWith("java.") && !pkg.startsWith("javax.") && !pkg.startsWith("sun.") && !pkg.startsWith("jdk.") &&
                 !pkg.startsWith("io.github.devers2.") && !pkg.startsWith("org.w3c.") && !pkg.startsWith("org.xml.");
+    }
+
+    // ========================================================================
+    // Central Portal Publishing (Hijack Task)
+    // ========================================================================
+
+    /**
+     * Central Portal 배포 태스크를 감지하여 Zip 번들 업로드 방식으로 교체합니다.
+     * <p>
+     * Maven Central Portal의 새로운 API는 파일별 PUT 업로드를 지원하지 않으며,
+     * 모든 아티팩트와 서명을 포함한 Zip 번들을 POST로 업로드해야 합니다.
+     * </p>
+     *
+     * @param project Gradle 프로젝트 객체
+     */
+    public static void configureCentralPortalPublishing(Project project) {
+        project.afterEvaluate(p -> {
+            p.getTasks().withType(org.gradle.api.publish.maven.tasks.PublishToMavenRepository.class).configureEach(task -> {
+                // CentralPortal 리포지토리로 배포하는 태스크인지 확인
+                if (task.getRepository() != null && "CentralPortal".equals(task.getRepository().getName())) {
+                    // 1. Repository URL (build.gradle 설정 값 사용)
+                    final String centralUploadUrl = task.getRepository().getUrl().toString();
+
+                    // 2. 기존 동작 제거 및 새 동작 주입
+                    task.getActions().clear();
+
+                    // 서명 태스크 의존성 강제 추가 (findByName 제거 - Lazy Resolution 활용)
+                    // signing 플러그인이 적용되어 있다면 이 태스크는 반드시 존재해야 함
+                    task.dependsOn("signMavenJavaPublication");
+                    project.getLogger().lifecycle("🔗 [Central Portal] 서명 태스크(signMavenJavaPublication) 의존성 설정 완료");
+
+                    task.doLast(t -> {
+                        project.getLogger().lifecycle("🚀 [Central Portal] Zip 번들 업로드 (" + centralUploadUrl + ")...");
+
+                        // 필요한 파일 수집
+                        File buildDir = project.getLayout().getBuildDirectory().getAsFile().get();
+                        File bundleDir = new File(buildDir, "distributions/central-bundle");
+                        if (bundleDir.exists())
+                            project.delete(bundleDir);
+                        bundleDir.mkdirs();
+
+                        String version = project.getVersion().toString();
+                        // groupId는 project.group이 아닐 수 있음 (Publication 설정 확인 필요)
+                        String artifactId = project.getName();
+
+                        // Publication에서 Artifact ID 정확히 가져오기 (설정된 경우)
+                        org.gradle.api.publish.PublishingExtension publishing = project.getExtensions().findByType(org.gradle.api.publish.PublishingExtension.class);
+                        if (publishing != null) {
+                            org.gradle.api.publish.maven.MavenPublication mvnPub = (org.gradle.api.publish.maven.MavenPublication) publishing.getPublications().findByName("mavenJava");
+                            if (mvnPub != null) {
+                                artifactId = mvnPub.getArtifactId();
+                            }
+                        }
+
+                        List<File> filesToBundle = new ArrayList<>();
+
+                        // 1) JARs & Signatures (libs 폴더)
+                        File libsDir = new File(buildDir, "libs");
+                        if (libsDir.exists()) {
+                            final String baseName = artifactId + "-" + version;
+                            final boolean isSnapshotVersion = version.contains("SNAPSHOT");
+
+                            File[] files = libsDir.listFiles((dir, name) -> {
+                                boolean isJarOrAsc = name.endsWith(".jar") || name.endsWith(".asc");
+                                if (!isJarOrAsc)
+                                    return false;
+
+                                // 배포 버전이 SNAPSHOT이 아닌데 파일명에 SNAPSHOT이 포함되어 있다면 제외 (이전 빌드 잔재)
+                                if (!isSnapshotVersion && name.contains("SNAPSHOT")) {
+                                    project.getLogger().debug("         - Skipping SNAPSHOT file for non-SNAPSHOT release: " + name);
+                                    return false;
+                                }
+
+                                // 정확히 버전으로 끝나는 파일 (.jar, .asc) 또는 분류자(classifier)가 있는 파일 (-javadoc.jar 등)
+                                boolean exactMatch = name.equals(baseName + ".jar") || name.equals(baseName + ".jar.asc");
+                                boolean classifierMatch = name.startsWith(baseName + "-");
+
+                                return exactMatch || classifierMatch;
+                            });
+
+                            if (files != null)
+                                filesToBundle.addAll(Arrays.asList(files));
+                        }
+
+                        // 2) POM & Signature (publications/mavenJava 폴더)
+                        File pomDir = new File(buildDir, "publications/mavenJava");
+                        if (pomDir.exists()) {
+                            // startsWith 대신 equals로 정확히 pom-default.xml만 선택 (asc 파일 중복 선택 방지)
+                            File[] poms = pomDir.listFiles((dir, name) -> name.equals("pom-default.xml"));
+                            if (poms != null) {
+                                for (File pom : poms) {
+                                    // POM 이름 변경 (artifactId-version.pom)
+                                    File renamedPom = new File(bundleDir, artifactId + "-" + version + ".pom");
+                                    try {
+                                        Files.copy(pom.toPath(), renamedPom.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                        filesToBundle.add(renamedPom);
+
+                                        // POM 서명 파일 찾기 (.asc)
+                                        File pomAsc = new File(pomDir, "pom-default.xml.asc");
+                                        if (pomAsc.exists()) {
+                                            File renamedPomAsc = new File(bundleDir, artifactId + "-" + version + ".pom.asc");
+                                            Files.copy(pomAsc.toPath(), renamedPomAsc.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                            filesToBundle.add(renamedPomAsc);
+                                        }
+                                    } catch (IOException e) {
+                                        project.getLogger().error("❌ [Central Portal] POM 파일 처리 실패: " + e.getMessage());
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2-1) 서명(.asc) 없는 파일 제외 & Checksum 생성
+                        List<File> validatedFiles = new ArrayList<>();
+                        // 서명 파일 존재 여부를 위한 Set
+                        Set<String> fileNames = filesToBundle.stream().map(File::getName).collect(java.util.stream.Collectors.toSet());
+
+                        // Checksum 파일 리스트
+                        List<File> checksumFiles = new ArrayList<>();
+
+                        for (File f : filesToBundle) {
+                            // 서명/체크섬 파일 자체는 검증 대상에서 제외하고 그대로 포함
+                            if (f.getName().endsWith(".asc") || f.getName().endsWith(".md5") || f.getName().endsWith(".sha1")) {
+                                validatedFiles.add(f);
+                                continue;
+                            }
+
+                            // 아티팩트(.jar, .pom)인 경우 서명 파일 존재 여부 확인
+                            String ascName = f.getName() + ".asc";
+                            if (!fileNames.contains(ascName)) {
+                                project.getLogger().warn("⚠️ [Central Portal] 서명(.asc)이 없어 건너뜁니다: " + f.getName());
+                                continue;
+                            }
+                            validatedFiles.add(f);
+
+                            // Checksum (MD5, SHA1) 생성
+                            try {
+                                byte[] content = Files.readAllBytes(f.toPath());
+
+                                java.security.MessageDigest md5Digest = java.security.MessageDigest.getInstance("MD5");
+                                String md5 = String.format("%032x", new java.math.BigInteger(1, md5Digest.digest(content)));
+
+                                java.security.MessageDigest sha1Digest = java.security.MessageDigest.getInstance("SHA-1");
+                                String sha1 = String.format("%040x", new java.math.BigInteger(1, sha1Digest.digest(content)));
+
+                                File md5File = new File(bundleDir, f.getName() + ".md5");
+                                File sha1File = new File(bundleDir, f.getName() + ".sha1");
+
+                                Files.write(md5File.toPath(), md5.getBytes(StandardCharsets.UTF_8));
+                                Files.write(sha1File.toPath(), sha1.getBytes(StandardCharsets.UTF_8));
+
+                                checksumFiles.add(md5File);
+                                checksumFiles.add(sha1File);
+                            } catch (Exception e) {
+                                project.getLogger().warn("⚠️ [Central Portal] Checksum 생성 실패: " + f.getName());
+                            }
+                        }
+                        filesToBundle = validatedFiles;
+                        filesToBundle.addAll(checksumFiles);
+
+                        if (filesToBundle.isEmpty()) {
+                            throw new org.gradle.api.GradleException("❌ [Central Portal] 번들링할 파일이 없습니다. (서명 파일 누락 등 확인 필요)");
+                        }
+
+                        // 3. Zip 번들 생성 (Maven Layout 적용)
+                        File zipFile = new File(buildDir, "distributions/bundle.zip");
+                        zipFile.getParentFile().mkdirs();
+
+                        try (FileOutputStream fos = new FileOutputStream(zipFile);
+                                ZipOutputStream zos = new ZipOutputStream(fos)) {
+
+                            project.getLogger().lifecycle("📦 [Central Portal] 번들링 대상 파일 목록 (Maven Layout 적용):");
+                            String groupPath = project.getGroup().toString().replace(".", "/");
+                            String mavenPathPrefix = groupPath + "/" + artifactId + "/" + version + "/";
+
+                            for (File file : filesToBundle) {
+                                String entryName = mavenPathPrefix + file.getName();
+                                project.getLogger().lifecycle("   - " + entryName + " (" + file.length() + " bytes)");
+
+                                try {
+                                    ZipEntry zipEntry = new ZipEntry(entryName);
+                                    zos.putNextEntry(zipEntry);
+                                    Files.copy(file.toPath(), zos);
+                                    zos.closeEntry();
+                                } catch (Exception e) {
+                                    throw new IOException("파일 번들링 중 오류 발생: " + file.getName() + " - " + e.getMessage(), e);
+                                }
+                            }
+                            project.getLogger().lifecycle("📦 [Central Portal] Zip 번들 생성 완료: " + zipFile.getAbsolutePath());
+                            project.getLogger().lifecycle("   - 포함된 파일 수: " + filesToBundle.size());
+                        } catch (IOException e) {
+                            // 상세 에러 메시지를 포함하여 예외 발생
+                            project.getLogger().error("❌ [Central Portal] Zip 생성 중 치명적 오류: " + e.getMessage());
+                            throw new org.gradle.api.GradleException("❌ [Central Portal] Zip 번들 생성 실패: " + e.getMessage(), e);
+                        }
+
+                        // 4. 업로드 (HttpClient)
+                        String username = (String) project.findProperty("centralUsername");
+                        String password = (String) project.findProperty("centralPassword");
+
+                        if (username == null || password == null) {
+                            project.getLogger().error("⚠️ [Central Portal] 업로드를 위한 인증 정보(centralUsername, centralPassword)가 없습니다. Zip 파일 생성까지만 진행되었습니다.");
+                            return;
+                        }
+
+                        // 공백 및 따옴표 제거 (사용자 실수 방지)
+                        username = username.trim().replace("\"", "").replace("'", "");
+                        password = password.trim().replace("\"", "").replace("'", "");
+
+                        project.getLogger().lifecycle("📤 [Central Portal] 업로드를 시작합니다 (PublishingType=USER_MANAGED)...");
+                        project.getLogger().lifecycle("   - User: " + username);
+                        project.getLogger().lifecycle("   - Password: " + password);
+                        project.getLogger().debug("   - Password Length: " + password.length()); // 디버그용 (값은 노출하지 않음)
+
+                        try {
+                            String boundary = "---ContentBoundary" + System.currentTimeMillis();
+
+                            try (java.io.ByteArrayOutputStream bodyOs = new java.io.ByteArrayOutputStream()) {
+                                bodyOs.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                                bodyOs.write(("Content-Disposition: form-data; name=\"bundle\"; filename=\"bundle.zip\"\r\n").getBytes(StandardCharsets.UTF_8));
+                                bodyOs.write(("Content-Type: application/zip\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                                bodyOs.write(Files.readAllBytes(zipFile.toPath()));
+                                bodyOs.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+                                byte[] bodyBytes = bodyOs.toByteArray();
+
+                                HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+
+                                String auth = Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
+
+                                HttpRequest request = HttpRequest.newBuilder()
+                                        .uri(URI.create(centralUploadUrl))
+                                        .header("Authorization", "Basic " + auth)
+                                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                                        .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
+                                        .build();
+
+                                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+                                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                                    project.getLogger().lifecycle("✅ [Central Portal] 업로드 성공! (Deployment ID: " + response.body() + ")");
+                                } else {
+                                    if (response.statusCode() == 401) {
+                                        project.getLogger().error("🚨 [Central Portal] 인증 실패 (401 Unauthorized)");
+                                        project.getLogger().error("   👉 확인해주세요: Sonatype Central Portal은 로그인 비밀번호가 아닌 'User Token'을 사용해야 합니다.");
+                                        project.getLogger().error("   👉 토큰 생성 위치: https://central.sonatype.com/account -> 'Generate User Token'");
+                                        project.getLogger().error("   👉 gradle.properties에 'User Token Name'을 centralUsername으로, 'User Token Password'를 centralPassword로 설정해야 합니다.");
+                                    }
+                                    throw new org.gradle.api.GradleException("❌ [Central Portal] 업로드 실패 (HTTP " + response.statusCode() + "): " + response.body());
+                                }
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace(); // 스택 트레이스 출력
+                            throw new org.gradle.api.GradleException("❌ [Central Portal] 업로드 중 예외 발생: " + e.toString(), e);
+                        }
+                    });
+                }
+            });
+        });
     }
 }
