@@ -74,34 +74,39 @@ gradlePlugin {
 }
 publishing {
     publications {
-        mavenJava(MavenPublication) {
-            from components.java
-            // 생성될 pom.xml 상세 설정 (Maven Central 필수 요건)
-            pom {
-                name = project.name
-                description = 'S2BuildSupport Plugin - A comprehensive utility library for Java'
-                url = 'https://github.com/devers2/s2-build-support'
-                licenses {
-                    license {
-                        name = 'The Apache License, Version 2.0'
-                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-                    }
-                }
-                developers {
-                    developer {
-                        id = 'devers2'
-                        name = '이승수'
-                        email = 'eseungsu.dev@gmail.com'
-                        organization = 'devers2'
-                        organizationUrl = 'https://github.com/devers2'
-                    }
-                }
-                scm {
-                    connection = 'scm:git:git://github.com/devers2/s2-build-support.git'
-                    developerConnection = 'scm:git:ssh://github.com/devers2/s2-build-support.git'
+        // 모든 출판물에 공통적으로 POM 메타데이터를 적용 (Central Portal 필수)
+        configureEach { publication ->
+            if (publication instanceof MavenPublication) {
+                publication.pom {
+                    name = project.name
+                    description = 'S2BuildSupport Plugin - A comprehensive utility library for Java'
                     url = 'https://github.com/devers2/s2-build-support'
+                    licenses {
+                        license {
+                            name = 'The Apache License, Version 2.0'
+                            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = 'devers2'
+                            name = '이승수'
+                            email = 'eseungsu.dev@gmail.com'
+                            organization = 'devers2'
+                            organizationUrl = 'https://github.com/devers2'
+                        }
+                    }
+                    scm {
+                        connection = 'scm:git:git://github.com/devers2/s2-build-support.git'
+                        developerConnection = 'scm:git:ssh://github.com/devers2/s2-build-support.git'
+                        url = 'https://github.com/devers2/s2-build-support'
+                    }
                 }
             }
+        }
+
+        mavenJava(MavenPublication) {
+            from components.java
         }
     }
     repositories {
