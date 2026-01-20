@@ -12,6 +12,42 @@ The **s2-build-support** plugin is a plugin for Gradle builds.
 
 ---
 
+## 🔧 Installation (설치)
+
+### settings.gradle
+
+```groovy
+pluginManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+```
+
+### build.gradle
+
+```groovy
+plugins {
+    id 'io.github.devers2.buildsupport' version '0.1.0'
+}
+```
+
+---
+
+## ⚙️ Requirements (요구사항)
+
+### [English]
+
+- **Java 17 or higher** is required to use this module.
+
+### [한국어]
+
+- 이 모듈을 사용하려면 **Java 17 이상**이 필요합니다.
+
+---
+
+## 📜 License & Copyright
+
 ### [English]
 
 This library is provided under the **Apache License 2.0**. You are free to use, modify, and distribute this software, provided that you comply with the obligations of the license (such as copyright notice and source code disclosure requirements). For detailed terms and conditions, please refer to the **[LICENSE](./LICENSE)** file.
@@ -32,69 +68,11 @@ This library is provided under the **Apache License 2.0**. You are free to use, 
 
 ---
 
-## ⚙️ Requirements (요구사항)
-
-### [English]
-
-- **Java 17 or higher** is required to use this module.
-
-### [한국어]
-
-- 이 모듈을 사용하려면 **Java 17 이상**이 필요합니다.
-
----
-
 ## 📦 Dependencies (의존성)
 
 This module utilizes the following high-quality open-source library:
 
 - **Shadow Gradle Plugin**: Used for creating fat JARs and relocating dependencies (Licensed under Apache 2.0).
-
----
-
-## 🔧 Installation (설치)
-
-### [English]
-
-#### settings.gradle
-
-```groovy
-pluginManagement {
-    repositories {
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-```
-
-#### build.gradle
-
-```groovy
-plugins {
-    id 'io.github.devers2.buildsupport' version '0.1.0'
-}
-```
-
-### [한국어]
-
-#### settings.gradle
-
-```groovy
-pluginManagement {
-    repositories {
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-```
-
-#### build.gradle
-
-```groovy
-plugins {
-    id 'io.github.devers2.buildsupport' version '0.1.0'
-}
-```
 
 ---
 
