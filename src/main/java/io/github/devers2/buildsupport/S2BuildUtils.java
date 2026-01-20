@@ -1,5 +1,5 @@
 /**
- * S2Util Library
+ * S2BuildSupport Plugin
  *
  * Copyright 2020 - 2026 devers2 (이승수, Daejeon, Korea)
  * Contact: eseungsu.dev@gmail.com
