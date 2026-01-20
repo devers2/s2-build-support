@@ -63,12 +63,25 @@ public class MavenPublishStrategy {
         /** 누락된 아티팩트 목록 */
         public final List<String> missingArtifacts;
 
+        /**
+         * Constructs a new PublishDecision.
+         *
+         * @param shouldPublish Whether to publish
+         * @param reason        Decision reason
+         */
         public PublishDecision(boolean shouldPublish, String reason) {
             this.shouldPublish = shouldPublish;
             this.reason = reason;
             this.missingArtifacts = new ArrayList<>();
         }
 
+        /**
+         * Constructs a new PublishDecision with missing artifacts.
+         *
+         * @param shouldPublish    Whether to publish
+         * @param reason           Decision reason
+         * @param missingArtifacts List of missing artifacts
+         */
         public PublishDecision(boolean shouldPublish, String reason, List<String> missingArtifacts) {
             this.shouldPublish = shouldPublish;
             this.reason = reason;
@@ -160,6 +173,12 @@ public class MavenPublishStrategy {
         /** 파일 확장자 (보통 "jar") */
         public final String extension;
 
+        /**
+         * Constructs a new ArtifactInfo.
+         *
+         * @param classifier Artifact classifier
+         * @param extension  File extension
+         */
         public ArtifactInfo(String classifier, String extension) {
             this.classifier = classifier;
             this.extension = extension;

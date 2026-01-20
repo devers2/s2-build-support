@@ -311,7 +311,9 @@ public class LibrariesPublisher {
      * 비표준이거나 의미 없는 버전 문자열은 철저히 차단한다.
      * </p>
      *
-     * <h3>허용되는 버전 예시</h3>
+     * <p>
+     * <b>허용되는 버전 예시</b>
+     * </p>
      * <ul>
      * <li>{@code 1.0} → 기본 릴리스 버전</li>
      * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
@@ -324,7 +326,9 @@ public class LibrariesPublisher {
      * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
      * </ul>
      *
-     * <h3>차단되는 잘못된 예시 (의도된 대로 차단됨)</h3>
+     * <p>
+     * <b>차단되는 잘못된 예시 (의도된 대로 차단됨)</b>
+     * </p>
      * <ul>
      * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
      * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
@@ -364,7 +368,9 @@ public class LibrariesPublisher {
      *
      * 파일명에서 버전 정보를 추출 (예외 버전 형태 없음)
      *
-     * <h3>허용되는 버전 예시</h3>
+     * <p>
+     * <b>허용되는 버전 예시</b>
+     * </p>
      * <ul>
      * <li>{@code 1.0} → 기본 릴리스 버전</li>
      * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
@@ -377,7 +383,9 @@ public class LibrariesPublisher {
      * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
      * </ul>
      *
-     * <h3>차단되는 잘못된 예시 (의도된 대로 차단됨)</h3>
+     * <p>
+     * <b>차단되는 잘못된 예시 (의도된 대로 차단됨)</b>
+     * </p>
      * <ul>
      * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
      * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
@@ -413,7 +421,9 @@ public class LibrariesPublisher {
      * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
      * </ul>
      *
-     * <h3>차단되는 잘못된 예시 (의도된 대로 차단됨)</h3>
+     * <p>
+     * <b>차단되는 잘못된 예시 (의도된 대로 차단됨)</b>
+     * </p>
      * <ul>
      * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
      * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
@@ -498,6 +508,13 @@ public class LibrariesPublisher {
         /** Whether version extraction was successful | 버전 추출 성공 여부 */
         public final boolean hasVersion;
 
+        /**
+         * Constructs a new VersionInfo.
+         *
+         * @param baseName   Base name
+         * @param version    Version string
+         * @param hasVersion Success flag
+         */
         public VersionInfo(String baseName, String version, boolean hasVersion) {
             this.baseName = baseName;
             this.version = version;
@@ -522,6 +539,14 @@ public class LibrariesPublisher {
         /** Version string | 버전 문자열 */
         public final String version;
 
+        /**
+         * Constructs a new ArtifactItem.
+         *
+         * @param file       File object
+         * @param classifier Classifier
+         * @param artifactId Artifact ID
+         * @param version    Version string
+         */
         public ArtifactItem(File file, String classifier, String artifactId, String version) {
             this.file = file;
             this.classifier = classifier;

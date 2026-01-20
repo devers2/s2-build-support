@@ -49,7 +49,7 @@ import org.gradle.api.logging.Logging;
  * 리포지토리 공개 상태(Public/Private) 확인 기능을 제공합니다.
  * </p>
  *
- * <h3>Key Features (주요 기능)</h3>
+ * <b>Key Features (주요 기능)</b>
  * <ul>
  * <li><b>Artifact Existence Check:</b> Uses HTTP HEAD requests to verify if an artifact exists.</li>
  * <li><b>Repository Visibility Check:</b> Calls GitHub API to determine if a repository is private.</li>

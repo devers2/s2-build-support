@@ -88,34 +88,34 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  * 그리고 README 자동 업데이트 기능을 포함합니다.
  * </p>
  *
- * <h3>Packaging Strategies (패키징 전략)</h3>
+ * <b>Packaging Strategies (패키징 전략)</b>
  *
- * <h4>1. Publishing (Standard) - 'shadedPackagePrefix' 미설정 시</h4>
+ * <b>1. Publishing (Standard) - 'shadedPackagePrefix' 미설정 시</b>
  * <ul>
  * <li>결과물: Standard JAR (Shadow OFF)</li>
  * <li>특징: 의존성을 포함하지 않음. POM을 통해 api(compile), implementation(runtime) 전이.</li>
  * </ul>
  *
- * <h4>2. Publishing (Shaded) - 'shadedPackagePrefix' 설정 시</h4>
+ * <b>2. Publishing (Shaded) - 'shadedPackagePrefix' 설정 시</b>
  * <ul>
  * <li>결과물: Shaded JAR (Shadow ON)</li>
  * <li>특징: implementation/runtimeOnly 의존성을 Relocate하여 JAR에 포함.</li>
  * <li>전이: api는 JAR에서 제외하고 POM에 compile 스코프로 주입. implementation은 POM에서 제거.</li>
  * </ul>
  *
- * <h4>3. Build (Fat JAR) - 'shadedPackagePrefix' 미설정 시</h4>
+ * <b>3. Build (Fat JAR) - 'shadedPackagePrefix' 미설정 시</b>
  * <ul>
  * <li>결과물: Fat JAR (Shadow ON)</li>
  * <li>특징: Relocation 없이 모든 의존성을 JAR에 포함.</li>
  * </ul>
  *
- * <h4>4. Build (Relocated Fat JAR) - 'shadedPackagePrefix' 설정 시</h4>
+ * <b>4. Build (Relocated Fat JAR) - 'shadedPackagePrefix' 설정 시</b>
  * <ul>
  * <li>결과물: Fat JAR with Relocation (Shadow ON)</li>
  * <li>특징: 모든 의존성을 지정된 패키지로 Relocate하여 JAR에 포함.</li>
  * </ul>
  *
- * <h3>🔗 의존성 전이 및 패키징 규칙 (Dependency Rules)</h3>
+ * <b>🔗 의존성 전이 및 패키징 규칙 (Dependency Rules)</b>
  * <ul>
  * <li><b>api</b>: 라이브러리 공개 인터페이스에 노출되는 의존성.
  * <ul>
@@ -131,7 +131,7 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  * </li>
  * <li><b>compileOnly / compileOnlyApi / provided</b>: 빌드 시에만 필요하거나 런타임에 별도로 제공됨.
  * <ul>
- * <li>Standard & Shaded: JAR와 POM 모두에서 제외됨.</li>
+ * <li>Standard and Shaded: JAR와 POM 모두에서 제외됨.</li>
  * <li>특이사항: S2BuildUtils에 의해 README.md의 'Manual Setup' 권장 목록에 포함될 수 있음.</li>
  * </ul>
  * </li>
@@ -147,7 +147,7 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  * <li><b>Shaded (Shadow):</b> Fat JAR containing internal dependencies (relocated to avoid conflicts).</li>
  * </ul>
  *
- * <h3>Dependency Rules (의존성 규칙)</h3>
+ * <b>Dependency Rules (의존성 규칙)</b>
  * <ul>
  * <li><b>api:</b> Public dependencies. Kept in POM, excluded from Shaded JAR.</li>
  * <li><b>implementation:</b> Internal dependencies. Removed from POM, relocated into Shaded JAR.</li>
@@ -226,7 +226,6 @@ public class S2BuildUtils {
      * <li><b>Dependency Copying:</b> Registers the {@code copyDependencies} task.</li>
      * <li><b>README Update:</b> Synchronizes version and dependency documentation.</li>
      * </ol>
-     * </p>
      *
      * <p>
      * <b>[한국어 설명]</b>
@@ -241,7 +240,6 @@ public class S2BuildUtils {
      * <li><b>의존성 복사:</b> {@code copyDependencies} 태스크를 등록합니다.</li>
      * <li><b>README 업데이트:</b> 버전 및 의존성 가이드를 동기화합니다.</li>
      * </ol>
-     * </p>
      *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
@@ -606,7 +604,7 @@ public class S2BuildUtils {
      * </p>
      * 비활성화된 기능의 소스 파일 경로(.txt) 목록을 반환합니다.
      *
-     * @param dynamicSourceInfo Dynamic source configuration info | 동적 소스 설정 정보 (Map<기능명, Map<설정, 값>>)
+     * @param dynamicSourceInfo Dynamic source configuration info | 동적 소스 설정 정보 (Map&lt;기능명, Map&lt;설정, 값&gt;&gt;)
      * @param activeSources     List of active extra sources | 활성화된 추가 소스 목록
      * @return List of source file paths to exclude | 제외할 소스 파일 경로 목록
      */
@@ -1423,7 +1421,6 @@ public class S2BuildUtils {
      * <li><b>Remote Publish:</b> GitHub Packages인 경우 Private 리포지토리면 (true), Public이면 (false)</li>
      * <li><b>Local Build:</b> 안전한 태스크(assemble, build, 등) 실행 시 (true)</li>
      * </ol>
-     * </p>
      *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
      * @return {@code true} if Source JAR should be generated | Source JAR 생성 여부
@@ -3193,7 +3190,8 @@ public class S2BuildUtils {
                         }
 
                         // 3. Zip 번들 생성 (Maven Layout 적용)
-                        File zipFile = new File(buildDir, "distributions/bundle.zip");
+                        String bundleFileName = artifactId + "-" + version + ".zip";
+                        File zipFile = new File(buildDir, "distributions/" + bundleFileName);
                         zipFile.getParentFile().mkdirs();
 
                         try (FileOutputStream fos = new FileOutputStream(zipFile);
@@ -3237,7 +3235,7 @@ public class S2BuildUtils {
                         username = username.trim().replace("\"", "").replace("'", "");
                         password = password.trim().replace("\"", "").replace("'", "");
 
-                        info(project, "📤 [중앙 포털] 업로드를 시작합니다 (PublishingType=USER_MANAGED)...", "📤 [Central Portal] Starting upload (PublishingType=USER_MANAGED)...");
+                        info(project, "📤 [중앙 포털] 업로드를 시작합니다...", "📤 [Central Portal] Starting upload...");
                         info(project, "   - User: " + username, "   - User: " + username);
                         project.getLogger().debug("   - Password Length: " + password.length()); // 디버그용 (값은 노출하지 않음)
 
@@ -3246,7 +3244,8 @@ public class S2BuildUtils {
 
                             try (java.io.ByteArrayOutputStream bodyOs = new java.io.ByteArrayOutputStream()) {
                                 bodyOs.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                                bodyOs.write(("Content-Disposition: form-data; name=\"bundle\"; filename=\"bundle.zip\"\r\n").getBytes(StandardCharsets.UTF_8));
+                                // Content-Disposition에 실제 파일명 반영
+                                bodyOs.write(("Content-Disposition: form-data; name=\"bundle\"; filename=\"" + bundleFileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
                                 bodyOs.write(("Content-Type: application/zip\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                                 bodyOs.write(Files.readAllBytes(zipFile.toPath()));
                                 bodyOs.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));

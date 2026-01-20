@@ -25,7 +25,6 @@ import java.lang.reflect.Modifier;
 
 /**
  * Smart Test Launcher for verifying artifacts (Shadow JARs).
- * <p>
  * This launcher attempts to execute validation logic with the following priority:
  * <ol>
  * <li><b>JUnit 5:</b> If JUnit 5 is detected on the classpath, it runs the class
@@ -35,7 +34,7 @@ import java.lang.reflect.Modifier;
  * <li><b>Diagnostic Guide:</b> If neither is found, it prints a detailed setup
  * guide to the error console.</li>
  * </ol>
- * </p>
+ *
  *
  * <p>
  * <b>[한국어 설명]</b>
@@ -48,9 +47,9 @@ import java.lang.reflect.Modifier;
  * <li><b>Standard Main:</b> JUnit 5가 없으면 타겟 클래스의 {@code main} 메서드를 찾아 직접 실행합니다.</li>
  * <li><b>Diagnostic Guide:</b> 둘 다 없는 경우, 개발자에게 JUnit 추가 또는 main 구현을 안내하는 상세 가이드를 출력합니다.</li>
  * </ol>
- * </p>
  *
- * <h3>Diagnostic Guide (진단 가이드)</h3>
+ *
+ * <h2>Diagnostic Guide (진단 가이드)</h2>
  * If validation fails, ensure one of the following requirements is met:
  * <ul>
  * <li><b>JUnit 5:</b> Add {@code org.junit.platform:junit-platform-console} as a {@code testRuntimeOnly} dependency.</li>

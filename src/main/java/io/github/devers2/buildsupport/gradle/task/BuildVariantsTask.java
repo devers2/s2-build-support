@@ -12,8 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.inject.Inject;
-
 import org.gradle.api.DefaultTask;
 import org.gradle.api.JavaVersion;
 import org.gradle.api.provider.Property;
@@ -42,7 +40,6 @@ import org.gradle.process.ExecOperations;
  * <li>Java 11용 아티팩트: {@code s2-util-25.10.0-jdk11.jar}</li>
  * <li>추가 기능 포함: {@code s2-util-25.10.0-pdf.jar}</li>
  * </ul>
- * </p>
  *
  * <p>
  * <b>[현재 상태]</b><br>
@@ -73,16 +70,34 @@ public abstract class BuildVariantsTask extends DefaultTask {
     private static final String GRADLEW_WINDOWS = "gradlew.bat";
     private static final String GRADLEW_UNIX = "gradlew";
 
+    /**
+     * Returns the target Java version for this variant.
+     *
+     * @return Java version property
+     */
     @Input
     public abstract Property<JavaVersion> getJavaVersion();
 
-    @Input
+    /**
+     * Returns the additional source directories to include.
+     *
+     * @return Set of additional source paths
+     */
     public abstract SetProperty<String> getAdditionalSource();
 
-    @Input
+    /**
+     * Returns whether to generate a sources JAR.
+     *
+     * @return Generate sources property
+     */
     public abstract Property<Boolean> getGenerateSources();
 
-    @Inject
+    /**
+     * Returns the execution operations service.
+     *
+     * @return ExecOperations instance
+     */
+    @javax.inject.Inject
     protected abstract ExecOperations getExecOperations();
 
     /**
