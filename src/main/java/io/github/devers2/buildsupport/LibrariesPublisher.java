@@ -32,13 +32,15 @@ import org.gradle.api.publish.PublishingExtension;
 import org.gradle.api.publish.maven.MavenPublication;
 
 /**
- * libs 디렉토리의 JAR 파일들을 Maven Publication으로 등록하는 퍼블리셔 클래스
- *
+ * Publisher class for registering JAR files in the {@code libs} directory as Maven Publications.
  * <p>
- * 이 클래스는 {@code libs/} 디렉토리에 있는 서드파티 JAR 파일들을 자동으로 스캔하여 Maven Publication으로 등록한다.
- * 각 JAR 파일명에서 아티팩트명과 버전을 추출하고, 허용된 classifier 규칙에 따라 적절히 그룹화하여 배포
+ * <b>[한국어 설명]</b>
  * </p>
- *
+ * libs 디렉토리의 JAR 파일들을 Maven Publication으로 등록하는 퍼블리셔 클래스입니다.
+ * <p>
+ * {@code libs/} 디렉토리에 있는 서드파티 JAR 파일들을 자동으로 스캔하여 Maven Publication으로 등록합니다.
+ * 각 JAR 파일명에서 아티팩트명과 버전을 추출하고, 허용된 Classifier 규칙에 따라 적절히 그룹화하여 배포합니다.
+ * </p>
  * <p>
  * 주요 기능:
  * </p>
@@ -47,12 +49,19 @@ import org.gradle.api.publish.maven.MavenPublication;
  * <li>Classifier 기반 아티팩트 그룹화</li>
  * <li>Maven Publication 자동 등록</li>
  * </ul>
+ *
+ * @author devers2
+ * @version 1.5
+ * @since 1.0
  */
 public class LibrariesPublisher {
 
     /**
-     * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록
-     *
+     * Scans files in specified directories and registers them as Maven Publications.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록합니다.
      * <p>
      * 처리 과정:
      * </p>
@@ -63,10 +72,10 @@ public class LibrariesPublisher {
      * <li>각 그룹을 Maven Publication으로 등록</li>
      * </ol>
      *
-     * @param project             Gradle 프로젝트 객체
-     * @param fileScanRules       스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
-     * @param allowedClassifiers  허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
-     * @param exceptionalVersions 예외적인 버전 형태 배열
+     * @param project             The Gradle project instance | Gradle 프로젝트 객체
+     * @param fileScanRules       Array of scan rules [Directory, Extension] | 스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
+     * @param allowedClassifiers  Array of allowed classifier rules [Classifier, Separator] | 허용된 classifier 규칙 배열
+     * @param exceptionalVersions Array of non-standard version strings | 예외적인 버전 형태 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      */
@@ -75,26 +84,33 @@ public class LibrariesPublisher {
     }
 
     /**
-     * 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록 (예외 버전 없음)
+     * Scans files and registers them as Maven Publications.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 파일들을 스캔하여 Maven Publication으로 등록합니다.
      *
-     * @param project            Gradle 프로젝트 객체
-     * @param fileScanRules      스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
-     * @param allowedClassifiers 허용된 classifier 규칙 배열
+     * @param project            The Gradle project instance | Gradle 프로젝트 객체
+     * @param fileScanRules      Array of scan rules | 스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
+     * @param allowedClassifiers Array of allowed classifiers | 허용된 classifier 규칙 배열
      */
     public static void registerPublications(Project project, Object[][] fileScanRules, String[][] allowedClassifiers) {
         registerPublicationsInternal(project, fileScanRules, allowedClassifiers, null);
     }
 
     /**
-     * 내부 구현: 지정된 디렉토리의 파일들을 스캔하여 Maven Publication으로 등록
+     * Internal implementation for registering publications.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 출판물 등록을 위한 내부 구현 메서드입니다.
      *
-     * @param project             Gradle 프로젝트 객체
-     * @param fileScanRules       스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
-     * @param allowedClassifiers  허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
-     * @param exceptionalVersions 예외적인 버전 형태 배열
+     * @param project             The Gradle project instance | Gradle 프로젝트 객체
+     * @param fileScanRules       Array of scan rules | 스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
+     * @param allowedClassifiers  Array of allowed classifiers | 허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
+     * @param exceptionalVersions Array of non-standard version strings | 예외적인 버전 형태 배열
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
-     *
      */
     private static void registerPublicationsInternal(Project project, Object[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
         // artifactId:version을 키로 하는 아티팩트 맵
@@ -113,10 +129,10 @@ public class LibrariesPublisher {
                 Object extObject = rule[1];
 
                 if (!(dirObject instanceof File) || !(extObject instanceof String)) {
-                    System.out.println(
-                            "⚠️  [LibsPublishHelper] Invalid rule format. Expected [File, String], but got [" +
-                                    (dirObject != null ? dirObject.getClass().getSimpleName() : "null") + ", " +
-                                    (extObject != null ? extObject.getClass().getSimpleName() : "null") + "]"
+                    S2BuildUtils.warn(
+                            project,
+                            "⚠️ [LibsPublishHelper] 잘못된 규칙 형식입니다. [File, String] 기대됨.",
+                            "⚠️ [LibsPublishHelper] Invalid rule format. Expected [File, String]."
                     );
                     continue;
                 }
@@ -125,7 +141,11 @@ public class LibrariesPublisher {
                 String extension = (String) extObject;
 
                 if (!scanDir.exists() || !scanDir.isDirectory()) {
-                    System.out.println("⚠️  [LibsPublishHelper] directory not found: " + scanDir.getAbsolutePath());
+                    S2BuildUtils.warn(
+                            project,
+                            "⚠️ [LibsPublishHelper] 디렉토리를 찾을 수 없습니다: " + scanDir.getAbsolutePath(),
+                            "⚠️ [LibsPublishHelper] Directory not found: " + scanDir.getAbsolutePath()
+                    );
                     continue;
                 }
 
@@ -141,7 +161,11 @@ public class LibrariesPublisher {
         }
 
         if (allFiles.isEmpty()) {
-            System.out.println("⚠️  [LibsPublishHelper] No files found to publish");
+            S2BuildUtils.warn(
+                    project,
+                    "⚠️ [LibsPublishHelper] 배포할 파일을 찾지 못했습니다.",
+                    "⚠️ [LibsPublishHelper] No files found to publish."
+            );
             return;
         }
 
@@ -214,14 +238,24 @@ public class LibrariesPublisher {
                 });
             });
 
-            System.out.println("Registered Group ▶ " + distArtifactId + ":" + distVersion + " (Count: " + items.size() + ")");
+            S2BuildUtils.info(
+                    project,
+                    "등록된 그룹 ▶ " + distArtifactId + ":" + distVersion + " (개수: " + items.size() + ")",
+                    "Registered Group ▶ " + distArtifactId + ":" + distVersion + " (Count: " + items.size() + ")"
+            );
             for (ArtifactItem item : items) {
-                System.out.println("  - File: " + item.file.getName() + " (Classifier: " + item.classifier + ")");
+                S2BuildUtils.info(
+                        project,
+                        "  - 파일: " + item.file.getName() + " (Classifier: " + item.classifier + ")",
+                        "  - File: " + item.file.getName() + " (Classifier: " + item.classifier + ")"
+                );
             }
         });
     }
 
     /**
+     * Converts a string to Maven artifact ID compliant kebab-case.
+     *
      * 파일명을 Maven 아티팩트 ID 규격의 kebab-case로 변환
      *
      * <p>
@@ -252,8 +286,8 @@ public class LibrariesPublisher {
      * <li>lib.name.1.0 → lib-name-1-0</li>
      * </ul>
      *
-     * @param input 변환할 문자열 (보통 JAR 파일의 베이스 이름)
-     * @return Maven 아티팩트 ID 규격에 맞는 kebab-case 문자열
+     * @param input The input string | 변환할 문자열 (보통 JAR 파일의 베이스 이름)
+     * @return Kebab-case artifact ID | kebab-case 아티팩트 ID
      */
     public static String toMavenArtifactId(String input) {
         if (input == null || input.isBlank())
@@ -269,6 +303,8 @@ public class LibrariesPublisher {
     }
 
     /**
+     * Regex pattern for strict version string validation.
+     *
      * 엄격한 버전 문자열 검증을 위한 정규표현식 패턴
      * <p>
      * 이 패턴은 Maven, Gradle, Spring Boot, JDK 등에서 실제로 사용되는 버전 형식만 정확히 허용하며,
@@ -324,6 +360,8 @@ public class LibrariesPublisher {
     );
 
     /**
+     * Extracts version information from a filename.
+     *
      * 파일명에서 버전 정보를 추출 (예외 버전 형태 없음)
      *
      * <h3>허용되는 버전 예시</h3>
@@ -350,14 +388,17 @@ public class LibrariesPublisher {
      * <li>{@code 2025}, {@code latest}, {@code stable} → 숫자.숫자 형태 아님</li>
      * </ul>
      *
-     * @param fileName 버전을 추출할 파일명 (.jar 확장자 제외)
-     * @return VersionInfo 객체 (baseName, version, hasVersion 포함)
+     *
+     * @param fileName The filename without extension | 확장자를 제외한 파일명 (.jar 확장자 제외)
+     * @return {@link VersionInfo} object | 버전 정보 객체 (baseName, version, hasVersion 포함)
      */
     public static VersionInfo extractVersion(String fileName) {
         return extractVersion(fileName, null);
     }
 
     /**
+     * Extracts version information from a filename with optional exceptional versions.
+     *
      * 파일명에서 버전 정보를 추출
      *
      * <ul>
@@ -398,11 +439,11 @@ public class LibrariesPublisher {
      * <li>bcprov-jdk18on -&gt; baseName: bcprov, version: jdk18on (jdk18on이 예외 버전에 포함된 경우)</li>
      * </ul>
      *
-     * @param fileName            버전을 추출할 파일명 (.jar 확장자 제외)
-     * @param exceptionalVersions 예외적인 버전 형태 배열
+     * @param fileName            The filename without extension | 확장자를 제외한 파일명 (.jar 확장자 제외)
+     * @param exceptionalVersions Non-standard version strings | 예외적인 버전 형태 배열
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
-     * @return VersionInfo 객체 (baseName, version, hasVersion 포함)
+     * @return {@link VersionInfo} object | 버전 정보 객체 (baseName, version, hasVersion 포함)
      */
     public static VersionInfo extractVersion(String fileName, String[] exceptionalVersions) {
         if (fileName == null || fileName.isBlank()) {
@@ -443,14 +484,18 @@ public class LibrariesPublisher {
     }
 
     /**
-     * 버전 정보를 담는 데이터 클래스
+     * Data class for version information.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 버전 정보를 담는 데이터 클래스입니다.
      */
     public static class VersionInfo {
-        /** 버전을 제외한 기본 이름 */
+        /** Base name excluding version | 버전을 제외한 기본 이름 */
         public final String baseName;
-        /** 추출된 버전 문자열 (없으면 null) */
+        /** Extracted version string | 추출된 버전 문자열 (없으면 null) */
         public final String version;
-        /** 버전이 성공적으로 추출되었는지 여부 */
+        /** Whether version extraction was successful | 버전 추출 성공 여부 */
         public final boolean hasVersion;
 
         public VersionInfo(String baseName, String version, boolean hasVersion) {
@@ -461,16 +506,20 @@ public class LibrariesPublisher {
     }
 
     /**
-     * 개별 아티팩트 항목 정보를 담는 데이터 클래스
+     * Data class for individual artifact items.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 개별 아티팩트 항목을 담는 데이터 클래스입니다.
      */
     public static class ArtifactItem {
-        /** JAR 파일 객체 */
+        /** JAR file object | JAR 파일 객체 */
         public final File file;
-        /** Classifier (sources, javadoc 등, 없으면 null) */
+        /** Classifier (sources, javadoc, etc.) | Classifier (sources, javadoc 등, 없으면 null) */
         public final String classifier;
-        /** 아티팩트 ID */
+        /** Artifact ID | 아티팩트 ID */
         public final String artifactId;
-        /** 버전 문자열 */
+        /** Version string | 버전 문자열 */
         public final String version;
 
         public ArtifactItem(File file, String classifier, String artifactId, String version) {

@@ -34,21 +34,30 @@ import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 
 /**
- * GitHub Packages와의 통신을 담당하는 클라이언트 클래스
- *
+ * Client class for communicating with GitHub Packages.
  * <p>
- * 이 클래스는 GitHub Packages API와의 HTTP 통신을 처리하여
- * 아티팩트 존재 여부 확인 및 리포지토리 공개 상태 확인 기능을 제공합니다.
+ * This class handles HTTP communication with the GitHub Packages API to provide
+ * functionality for checking artifact existence and repository visibility.
  * </p>
  *
  * <p>
- * 주요 기능:
+ * <b>[한국어 설명]</b>
  * </p>
+ * GitHub Packages와의 통신을 담당하는 클라이언트 클래스입니다.
+ * <p>
+ * GitHub Packages API와의 HTTP 통신을 처리하여 아티팩트 존재 여부 확인 및
+ * 리포지토리 공개 상태(Public/Private) 확인 기능을 제공합니다.
+ * </p>
+ *
+ * <h3>Key Features (주요 기능)</h3>
  * <ul>
- * <li>아티팩트 존재 여부 확인 (HEAD 요청)</li>
- * <li>리포지토리 공개 상태 확인 (GitHub API 호출)</li>
+ * <li><b>Artifact Existence Check:</b> Uses HTTP HEAD requests to verify if an artifact exists.</li>
+ * <li><b>Repository Visibility Check:</b> Calls GitHub API to determine if a repository is private.</li>
  * </ul>
  *
+ * @author devers2
+ * @version 1.5
+ * @since 1.0
  * @see MavenPublishStrategy
  */
 public class GitHubPackagesClient {
@@ -65,17 +74,24 @@ public class GitHubPackagesClient {
     private static final int READ_TIMEOUT_MS = 10000;
 
     /**
-     * GitHub Packages에 아티팩트가 이미 존재하는지 확인한다.
-     *
+     * Checks if an artifact already exists in GitHub Packages.
      * <p>
-     * HTTP HEAD 요청을 통해 아티팩트의 존재 여부를 확인합니다.
-     * 200 응답 코드가 반환되면 아티팩트가 존재하는 것으로 판단합니다.
+     * Performs an HTTP HEAD request to verify existence. A 200 response code
+     * indicates the artifact exists.
      * </p>
      *
-     * @param urlString 확인할 아티팩트의 URL
-     * @param user      GitHub 사용자명 (인증이 필요한 경우)
-     * @param token     GitHub 토큰 (인증이 필요한 경우)
-     * @return true: 아티팩트 존재, false: 아티팩트 없음 또는 오류 발생
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * GitHub Packages에 아티팩트가 이미 존재하는지 확인합니다.
+     * <p>
+     * HTTP HEAD 요청을 통해 아티팩트의 존재 여부를 확인하며, 응답 코드가 200인 경우 존재하는 것으로 판단합니다.
+     * </p>
+     *
+     * @param urlString The URL of the artifact to check | 확인할 아티팩트의 URL
+     * @param user      GitHub username for authentication | GitHub 사용자명 (인증용)
+     * @param token     GitHub token for authentication | GitHub 토큰 (인증용)
+     * @return {@code true} if artifact exists | 아티팩트 존재 시 true
      */
     public static boolean checkArtifactExists(String urlString, String user, String token) {
         try {
@@ -98,35 +114,43 @@ public class GitHubPackagesClient {
             }
         } catch (IOException e) {
             // 네트워크 오류 또는 URL 오류 시 존재하지 않는 것으로 처리
-            logger.debug("아티팩트 존재 확인 실패: {}", e.getMessage());
+            if (S2BuildUtils.isKorean()) {
+                logger.debug("아티팩트 존재 확인 실패: {}", e.getMessage());
+            } else {
+                logger.debug("Failed to verify artifact existence: {}", e.getMessage());
+            }
             return false;
         }
     }
 
     /**
-     * GitHub API를 호출하여 리포지토리가 비공개인지 확인한다.
-     *
+     * Checks if a repository is private via GitHub API.
      * <p>
-     * GitHub REST API를 통해 리포지토리의 메타데이터를 조회하고,
-     * "private" 필드 값을 확인하여 공개 상태를 판단합니다.
+     * Queries repository metadata and checks the "private" field value.
      * </p>
      *
      * <p>
-     * 리포지토리 URL 형식 예시:
-     * {@code https://maven.pkg.github.com/owner/repo} 에서
-     * {@code owner/repo} 부분을 추출하여 API 호출에 사용합니다.
+     * <b>[한국어 설명]</b>
+     * </p>
+     * GitHub API를 호출하여 리포지토리가 비공개인지 확인합니다.
+     * <p>
+     * GitHub REST API를 통해 리포지토리 메타데이터를 조회하고 "private" 필드 값을 확인합니다.
      * </p>
      *
-     * @param repoBaseUrl 리포지토리 베이스 URL (예: https://maven.pkg.github.com/owner/repo)
-     * @param githubToken GitHub 토큰 (Private 리포지토리 조회 시 필요)
-     * @return true: 비공개 리포지토리, false: 공개 리포지토리 또는 확인 실패
+     * @param repoBaseUrl Repository base URL (e.g., https://maven.pkg.github.com/owner/repo) | 리포지토리 베이스 URL
+     * @param githubToken GitHub token for API access | GitHub 토큰 (API 접근용)
+     * @return {@code true} if repository is private | 비공개 리포지토리인 경우 true
      */
     public static boolean isRepoPrivate(String repoBaseUrl, String githubToken) {
         // REPO_BASE_URL에서 owner/repo 추출
         Matcher matcher = GITHUB_REPO_PATTERN.matcher(repoBaseUrl);
 
         if (!matcher.find()) {
-            logger.warn("⚠️  REPO_BASE_URL 형식이 올바르지 않습니다: {}", repoBaseUrl);
+            if (S2BuildUtils.isKorean()) {
+                logger.warn("⚠️  REPO_BASE_URL 형식이 올바르지 않습니다: {}", repoBaseUrl);
+            } else {
+                logger.warn("⚠️  Invalid REPO_BASE_URL format: {}", repoBaseUrl);
+            }
             return false;
         }
 
@@ -158,19 +182,32 @@ public class GitHubPackagesClient {
                     boolean isPrivate = responseBody.contains("\"private\":true") ||
                             responseBody.contains("\"private\": true");
 
-                    String visibility = isPrivate ? "비공개(Private)" : "공개 (Public)";
-                    logger.lifecycle("✅ 리포지토리 공개 상태 확인: {}/{} → {}", repoOwner, repoName, visibility);
+                    if (S2BuildUtils.isKorean()) {
+                        String visibility = isPrivate ? "비공개(Private)" : "공개 (Public)";
+                        logger.lifecycle("✅ 리포지토리 공개 상태 확인: {}/{} → {}", repoOwner, repoName, visibility);
+                    } else {
+                        String visibility = isPrivate ? "Private" : "Public";
+                        logger.lifecycle("✅ Repository visibility check: {}/{} → {}", repoOwner, repoName, visibility);
+                    }
 
                     return isPrivate;
                 } else {
-                    logger.warn("⚠️  GitHub API 호출 실패 (HTTP {}). 공개 리포지토리로 간주합니다.", responseCode);
+                    if (S2BuildUtils.isKorean()) {
+                        logger.warn("⚠️  GitHub API 호출 실패 (HTTP {}). 공개 리포지토리로 간주합니다.", responseCode);
+                    } else {
+                        logger.warn("⚠️  GitHub API call failed (HTTP {}). Treating as public repository.", responseCode);
+                    }
                     return false;
                 }
             } finally {
                 connection.disconnect();
             }
         } catch (IOException e) {
-            logger.warn("⚠️  리포지토리 공개 상태 확인 실패: {}. 공개 리포지토리로 간주합니다.", e.getMessage());
+            if (S2BuildUtils.isKorean()) {
+                logger.warn("⚠️  리포지토리 공개 상태 확인 실패: {}. 공개 리포지토리로 간주합니다.", e.getMessage());
+            } else {
+                logger.warn("⚠️  Failed to check repository visibility: {}. Treating as public repository.", e.getMessage());
+            }
             return false;
         }
     }
@@ -180,9 +217,13 @@ public class GitHubPackagesClient {
     // ========================================================================
 
     /**
-     * HttpURLConnection에 공통 설정을 적용한다.
+     * Applies common HTTP settings (timeouts) to the connection.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@link HttpURLConnection}에 공통 설정(타임아웃 등)을 적용합니다.
      *
-     * @param connection HTTP 연결 객체
+     * @param connection HTTP connection object | HTTP 연결 객체
      */
     private static void applyCommonSettings(HttpURLConnection connection) {
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -190,11 +231,15 @@ public class GitHubPackagesClient {
     }
 
     /**
-     * HttpURLConnection에 Basic 인증 헤더를 추가한다.
+     * Applies Basic Authentication header to the connection.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@link HttpURLConnection}에 Basic 인증 헤더를 추가합니다.
      *
-     * @param connection HTTP 연결 객체
-     * @param user       사용자명
-     * @param token      토큰
+     * @param connection HTTP connection object | HTTP 연결 객체
+     * @param user       GitHub username | 사용자명
+     * @param token      GitHub token | 토큰
      */
     private static void applyBasicAuth(HttpURLConnection connection, String user, String token) {
         String auth = user + ":" + token;
@@ -203,11 +248,15 @@ public class GitHubPackagesClient {
     }
 
     /**
-     * HTTP 응답 본문을 문자열로 읽는다.
+     * Reads the HTTP response body as a string.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * HTTP 응답 본문을 문자열로 읽습니다.
      *
-     * @param connection HTTP 연결 객체
-     * @return 응답 본문 문자열
-     * @throws IOException 입출력 오류 발생 시
+     * @param connection HTTP connection object | HTTP 연결 객체
+     * @return Response body as string | 응답 본문 문자열
+     * @throws IOException If an I/O error occurs | 입출력 오류 발생 시
      */
     private static String readResponseBody(HttpURLConnection connection) throws IOException {
         // try-with-resources로 자동 리소스 정리

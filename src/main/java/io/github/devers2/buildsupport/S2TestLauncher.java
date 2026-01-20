@@ -92,7 +92,11 @@ public class S2TestLauncher {
         // 1. JUnit 5 ConsoleLauncher 존재 여부 확인 및 실행 시도
         try {
             Class<?> consoleLauncher = Class.forName("org.junit.platform.console.ConsoleLauncher");
-            System.out.println("🚀 [Launcher] JUnit 5 의존성이 감지되어 테스트로 실행을 시작합니다.");
+            if (S2BuildUtils.isKorean()) {
+                System.out.println("🚀 [Launcher] JUnit 5 의존성이 감지되어 테스트로 실행을 시작합니다.");
+            } else {
+                System.out.println("🚀 [Launcher] JUnit 5 dependency detected. Starting as a test.");
+            }
 
             Method junitMain = consoleLauncher.getMethod("main", String[].class);
             String[] junitArgs = { "--select-class", targetClassName, "--reports-dir", "build/test-results/testArtifact" };
@@ -102,14 +106,22 @@ public class S2TestLauncher {
         } catch (ClassNotFoundException e) {
             // JUnit 5 없음 - 다음 단계로
         } catch (Exception e) {
-            System.err.println("❌ [Launcher] JUnit 실행 중 오류 발생: " + e.getMessage());
+            if (S2BuildUtils.isKorean()) {
+                System.err.println("❌ [Launcher] JUnit 실행 중 오류 발생: " + e.getMessage());
+            } else {
+                System.err.println("❌ [Launcher] Error occurred while running JUnit: " + e.getMessage());
+            }
         }
 
         // 2. main(String[]) 메서드 탐색 및 실행 시도
         try {
             Method mainMethod = targetClass.getMethod("main", String[].class);
             if (Modifier.isStatic(mainMethod.getModifiers())) {
-                System.out.println("🚀 [Launcher] JUnit이 없으나 'main' 메서드가 감지되어 직접 실행합니다.");
+                if (S2BuildUtils.isKorean()) {
+                    System.out.println("🚀 [Launcher] JUnit이 없으나 'main' 메서드가 감지되어 직접 실행합니다.");
+                } else {
+                    System.out.println("🚀 [Launcher] JUnit not found, but 'main' method detected. Running directly.");
+                }
 
                 String[] passArgs = new String[args.length - 1];
                 System.arraycopy(args, 1, passArgs, 0, passArgs.length);
@@ -122,13 +134,26 @@ public class S2TestLauncher {
         }
 
         // 3. 최종 실패 시 가이드 경고 로그 출력
+        boolean isKo = S2BuildUtils.isKorean();
         System.err.println("\n" + "=".repeat(80));
-        System.err.println("❌ [Launcher] 에러: '" + targetClassName + "' 클래스를 검증할 수 없습니다.");
+        if (isKo) {
+            System.err.println("❌ [Launcher] 에러: '" + targetClassName + "' 클래스를 검증할 수 없습니다.");
+        } else {
+            System.err.println("❌ [Launcher] Error: Unable to validate class '" + targetClassName + "'.");
+        }
         System.err.println("=".repeat(80));
-        System.err.println("   검증을 완료하려면 다음 중 하나를 수행하세요:");
-        System.err.println("   1. 클래스패스에 JUnit 5 런처를 추가하세요. (추천)");
-        System.err.println("      -> build.gradle: testRuntimeOnly 'org.junit.platform:junit-platform-console'");
-        System.err.println("   2. '" + targetClassName + "' 클래스에 'public static void main(String[] args)' 메서드를 구현하세요.");
+
+        if (isKo) {
+            System.err.println("   검증을 완료하려면 다음 중 하나를 수행하세요:");
+            System.err.println("   1. 클래스패스에 JUnit 5 런처를 추가하세요. (추천)");
+            System.err.println("      -> build.gradle: testRuntimeOnly 'org.junit.platform:junit-platform-console'");
+            System.err.println("   2. '" + targetClassName + "' 클래스에 'public static void main(String[] args)' 메서드를 구현하세요.");
+        } else {
+            System.err.println("   To complete validation, perform one of the following:");
+            System.err.println("   1. Add JUnit 5 launcher to the classpath. (Recommended)");
+            System.err.println("      -> build.gradle: testRuntimeOnly 'org.junit.platform:junit-platform-console'");
+            System.err.println("   2. Implement 'public static void main(String[] args)' in class '" + targetClassName + "'.");
+        }
         System.err.println("=".repeat(80) + "\n");
 
         System.exit(1);

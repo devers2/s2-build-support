@@ -1,5 +1,10 @@
 package io.github.devers2.buildsupport.gradle.task;
 
+import static io.github.devers2.buildsupport.S2BuildUtils.error;
+import static io.github.devers2.buildsupport.S2BuildUtils.info;
+import static io.github.devers2.buildsupport.S2BuildUtils.isKorean;
+import static io.github.devers2.buildsupport.S2BuildUtils.warn;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,7 +23,11 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.process.ExecOperations;
 
 /**
- * 설정된 Java 버전과 추가 소스를 기반으로 아티팩트를 빌드하는 태스크
+ * Task for building artifacts based on configured Java versions and additional sources.
+ * <p>
+ * <b>[한국어 설명]</b>
+ * </p>
+ * 설정된 Java 버전과 추가 소스를 기반으로 아티팩트를 빌드하는 태스크입니다.
  *
  * <p>
  * <b>[원래 설계 의도]</b><br>
@@ -77,7 +86,14 @@ public abstract class BuildVariantsTask extends DefaultTask {
     protected abstract ExecOperations getExecOperations();
 
     /**
-     * ExecSpec에 JAVA_HOME 환경 변수를 설정하는 헬퍼 메서드
+     * Helper method to set JAVA_HOME environment variable in ExecSpec.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code ExecSpec}에 {@code JAVA_HOME} 환경 변수를 설정하는 헬퍼 메서드입니다.
+     *
+     * @param spec     Execution specification | 실행 사양
+     * @param javaHome JAVA_HOME path | JAVA_HOME 경로
      */
     private void configureEnvironment(org.gradle.process.ExecSpec spec, String javaHome) {
         Map<String, Object> env = new HashMap<>(System.getenv());
@@ -85,6 +101,13 @@ public abstract class BuildVariantsTask extends DefaultTask {
         spec.environment(env);
     }
 
+    /**
+     * Executes the build task for variants.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 변체(Variant) 빌드 태스크를 수행합니다.
+     */
     @TaskAction
     public void build() {
         // 빌드 환경 정보 추출
@@ -96,7 +119,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
         boolean generateSources = getGenerateSources().getOrElse(false);
 
         String displayInfo = buildDisplayInfo(javaVersion, additionalSource);
-        getLogger().lifecycle("🚀 Starting build for: {}", displayInfo);
+        info(getProject(), "🚀 [" + displayInfo + "] 빌드를 시작합니다.", "🚀 Starting build for: " + displayInfo);
 
         try {
             // 1. Clean 실행
@@ -105,7 +128,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
             // 2. Build 실행 (jar, sourcesJar?, javadocJar)
             executeBuild(gradlewPath, javaHome, javaVersion, additionalSource, generateSources);
 
-            getLogger().lifecycle("✅ Build completed successfully for: {}", displayInfo);
+            info(getProject(), "✅ [" + displayInfo + "] 빌드가 성공적으로 완료되었습니다.", "✅ Build completed successfully for: " + displayInfo);
 
         } catch (Exception e) {
             handleBuildFailure(displayInfo, javaVersion, additionalSource, e);
@@ -120,9 +143,13 @@ public abstract class BuildVariantsTask extends DefaultTask {
     // ========================================================================
 
     /**
-     * Gradlew 실행 파일 경로를 반환한다.
+     * Returns the absolute path to the gradlew executable.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * Gradlew 실행 파일의 절대 경로를 반환합니다.
      *
-     * @return Gradlew 절대 경로
+     * @return Absolute path to gradlew | Gradlew 절대 경로
      */
     private String getGradlewPath() {
         String rootDir = getProject().getRootDir().getAbsolutePath();
@@ -131,11 +158,15 @@ public abstract class BuildVariantsTask extends DefaultTask {
     }
 
     /**
-     * 빌드 정보 표시 문자열을 생성한다.
+     * Builds a display information string for the build.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 빌드 정보 표시 문자열을 생성합니다.
      *
-     * @param javaVersion      Java 버전
-     * @param additionalSource 추가 소스 목록
-     * @return 빌드 정보 문자열
+     * @param javaVersion      Java version | Java 버전
+     * @param additionalSource Set of additional sources | 추가 소스 목록
+     * @return Build info string | 빌드 정보 문자열
      */
     private String buildDisplayInfo(JavaVersion javaVersion, Set<String> additionalSource) {
         String displayInfo = String.format("Java %s", javaVersion);
@@ -146,13 +177,17 @@ public abstract class BuildVariantsTask extends DefaultTask {
     }
 
     /**
-     * Clean 태스크를 실행한다.
+     * Executes the clean task.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code clean} 태스크를 실행합니다.
      *
-     * @param gradlewPath Gradlew 경로
-     * @param javaHome    JAVA_HOME 경로
+     * @param gradlewPath Path to gradlew | Gradlew 경로
+     * @param javaHome    Path to JAVA_HOME | JAVA_HOME 경로
      */
     private void executeClean(String gradlewPath, String javaHome) {
-        getLogger().lifecycle("🧹 Cleaning build directory...");
+        info(getProject(), "🧹 빌드 디렉토리를 정리합니다(Clean)...", "🧹 Cleaning build directory...");
         getExecOperations().exec(spec -> {
             configureEnvironment(spec, javaHome);
             spec.commandLine(gradlewPath, TASK_CLEAN, "-PisSubBuild=true");
@@ -160,17 +195,21 @@ public abstract class BuildVariantsTask extends DefaultTask {
     }
 
     /**
-     * 아티팩트 빌드 태스크를 실행한다.
+     * Executes the artifact build task.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 아티팩트 빌드 태스크를 실행합니다.
      *
-     * @param gradlewPath      Gradlew 경로
-     * @param javaHome         JAVA_HOME 경로
-     * @param javaVersion      Java 버전
-     * @param additionalSource 추가 소스 목록
-     * @param generateSources  소스 JAR 생성 여부
+     * @param gradlewPath      Path to gradlew | Gradlew 경로
+     * @param javaHome         Path to JAVA_HOME | JAVA_HOME 경로
+     * @param javaVersion      Java version | Java 버전
+     * @param additionalSource Set of additional sources | 추가 소스 목록
+     * @param generateSources  Whether to generate sources JAR | 소스 JAR 생성 여부
      */
     private void executeBuild(String gradlewPath, String javaHome, JavaVersion javaVersion,
             Set<String> additionalSource, boolean generateSources) {
-        getLogger().lifecycle("📦 Building artifacts...");
+        info(getProject(), "📦 아티팩트 빌드를 시작합니다...", "📦 Building artifacts...");
         getExecOperations().exec(spec -> {
             configureEnvironment(spec, javaHome);
 
@@ -180,14 +219,18 @@ public abstract class BuildVariantsTask extends DefaultTask {
     }
 
     /**
-     * 빌드 명령어를 구성한다.
+     * Builds the command line for the build task.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 빌드 명령어를 구성합니다.
      *
-     * @param gradlewPath      Gradlew 경로
-     * @param javaHome         JAVA_HOME 경로
-     * @param javaVersion      Java 버전
-     * @param additionalSource 추가 소스 목록
-     * @param generateSources  소스 JAR 생성 여부
-     * @return 명령어 목록
+     * @param gradlewPath      Path to gradlew | Gradlew 경로
+     * @param javaHome         Path to JAVA_HOME | JAVA_HOME 경로
+     * @param javaVersion      Java version | Java 버전
+     * @param additionalSource Set of additional sources | 추가 소스 목록
+     * @param generateSources  Whether to generate sources JAR | 소스 JAR 생성 여부
+     * @return List of command line arguments | 명령어 목록
      */
     private List<String> buildCommand(String gradlewPath, String javaHome, JavaVersion javaVersion,
             Set<String> additionalSource, boolean generateSources) {
@@ -216,9 +259,13 @@ public abstract class BuildVariantsTask extends DefaultTask {
     }
 
     /**
-     * 현재 배포 태스크가 실행 중인지 확인한다.
+     * Checks if a publishing task is currently running.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 현재 배포(Publishing) 태스크가 실행 중인지 확인합니다.
      *
-     * @return true: 배포 중, false: 배포 아님
+     * @return {@code true} if publishing, {@code false} otherwise | 배포 여부
      */
     private boolean isPublishing() {
         return getProject().getGradle().getStartParameter().getTaskNames().stream()
@@ -226,37 +273,54 @@ public abstract class BuildVariantsTask extends DefaultTask {
     }
 
     /**
-     * 빌드 실패 시 상세한 오류 메시지를 출력하고 예외를 다시 던진다.
+     * Handles build failure by logging details and rethrowing the exception.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 빌드 실패 시 상세한 오류 메시지를 출력하고 예외를 다시 던집니다.
      *
-     * @param displayInfo      빌드 정보 문자열
-     * @param javaVersion      Java 버전
-     * @param additionalSource 추가 소스 목록
-     * @param e                원본 예외
+     * @param displayInfo      Build info string | 빌드 정보 문자열
+     * @param javaVersion      Java version | Java 버전
+     * @param additionalSource Set of additional sources | 추가 소스 목록
+     * @param e                Source exception | 원본 예외
      */
     private void handleBuildFailure(String displayInfo, JavaVersion javaVersion,
             Set<String> additionalSource, Exception e) {
-        getLogger().error("");
-        getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        getLogger().error("❌ BUILD FAILED for: {}", displayInfo);
-        getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        getLogger().error("Details:");
-        getLogger().error("  - Java Version: {}", javaVersion);
-        getLogger().error("  - Additional Sources: {}", additionalSource);
-        getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        getLogger().error("");
+        String msgKo = "❌ [" + displayInfo + "] 빌드 실패";
+        String msgEn = "❌ BUILD FAILED for: " + displayInfo;
+
+        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        error(getProject(), isKorean() ? msgKo : msgEn, isKorean() ? msgKo : msgEn);
+        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        info(getProject(), "상세 정보:", "Details:");
+        info(getProject(), "  - Java Version: " + javaVersion, "  - Java Version: " + javaVersion);
+        info(getProject(), "  - 추가 소스: " + additionalSource, "  - Additional Sources: " + additionalSource);
+        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         // 원본 예외를 다시 던져서 빌드 중단
         throw new org.gradle.api.GradleException(
-                String.format("Failed to build: %s", displayInfo),
+                isKorean() ? "빌드 실패: " + displayInfo : "Failed to build: " + displayInfo,
                 e
         );
     }
 
+    /**
+     * Restores the workspace state after variant build.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 변체 빌드 완료 후 워크스페이스 상태를 복원합니다.
+     *
+     * @param gradlewPath      Path to gradlew | Gradlew 경로
+     * @param javaHome         Path to JAVA_HOME | JAVA_HOME 경로
+     * @param javaVersion      Java version | Java 버전
+     * @param additionalSource Set of additional sources | 추가 소스 목록
+     */
     private void restoreWorkspace(String gradlewPath, String javaHome, JavaVersion javaVersion, Set<String> additionalSource) {
         try {
             String sourcesStr = String.join(",", additionalSource);
 
-            getLogger().lifecycle("🧹 Refreshing workspace state...");
+            info(getProject(), "🧹 워크스페이스 상태를 복원하고 있습니다...", "🧹 Refreshing workspace state...");
 
             getExecOperations().exec(spec -> {
                 configureEnvironment(spec, javaHome);
@@ -271,10 +335,10 @@ public abstract class BuildVariantsTask extends DefaultTask {
                         "-q" // Quiet 모드
                 );
             });
-            getLogger().lifecycle("✨ Workspace refreshed.");
+            info(getProject(), "✨ 워크스페이스가 복원되었습니다.", "✨ Workspace refreshed.");
 
         } catch (Exception e) {
-            getLogger().warn("⚠️  Failed to refresh workspace: {}", e.getMessage());
+            warn(getProject(), "⚠️ 워크스페이스 복원 실패: " + e.getMessage(), "⚠️ Failed to refresh workspace: " + e.getMessage());
         }
     }
 }

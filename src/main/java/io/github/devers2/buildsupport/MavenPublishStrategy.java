@@ -28,31 +28,31 @@ import org.gradle.api.publish.maven.MavenPublication;
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository;
 
 /**
- * Maven 배포 전략을 결정하는 유틸리티 클래스
- *
+ * Utility class for determining Maven publication strategy.
  * <p>
- * 이 클래스는 GitHub Packages에 아티팩트를 배포하기 전에
- * 중복 배포를 방지하고 효율적인 배포 전략을 수립하는 기능 제공
+ * <b>[한국어 설명]</b>
  * </p>
- *
+ * Maven 배포 전략을 결정하는 유틸리티 클래스입니다.
  * <p>
+ * 이 클래스는 GitHub Packages에 아티팩트를 배포하기 전에 중복 배포를 방지하고 효율적인 배포 전략을 수립하는 기능을 제공합니다.
  * 배포 결정 로직:
+ * 1. POM 파일이 없으면 전체 배포 (POM + 모든 JAR)
+ * 2. POM 파일이 있으면 누락된 JAR만 배포
+ * 3. 모든 아티팩트가 있으면 배포 스킵
  * </p>
- * <ol>
- * <li>POM 파일이 없으면 전체 배포 (POM + 모든 JAR)</li>
- * <li>POM 파일이 있으면 누락된 JAR만 배포</li>
- * <li>모든 아티팩트가 있으면 배포 스킵</li>
- * </ol>
  *
  * @see GitHubPackagesClient
  */
 public class MavenPublishStrategy {
 
     /**
-     * 배포 결정 결과를 담는 데이터 클래스
-     *
+     * Data class containing the result of a publication decision.
      * <p>
-     * 배포 여부, 이유, 누락된 아티팩트 목록 포함
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 배포 결정 결과를 담는 데이터 클래스입니다.
+     * <p>
+     * 배포 여부, 이유, 누락된 아티팩트 목록을 포함합니다.
      * </p>
      */
     public static class PublishDecision {
@@ -77,25 +77,26 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 배포 여부를 결정하는 전략 로직
-     *
+     * Strategic logic to determine whether to publish.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 배포 여부를 결정하는 전략 로직입니다.
      * <p>
      * 처리 단계:
+     * 1. POM 파일 존재 여부 확인
+     * 2. POM이 없으면 즉시 전체 배포 결정
+     * 3. POM이 있으면 각 아티팩트(JAR) 존재 여부 확인
+     * 4. 누락된 아티팩트가 있으면 배포, 모두 있으면 스킵
      * </p>
-     * <ol>
-     * <li>POM 파일 존재 여부 확인</li>
-     * <li>POM이 없으면 즉시 전체 배포 결정</li>
-     * <li>POM이 있으면 각 아티팩트(JAR) 존재 여부 확인</li>
-     * <li>누락된 아티팩트가 있으면 배포, 모두 있으면 스킵</li>
-     * </ol>
      *
-     * @param baseUrl    아티팩트 베이스 URL (예: https://maven.pkg.github.com/owner/repo/group/id/artifact/version)
-     * @param artifactId 아티팩트 ID
-     * @param version    버전
-     * @param artifacts  배포할 아티팩트 목록 (classifier 포함)
-     * @param user       GitHub 사용자명 (인증용)
-     * @param token      GitHub 토큰 (인증용)
-     * @return PublishDecision 객체 (배포 여부, 이유, 누락 아티팩트 포함)
+     * @param baseUrl    Artifact base URL | 아티팩트 베이스 URL (예: https://maven.pkg.github.com/owner/repo/group/id/artifact/version)
+     * @param artifactId Artifact ID | 아티팩트 ID
+     * @param version    Version | 버전
+     * @param artifacts  List of artifacts to publish | 배포할 아티팩트 목록 (classifier 포함)
+     * @param user       GitHub username | GitHub 사용자명 (인증용)
+     * @param token      GitHub token | GitHub 토큰 (인증용)
+     * @return {@link PublishDecision} object | 배포 결정 결과 객체 (배포 여부, 이유, 누락 아티팩트 포함)
      */
     public static PublishDecision shouldPublish(
             String baseUrl,
@@ -144,10 +145,13 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 아티팩트 정보를 담는 데이터 클래스
-     *
+     * Data class for artifact information.
      * <p>
-     * 배포할 아티팩트의 classifier와 확장자 정보 저장
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 아티팩트 정보를 담는 데이터 클래스입니다.
+     * <p>
+     * 배포할 아티팩트의 classifier와 확장자 정보를 저장합니다.
      * </p>
      */
     public static class ArtifactInfo {
@@ -163,7 +167,11 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 스마트 배포 로직을 Gradle 태스크에 적용 (기본 리포지토리: s2-packages)
+     * Configures smart publishing for Gradle tasks (Default repo: s2-packages).
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 스마트 배포 로직을 Gradle 태스크에 적용합니다 (기본 리포지토리: s2-packages).
      *
      * <p>
      * 1. POM 없음 → 전체 배포
@@ -171,17 +179,21 @@ public class MavenPublishStrategy {
      * 3. POM 있음 + 일부 JAR 누락 → 누락된 JAR만 배포 시도 (POM Conflict 무시)
      * </p>
      *
-     * @param project Gradle 프로젝트 객체
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     public static void configureSmartPublishing(Project project) {
         configureSmartPublishing(project, "s2-packages");
     }
 
     /**
-     * 스마트 배포 로직을 Gradle 태스크에 적용
+     * Configures smart publishing for Gradle tasks.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 스마트 배포 로직을 Gradle 태스크에 적용합니다.
      *
-     * @param project        Gradle 프로젝트 객체
-     * @param repositoryName 적용할 리포지토리 이름
+     * @param project        The Gradle project instance | Gradle 프로젝트 객체
+     * @param repositoryName Target repository name | 적용할 리포지토리 이름
      */
     public static void configureSmartPublishing(Project project, String repositoryName) {
         project.getTasks().withType(PublishToMavenRepository.class).configureEach(task -> {
@@ -197,11 +209,15 @@ public class MavenPublishStrategy {
     // ========================================================================
 
     /**
-     * 배포 결정을 평가하고 로깅한다.
+     * Evaluates the publishing decision and logs results.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 배포 결정을 평가하고 결과를 로깅합니다.
      *
-     * @param project Gradle 프로젝트 객체
-     * @param pubTask 배포 태스크
-     * @return true: 배포 진행, false: 배포 스킵
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     * @param pubTask The publication task | 배포 태스크
+     * @return {@code true} to proceed with publication | 배포 진행 여부
      */
     private static boolean evaluatePublishDecision(Project project, PublishToMavenRepository pubTask) {
         MavenPublication pub = pubTask.getPublication();
@@ -227,11 +243,15 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 프로젝트의 extra 프로퍼티에서 값을 가져온다. 없으면 빈 문자열 반환.
+     * Returns property value from project or empty string.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 프로젝트 속성 값을 반환하거나 값이 없으면 빈 문자열을 반환합니다.
      *
-     * @param project      Gradle 프로젝트 객체
-     * @param propertyName 프로퍼티 이름
-     * @return 프로퍼티 값 또는 빈 문자열
+     * @param project      The Gradle project instance | Gradle 프로젝트 객체
+     * @param propertyName Property name | 속성명
+     * @return Property value | 속성 값
      */
     private static String getPropertyOrEmpty(Project project, String propertyName) {
         Object value = project.getExtensions().getExtraProperties().get(propertyName);
@@ -239,18 +259,29 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * Publication의 아티팩트 정보를 수집하고 로깅한다.
+     * Collects and logs artifact information from publication.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 출판물(Publication)에서 아티팩트 정보를 수집하고 로깅합니다.
      *
-     * @param project     Gradle 프로젝트 객체
-     * @param publication Maven Publication 객체
-     * @return 아티팩트 정보 목록
+     * @param project     The Gradle project instance | Gradle 프로젝트 객체
+     * @param publication Maven publication object | Maven 출판물 객체
+     * @return List of artifact information | 아티팩트 정보 목록
      */
     private static List<ArtifactInfo> collectArtifactInfo(Project project, MavenPublication publication) {
         project.getLogger().lifecycle("");
-        project.getLogger().lifecycle(
-                "🔍 [CHECK] 아티팩트 상태 확인 중: {}:{}...",
-                publication.getArtifactId(), publication.getVersion()
-        );
+        if (S2BuildUtils.isKorean()) {
+            project.getLogger().lifecycle(
+                    "🔍 [CHECK] 아티팩트 상태 확인 중: {}:{}...",
+                    publication.getArtifactId(), publication.getVersion()
+            );
+        } else {
+            project.getLogger().lifecycle(
+                    "🔍 [CHECK] Verifying artifact status: {}:{}...",
+                    publication.getArtifactId(), publication.getVersion()
+            );
+        }
 
         List<ArtifactInfo> artifacts = new ArrayList<>();
         publication.getArtifacts().forEach(a -> {
@@ -264,35 +295,64 @@ public class MavenPublishStrategy {
     }
 
     /**
-     * 배포 결정 결과를 로깅하고 배포 여부를 반환한다.
+     * Logs the publishing decision result and returns boolean status.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 배포 결정 결과를 로깅하고 불리언 상태를 반환합니다.
      *
-     * @param project    Gradle 프로젝트 객체
-     * @param artifactId 아티팩트 ID
-     * @param version    버전
-     * @param decision   배포 결정 객체
-     * @return true: 배포 진행, false: 배포 스킵
+     * @param project    The Gradle project instance | Gradle 프로젝트 객체
+     * @param artifactId Artifact ID | 아티팩트 ID
+     * @param version    Version | 버전
+     * @param decision   Publication decision | 배포 결정 결과
+     * @return {@code true} to proceed with publication | 배포 진행 여부
      */
     private static boolean logPublishDecision(Project project, String artifactId, String version, PublishDecision decision) {
+        boolean isKo = S2BuildUtils.isKorean();
+
         if (!decision.shouldPublish) {
-            project.getLogger().lifecycle("⏭️  [SKIP] {}:{} 버전은 이미 완전히 배포되어 있습니다.", artifactId, version);
+            if (isKo) {
+                project.getLogger().lifecycle("⏭️  [SKIP] {}:{} 버전은 이미 완전히 배포되어 있습니다.", artifactId, version);
+            } else {
+                project.getLogger().lifecycle("⏭️  [SKIP] Version {}:{} is already fully deployed.", artifactId, version);
+            }
             return false;
         }
 
-        if (decision.reason.contains("POM이 없으므로")) {
-            project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (기존 POM 없음)", artifactId, version);
+        if (decision.reason.contains("POM")) {
+            if (isKo) {
+                project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (기존 POM 없음)", artifactId, version);
+            } else {
+                project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - New version deployment (POM missing)", artifactId, version);
+            }
             return true;
         } else {
             // 일부 아티팩트 누락 시 경고 메시지 출력
-            project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - 일부 아티팩트 누락", artifactId, version);
-            project.getLogger().lifecycle("    누락된 파일 목록:");
+            if (isKo) {
+                project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - 일부 아티팩트 누락", artifactId, version);
+                project.getLogger().lifecycle("    누락된 파일 목록:");
+            } else {
+                project.getLogger().lifecycle("⚠️  [REGISTER] {}:{} - Some artifacts missing", artifactId, version);
+                project.getLogger().lifecycle("    Missing files:");
+            }
+
             decision.missingArtifacts.forEach(missing -> project.getLogger().lifecycle("      - {}", missing));
             project.getLogger().lifecycle("");
+
             project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (기존 POM 존재)");
-            project.getLogger().error("");
-            project.getLogger().error("  GitHub Packages에 이미 동일한 버전의 POM 파일이 존재합니다.");
-            project.getLogger().error("  이로 인해 빌드 완료 시 '409 Conflict' 오류가 발생할 수 있습니다.");
-            project.getLogger().error("  하지만 누락되었던 JAR 파일들은 정상적으로 업로드됩니다.");
+            if (isKo) {
+                project.getLogger().error("⚠️  [주의] 이미 배포된 버전 (기존 POM 존재)");
+                project.getLogger().error("");
+                project.getLogger().error("  GitHub Packages에 이미 동일한 버전의 POM 파일이 존재합니다.");
+                project.getLogger().error("  이로 인해 빌드 완료 시 '409 Conflict' 오류가 발생할 수 있습니다.");
+                project.getLogger().error("  하지만 누락되었던 JAR 파일들은 정상적으로 업로드됩니다.");
+            } else {
+                project.getLogger().error("⚠️  [CAUTION] Version already published (POM exists)");
+                project.getLogger().error("");
+                project.getLogger().error("  A POM file for the same version already exists in GitHub Packages.");
+                project.getLogger().error("  This may result in '409 Conflict' errors at the end of the build.");
+                project.getLogger().error("  However, the missing JAR files WILL be uploaded successfully.");
+            }
             project.getLogger().error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             return true;
         }
