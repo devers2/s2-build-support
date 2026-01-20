@@ -52,4 +52,50 @@ This module utilizes the following high-quality open-source library:
 
 ---
 
+## 🔧 Installation (설치)
+
+### [English]
+
+#### settings.gradle
+
+```groovy
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+```
+
+#### build.gradle
+
+```groovy
+plugins {
+    id 'io.github.devers2.buildsupport' version '0.1.0'
+}
+```
+
+### [한국어]
+
+#### settings.gradle
+
+```groovy
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+```
+
+#### build.gradle
+
+```groovy
+plugins {
+    id 'io.github.devers2.buildsupport' version '0.1.0'
+}
+```
+
+---
+
 s2-build-support Version: 0.1.0 (2026-01-19)
