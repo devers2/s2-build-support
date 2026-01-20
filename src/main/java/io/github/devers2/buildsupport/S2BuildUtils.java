@@ -490,7 +490,6 @@ public class S2BuildUtils {
         boolean enableShadowIntegration = false;
         if (useShadow) {
             // Shadow 기능(Fat JAR/Relocation)은 shadedPackagePrefix가 설정된 경우에만 활성화
-            // (Publishing 모드와 일반 Build 모드 모두 동일하게 적용)
             Object prefix = project.findProperty("shadedPackagePrefix");
             enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
         }
