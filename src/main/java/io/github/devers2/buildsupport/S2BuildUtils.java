@@ -1283,6 +1283,13 @@ public class S2BuildUtils {
     /**
      * Source JAR 생성 여부를 결정하는 전략 메서드
      *
+     * 소스 JAR 생성 조건:
+     * 1. 원격 배포 시 GitHub API로 비공개 여부 확인
+     * 2. 비공개 리포지토리: 항상 생성
+     * 3. 공개 리포지토리: 안전한 태스크(local build/test)에서만 생성
+     * - 안전한 태스크: 로컬 빌드/테스트용 (assemble, build, jar, sourcesJar, publishToMavenLocal)
+     * - 공개 리포지토리에 publish 실행 시 소스 코드 노출 방지
+     *
      * @param project         Gradle 프로젝트 객체
      * @param isRemotePublish 원격 배포 실행 여부
      * @param safeTasks       안전한 태스크 목록 (로컬 빌드용)
@@ -1290,32 +1297,100 @@ public class S2BuildUtils {
      * @param githubToken     GitHub 토큰
      * @return Source JAR 생성 여부
      */
-    public static boolean shouldEnableSourceJar(Project project, boolean isRemotePublish, Set<String> safeTasks, String repoBaseUrl, String githubToken) {
-        // Source JAR 생성 여부 결정
-        boolean enableSourceJar;
-        if (project.hasProperty("enableSourceJar")) {
-            enableSourceJar = Boolean.parseBoolean(project.findProperty("enableSourceJar").toString());
-            String status = enableSourceJar ? "활성화(파라미터)" : "비활성화(파라미터)";
-            project.getLogger().lifecycle("📦 [Config] 소스 JAR 생성이 " + status + "되었습니다.");
-        } else if (isRemotePublish) {
-            boolean isPrivate = GitHubPackagesClient.isRepoPrivate(repoBaseUrl, githubToken);
-            enableSourceJar = isPrivate;
-            if (isPrivate) {
-                project.getLogger().lifecycle("🔒 [Config] 비공개 리포지토리 감지됨. 소스 JAR가 생성됩니다.");
-            } else {
-                project.getLogger().lifecycle("🌍 [Config] 공개 리포지토리 감지됨. 소스 JAR 생성을 건너뜁니다.");
-            }
-        } else {
-            // 실행 중인 태스크 이름 가져오기
-            List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
-            enableSourceJar = safeTasks.stream().anyMatch(taskNames::contains);
+    /**
+     * Source JAR 생성 여부를 결정하는 통합 메서드
+     *
+     * <p>
+     * <b>결정 로직:</b>
+     * <ol>
+     * <li><b>Maven Central (OSSRH):</b> 무조건 생성 (true)</li>
+     * <li><b>User Override:</b> {@code project.ext.enableSourceJar}가 이미 true이면 (true)</li>
+     * <li><b>Remote Publish:</b> GitHub Packages인 경우 Private 리포지토리면 (true), Public이면 (false)</li>
+     * <li><b>Local Build:</b> 안전한 태스크(assemble, build, 등) 실행 시 (true)</li>
+     * </ol>
+     * </p>
+     *
+     * 계산된 결과는 {@code project.rootProject.ext.enableSourceJar}에 저장됩니다.
+     *
+     * @param project Gradle 프로젝트 객체
+     * @return Source JAR 생성 여부
+     */
+    public static boolean determineSourceJarStatus(Project project) {
+        Project rootProject = project.getRootProject();
 
-            if (enableSourceJar) {
-                project.getLogger().lifecycle("📦 [Config] 로컬 빌드 모드. 소스 JAR가 생성됩니다.");
-            } else {
-                project.getLogger().info("🚫 [Config] 소스 JAR 생성 조건 미충족 (Skip).");
+        // 1. Maven Central (OSSRH) 배포 감지 - 최우선 순위
+        // (Task 이름에 'OSSRH' 또는 'Central'이 포함되는지 확인)
+        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+        boolean isCentralPublish = taskNames.stream()
+                .anyMatch(name -> name.toUpperCase().contains("OSSRH") || name.toUpperCase().contains("CENTRAL"));
+
+        if (isCentralPublish) {
+            project.getLogger().lifecycle("🌍 [Config] Maven Central 배포 감지됨. 소스 JAR 생성을 강제 활성화합니다.");
+            rootProject.getExtensions().getExtraProperties().set("enableSourceJar", true);
+            return true;
+        }
+
+        // 2. 기존 설정 확인 (이미 true로 설정되어 있으면 유지)
+        if (rootProject.getExtensions().getExtraProperties().has("enableSourceJar")) {
+            Object existingVal = rootProject.getExtensions().getExtraProperties().get("enableSourceJar");
+            if (Boolean.TRUE.equals(existingVal) || "true".equalsIgnoreCase(String.valueOf(existingVal))) {
+                // 이미 활성화된 상태라면 유지
+                return true;
             }
         }
+
+        // 3. Remote Publish 여부 확인
+        boolean isAnyPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("publish"));
+        boolean isLocalPublish = taskNames.stream().anyMatch(name -> name.toLowerCase().contains("mavenlocal"));
+        boolean isRemotePublish = isAnyPublish && !isLocalPublish;
+
+        boolean enableSourceJar = false;
+        String reason = "";
+
+        if (isRemotePublish) {
+            // GitHub Packages 등의 원격 배포
+            String repoBaseUrl = (String) rootProject.findProperty("REPO_BASE_URL");
+            String githubToken = (String) rootProject.findProperty("GITHUB_TOKEN");
+
+            if (repoBaseUrl != null && githubToken != null) {
+                boolean isPrivate = GitHubPackagesClient.isRepoPrivate(repoBaseUrl, githubToken);
+                if (isPrivate) {
+                    enableSourceJar = true;
+                    reason = "비공개 리포지토리 (Private Repository)";
+                } else {
+                    enableSourceJar = false;
+                    reason = "공개 리포지토리 (Public Repository) - 소스 비공개";
+                }
+            } else {
+                // 정보가 없으면 기본적으로 생성 안 함 (안전하게)
+                enableSourceJar = false;
+                reason = "리포지토리 정보 부족";
+            }
+        } else {
+            // 4. 로컬 빌드/테스트
+            @SuppressWarnings("unchecked")
+            Set<String> safeTasks = (Set<String>) rootProject.findProperty("safeTasks");
+            if (safeTasks == null) {
+                safeTasks = new HashSet<>(Arrays.asList("assemble", "build", "jar", "sourcesJar", "publishToMavenLocal", "standardJar"));
+            }
+
+            enableSourceJar = safeTasks.stream().anyMatch(taskNames::contains);
+            if (enableSourceJar) {
+                reason = "로컬 빌드/테스트 모드";
+            } else {
+                reason = "소스 JAR 생성 조건 미충족 (Skip)";
+            }
+        }
+
+        // 결과 저장 및 로깅
+        rootProject.getExtensions().getExtraProperties().set("enableSourceJar", enableSourceJar);
+
+        if (enableSourceJar) {
+            project.getLogger().lifecycle("📦 [Config] 소스 JAR 생성 활성화: " + reason);
+        } else {
+            project.getLogger().info("🚫 [Config] 소스 JAR 생성 비활성화: " + reason);
+        }
+
         return enableSourceJar;
     }
 
@@ -2317,42 +2392,18 @@ public class S2BuildUtils {
                     org.gradle.api.tasks.TaskProvider<?> sourcesJarProvider = project.getTasks().named("sourcesJar");
 
                     // 원격 리포지토리 공개 여부 확인
-                    boolean isRemotePublish = project.getGradle().getStartParameter().getTaskNames().stream()
-                            .anyMatch(name -> name.toLowerCase().contains("publish") && !name.toLowerCase().contains("local"));
-
-                    final boolean[] shouldAddSourceJar = { true };
-
-                    if (isRemotePublish) {
-                        try {
-                            // 원격 배포 시 리포지토리 공개 여부 확인
-                            publishing.getRepositories().withType(org.gradle.api.artifacts.repositories.MavenArtifactRepository.class).forEach(repo -> {
-                                if (repo.getUrl() != null) {
-                                    String url = repo.getUrl().toString();
-                                    if (url.contains("github.com") || url.contains("maven.pkg.github.com")) {
-                                        // GitHub Packages인 경우
-                                        try {
-                                            org.gradle.api.credentials.PasswordCredentials credentials = repo.getCredentials(org.gradle.api.credentials.PasswordCredentials.class);
-                                            if (credentials != null && credentials.getPassword() != null) {
-                                                boolean isPrivate = GitHubPackagesClient.isRepoPrivate(url, credentials.getPassword());
-                                                if (!isPrivate) {
-                                                    project.getLogger().lifecycle("🌍 [Shadow] 공개 리포지토리 감지됨. 소스 JAR 생성을 건너뜁니다.");
-                                                    shouldAddSourceJar[0] = false;
-                                                }
-                                            }
-                                        } catch (Exception e) {
-                                            // PasswordCredentials가 아니거나 접근 권한이 없는 경우 무시
-                                            project.getLogger().debug("⚠️ [Shadow] 리포지토리 자격 증명 확인 건너뜀 (표준 API 사용): " + e.getMessage());
-                                        }
-                                    }
-                                }
-                            });
-                        } catch (Exception e) {
-                            project.getLogger().warn("⚠️ [Shadow] 리포지토리 공개 여부 확인 중 오류 발생: " + e.getMessage());
-                        }
+                    // 소스 JAR 생성 여부 결정 (Unified Logic)
+                    // 이미 determineSourceJarStatus에 의해 rootProject.ext.enableSourceJar가 설정되어 있을 것이나,
+                    // Shadow 플러그인 컨텍스트에서 다시 한 번 확인하거나 값을 가져옴.
+                    boolean enableSourceJar = false;
+                    if (project.getRootProject().getExtensions().getExtraProperties().has("enableSourceJar")) {
+                        enableSourceJar = (boolean) project.getRootProject().getExtensions().getExtraProperties().get("enableSourceJar");
+                    } else {
+                        // 만약 설정이 안되어 있다면(순서 문제 등), 다시 계산
+                        enableSourceJar = determineSourceJarStatus(project);
                     }
 
-                    // 공개 리포지토리(shouldAddSourceJar=false)가 아니라면 소스 JAR 추가
-                    if (shouldAddSourceJar[0]) {
+                    if (enableSourceJar) {
                         publication.artifact(sourcesJarProvider);
                     }
 
