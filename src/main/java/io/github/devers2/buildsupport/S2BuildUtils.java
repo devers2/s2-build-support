@@ -2921,6 +2921,13 @@ public class S2BuildUtils {
                                     }
                                 }
                             }
+                        } else {
+                            // Gradle 플러그인 프로젝트의 경우 'pluginMaven' 폴더 사용
+                            File pluginPomDir = new File(buildDir, "publications/pluginMaven");
+                            if (pluginPomDir.exists()) {
+                                pomDir = pluginPomDir;
+                                project.getLogger().lifecycle("ℹ️ [Central Portal] 'mavenJava' 대신 'pluginMaven' 게시물을 사용합니다.");
+                            }
                         }
 
                         // 2-1) 서명(.asc) 없는 파일 제외 & Checksum 생성
