@@ -46,7 +46,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
@@ -59,7 +58,9 @@ import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.tasks.Copy;
 import org.gradle.api.tasks.JavaExec;
@@ -1179,36 +1180,48 @@ public class S2BuildUtils {
         final boolean finalBuildFatJar = buildFatJar;
 
         project.getTasks().named("jar", Jar.class).configure(task -> {
+            // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결
+            // runtimeClasspath의 의존성(프로젝트 포함)을 명시적으로 dependsOn에 추가하여 실행 순서를 보장합니다.
+            // Fat JAR 여부와 관계없이 순서를 보장하는 것이 안전합니다.
+            org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().getByName("runtimeClasspath");
+            task.dependsOn(runtimeConfig);
+
             if (finalBuildFatJar) {
                 project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
-
-                // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결 (CI/Local 공통)
-                // runtimeClasspath를 구성하는 모든 의존성(프로젝트 포함)의 빌드 태스크가 먼저 실행되도록 강제합니다.
-                // 이렇게 하면 개별 ProjectDependency를 찾을 필요 없이, 아티팩트를 생성하는 모든 선행 태스크가 자동으로 연결됩니다.
-                org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().getByName("runtimeClasspath");
-                task.dependsOn(runtimeConfig.getBuildDependencies());
 
                 // Gradle의 증분 빌드를 위해 입력 파일(Inputs)로도 명시합니다.
                 task.getInputs().files(runtimeConfig);
 
                 task.from(
-                        (Callable<Object>) () -> {
-                            Set<String> excludes = getTransitiveDependenciesOfLocalProjects(project);
-                            List<Object> sources = new ArrayList<>();
-                            org.gradle.api.artifacts.Configuration config = project.getConfigurations().getByName("runtimeClasspath");
-                            if (config.isCanBeResolved()) {
-                                for (org.gradle.api.artifacts.ResolvedArtifact artifact : config.getResolvedConfiguration().getResolvedArtifacts()) {
-                                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
-                                    if (!excludes.contains(id)) {
-                                        File file = artifact.getFile();
-                                        sources.add(file.isDirectory() ? file : project.zipTree(file));
-                                    } else {
-                                        project.getLogger().debug("   🚫 [FatJar] Skipping duplicated dependency: " + id);
+                        project.getConfigurations().getByName("runtimeClasspath")
+                                .getIncoming()
+                                .getArtifacts()
+                                .getResolvedArtifacts()
+                                .map(artifactResults -> {
+                                    Set<String> excludes = getTransitiveDependenciesOfLocalProjects(project);
+                                    List<Object> sources = new ArrayList<>();
+
+                                    for (ResolvedArtifactResult artifact : artifactResults) {
+                                        ComponentIdentifier id = artifact.getId().getComponentIdentifier();
+                                        String idStr = null;
+
+                                        if (id instanceof ModuleComponentIdentifier) {
+                                            ModuleComponentIdentifier mid = (ModuleComponentIdentifier) id;
+                                            idStr = mid.getGroup() + ":" + mid.getModule();
+                                        } else if (id instanceof ProjectComponentIdentifier) {
+                                            // 프로젝트 의존성의 경우, 로컬 프로젝트의 전이 의존성에서 제외되지 않으므로 포함
+                                            // 필요한 경우 여기서 추가 로직 수행
+                                        }
+
+                                        if (idStr == null || !excludes.contains(idStr)) {
+                                            File file = artifact.getFile();
+                                            sources.add(file.isDirectory() ? file : project.zipTree(file));
+                                        } else {
+                                            project.getLogger().debug("   🚫 [FatJar] Skipping duplicated dependency: " + idStr);
+                                        }
                                     }
-                                }
-                            }
-                            return sources;
-                        }
+                                    return sources;
+                                })
                 );
             } else {
                 project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
@@ -1904,15 +1917,27 @@ public class S2BuildUtils {
                 boolean hasExplicitPrefix = false;
                 String prefix = "";
 
-                // 커맨드라인 인자 확인
-                java.util.List<String> args = project.getGradle().getStartParameter().getProjectProperties().keySet().stream()
-                        .filter(key -> "shadedPackagePrefix".equals(key))
-                        .map(key -> (String) project.getGradle().getStartParameter().getProjectProperties().get(key))
-                        .collect(java.util.stream.Collectors.toList());
+                // [Fix] 커맨드라인 인자 뿐만 아니라 build.gradle의 ext 속성도 확인하도록 변경
+                if (project.hasProperty("shadedPackagePrefix")) {
+                    String propPrefix = (String) project.property("shadedPackagePrefix");
+                    if (propPrefix != null && !propPrefix.trim().isEmpty()) {
+                        hasExplicitPrefix = true;
+                        prefix = propPrefix;
+                    }
+                }
 
-                if (!args.isEmpty()) {
-                    hasExplicitPrefix = true;
-                    prefix = args.get(0);
+                if (!hasExplicitPrefix) {
+                    // 커맨드라인 인자 재확인 (우선순위를 위해 남겨둘 수도 있지만, 위에서 이미 체크됨.
+                    // 단, 사용자가 -P옵션으로 덮어쓰는 경우를 위해 유지하거나 병합 가능)
+                    java.util.List<String> args = project.getGradle().getStartParameter().getProjectProperties().keySet().stream()
+                            .filter(key -> "shadedPackagePrefix".equals(key))
+                            .map(key -> (String) project.getGradle().getStartParameter().getProjectProperties().get(key))
+                            .collect(java.util.stream.Collectors.toList());
+
+                    if (!args.isEmpty()) {
+                        hasExplicitPrefix = true;
+                        prefix = args.get(0);
+                    }
                 }
 
                 // 빌드 모드: relocation 하지 않음 (prefix가 명시적으로 전달되지 않은 경우)
