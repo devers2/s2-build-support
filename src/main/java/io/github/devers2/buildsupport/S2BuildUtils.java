@@ -2984,27 +2984,27 @@ public class S2BuildUtils {
                     info(project, "🔗 [중앙 포털] 서명 태스크(signMavenJavaPublication) 의존성 설정 완료", "🔗 [Central Portal] Set dependency on signing task (signMavenJavaPublication).");
 
                     task.doLast(t -> {
-                        info(project, "🚀 [중앙 포털] Zip 번들 업로드를 시작합니다 (" + centralUploadUrl + ")...", "🚀 [Central Portal] Starting Zip bundle upload (" + centralUploadUrl + ")...");
+                        // Publication 정보 직접 가져오기 (각 Publication마다 다른 artifactId 사용)
+                        org.gradle.api.publish.maven.MavenPublication publication = (org.gradle.api.publish.maven.MavenPublication) task.getPublication();
+                        String publicationName = publication.getName();
+                        String groupId = publication.getGroupId();
+                        String artifactId = publication.getArtifactId();
+                        String version = publication.getVersion();
+
+                        info(
+                                project,
+                                "🚀 [중앙 포털] Zip 번들 업로드를 시작합니다 [" + publicationName + "]...",
+                                "🚀 [Central Portal] Starting Zip bundle upload [" + publicationName + "]..."
+                        );
 
                         // 필요한 파일 수집
                         File buildDir = project.getLayout().getBuildDirectory().getAsFile().get();
-                        File bundleDir = new File(buildDir, "distributions/central-bundle");
+
+                        // Publication별 독립적인 번들 디렉토리
+                        File bundleDir = new File(buildDir, "distributions/central-bundle/" + publicationName);
                         if (bundleDir.exists())
                             project.delete(bundleDir);
                         bundleDir.mkdirs();
-
-                        String version = project.getVersion().toString();
-                        // groupId는 project.group이 아닐 수 있음 (Publication 설정 확인 필요)
-                        String artifactId = project.getName();
-
-                        // Publication에서 Artifact ID 정확히 가져오기 (설정된 경우)
-                        org.gradle.api.publish.PublishingExtension publishing = project.getExtensions().findByType(org.gradle.api.publish.PublishingExtension.class);
-                        if (publishing != null) {
-                            org.gradle.api.publish.maven.MavenPublication mvnPub = (org.gradle.api.publish.maven.MavenPublication) publishing.getPublications().findByName("mavenJava");
-                            if (mvnPub != null) {
-                                artifactId = mvnPub.getArtifactId();
-                            }
-                        }
 
                         List<File> filesToBundle = new ArrayList<>();
 
@@ -3036,10 +3036,9 @@ public class S2BuildUtils {
                                 filesToBundle.addAll(Arrays.asList(files));
                         }
 
-                        // 2) POM & Signature (publications/mavenJava 폴더)
-                        File pomDir = new File(buildDir, "publications/mavenJava");
+                        // 2) POM & Signature (publications/[publicationName] 폴더)
+                        File pomDir = new File(buildDir, "publications/" + publicationName);
                         if (pomDir.exists()) {
-                            // startsWith 대신 equals로 정확히 pom-default.xml만 선택 (asc 파일 중복 선택 방지)
                             File[] poms = pomDir.listFiles((dir, name) -> name.equals("pom-default.xml"));
                             if (poms != null) {
                                 for (File pom : poms) {
@@ -3060,13 +3059,6 @@ public class S2BuildUtils {
                                         error(project, "❌ [중앙 포털] POM 파일 처리 실패: " + e.getMessage(), "❌ [Central Portal] POM file processing failed: " + e.getMessage());
                                     }
                                 }
-                            }
-                        } else {
-                            // Gradle 플러그인 프로젝트의 경우 'pluginMaven' 폴더 사용
-                            File pluginPomDir = new File(buildDir, "publications/pluginMaven");
-                            if (pluginPomDir.exists()) {
-                                pomDir = pluginPomDir;
-                                info(project, "ℹ️ [중앙 포털] 'mavenJava' 대신 'pluginMaven' Publication을 사용합니다.", "ℹ️ [Central Portal] Using 'pluginMaven' publication instead of 'mavenJava'.");
                             }
                         }
 
@@ -3131,7 +3123,8 @@ public class S2BuildUtils {
                                 ZipOutputStream zos = new ZipOutputStream(fos)) {
 
                             info(project, "📦 [중앙 포털] 번들링 대상 파일 목록 (Maven Layout 적용):", "📦 [Central Portal] Files for bundling (Maven Layout):");
-                            String groupPath = project.getGroup().toString().replace(".", "/");
+                            // Publication의 groupId 사용
+                            String groupPath = groupId.replace(".", "/");
                             String mavenPathPrefix = groupPath + "/" + artifactId + "/" + version + "/";
 
                             for (File file : filesToBundle) {
