@@ -34,12 +34,15 @@ plugins {
     id 'maven-publish'
     id 'signing'
 }
+
 group = project.property('group')
 version = project.property('version')
+
 repositories {
     mavenCentral()
     gradlePluginPortal()
 }
+
 java {
     /**
      * [Java Toolchain]
@@ -62,6 +65,18 @@ dependencies {
     implementation gradleApi()
     implementation 'com.gradleup.shadow:shadow-gradle-plugin:9.3.0'
 }
+
+/*
+ * [JAR 패키징 설정]
+ * JAR 파일 루트에 README.md와 LICENSE 파일을 포함한다.
+ */
+jar {
+    from('.') {
+        include 'README.md'
+        include 'LICENSE'
+    }
+}
+
 
 /*
  * [Gradle 플러그인 배포 - Maven Central]

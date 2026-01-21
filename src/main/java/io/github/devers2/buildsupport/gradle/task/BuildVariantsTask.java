@@ -83,6 +83,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
      *
      * @return Set of additional source paths
      */
+    @Input
     public abstract SetProperty<String> getAdditionalSource();
 
     /**
@@ -90,6 +91,7 @@ public abstract class BuildVariantsTask extends DefaultTask {
      *
      * @return Generate sources property
      */
+    @Input
     public abstract Property<Boolean> getGenerateSources();
 
     /**

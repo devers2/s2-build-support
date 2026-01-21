@@ -262,22 +262,19 @@ public class S2BuildUtils {
             // 1. 동적 의존성 주입 (Dynamic Dependency Injection) 및 추가 파일/variantId 정보 수집
             injectDynamicDependencies(p, extraDependencyMap);
 
-            // 2. 라이선스 자동화 설정 (License Plugin Integration)
-            configureLicenseAutomation(p);
-
-            // 3. 추가/제외 소스 파일 토글
+            // 2. 추가/제외 소스 파일 토글
             performSourceToggle(p, extraSources, excludedSources);
 
-            // 4. 패키징 및 빌드 설정 (경로 자동 계산 포함)
+            // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
             // ext.skipPackaging = true인 프로젝트는 패키징 스킵
             if (!Boolean.TRUE.equals(p.findProperty("skipPackaging"))) {
                 configurePackaging(p, extraSources, excludedSources, extraLicenses);
             }
 
-            // 5. README 파일 버전 & 의존성 가이드 업데이트
+            // 4. README 파일 버전 & 의존성 가이드 업데이트
             updateReadmeWithVersionAndDependencies(p, p.file("README.md"));
 
-            // 6. Central Portal 배포 설정 (Hijack Task)
+            // 5. Central Portal 배포 설정 (Hijack Task)
             configureCentralPortalPublishing(p);
         });
     }
@@ -525,13 +522,6 @@ public class S2BuildUtils {
                 .map(HashSet::new)
                 .orElseGet(HashSet::new);
 
-        Optional.ofNullable(project.getProjectDir().listFiles((dir, name) -> name.toUpperCase().startsWith("README") && name.toUpperCase().endsWith(".MD")))
-                .ifPresent(
-                        files -> Arrays.stream(files)
-                                .map(File::getName)
-                                .forEach(combinedExtraFiles::add)
-                );
-
         Optional.ofNullable(extraLicenses)
                 .ifPresent(
                         licenses -> licenses.stream()
@@ -593,10 +583,6 @@ public class S2BuildUtils {
         }
     }
 
-    // ========================================================================
-    // 경로 계산 관련 메서드
-    // ========================================================================
-
     /**
      * Returns a list of source file paths (.txt) for disabled features.
      * <p>
@@ -632,94 +618,6 @@ public class S2BuildUtils {
         }
         return excludedPaths;
     }
-
-    // ========================================================================
-    // 동적 의존성 및 라이선스 자동화 (Dynamic Dependency & License Automation)
-    // ========================================================================
-
-    /**
-     * Applies the hierynomus.license plugin and integrates with packaging tasks.
-     * <p>
-     * <b>[한국어 설명]</b>
-     * </p>
-     * hierynomus.license 플러그인을 적용하고 패키징 태스크와 연동하도록 설정합니다.
-     *
-     * @param project The Gradle project instance | Gradle 프로젝트 객체
-     */
-    private static void configureLicenseAutomation(Project project) {
-        // 활성화된 기능 중 compileOnly 의존성이 있는지 여부와 상관없이,
-        // 실제 프로젝트에 주입된 의존성을 기반으로 라이선스 자동화를 수행합니다.
-
-        // 플러그인 적용
-        project.getPluginManager().apply("com.github.hierynomus.license");
-
-        // Gradle 9+ 호환성 문제 해결 (reporting.baseDir 제거됨)
-        try {
-            // ReportingExtension에 baseDir 속성이 없으므로, ExtraProperties로 주입 시도
-            Object reporting = project.getExtensions().findByName("reporting");
-            if (reporting instanceof org.gradle.api.plugins.ExtensionAware) {
-                org.gradle.api.plugins.ExtensionAware extAware = (org.gradle.api.plugins.ExtensionAware) reporting;
-                if (!extAware.getExtensions().getExtraProperties().has("baseDir")) {
-                    extAware.getExtensions().getExtraProperties().set("baseDir", project.getLayout().getBuildDirectory().dir("reports").get().getAsFile());
-                    info(project, "🔧 [라이선스] Gradle 9+ 호환성을 위한 'reporting.baseDir' 워크어라운드를 적용했습니다.", "🔧 [License] Applied workaround for 'reporting.baseDir' (Gradle 9+ compatibility)");
-                }
-            }
-        } catch (Exception e) {
-            warn(project, "⚠️ [라이선스] 호환성 워크어라운드 적용 실패: " + e.getMessage(), "⚠️ [License] Failed to apply compatibility workaround: " + e.getMessage());
-        }
-
-        // downloadLicenses 태스크 설정
-        project.getTasks().named("downloadLicenses").configure(task -> {
-            // 태스크 실행 전 출력 디렉토리를 비워주는 로직 추가 (과거 잔적 파일 포함 방지)
-            task.doFirst(t -> {
-                java.io.File outputDir = project.getLayout().getBuildDirectory().dir("reports/license").get().getAsFile();
-                if (outputDir.exists()) {
-                    project.delete(outputDir);
-                }
-                outputDir.mkdirs(); // 디렉토리가 없으면 태스크 실행 시 오류가 발생할 수 있으므로 재생성
-                info(project, "🧹 [라이선스] 라이선스 리포트 생성 전 기존 파일을 삭제했습니다.", "🧹 [License] Cleared stale license reports before generation.");
-            });
-
-            // 설정: 의존성 및 리포트 포함 여부
-        });
-
-        // 소스 헤더 체크(LicenseCheck) 기능 비활성화 (LICENSE 파일 없음 오류 방지)
-        // 우리는 의존성 리포트(downloadLicenses)만 필요함
-        // 컴파일 타임에 플러그인 클래스가 없으므로 이름으로 찾아 비활성화
-        try {
-            project.getTasks().named("licenseMain").configure(t -> t.setEnabled(false));
-            project.getTasks().named("licenseTest").configure(t -> t.setEnabled(false));
-        } catch (Exception e) {
-            // ignore if tasks don't exist
-        }
-
-        // Jar 및 ShadowJar 패키징 시 라이선스 포함 설정
-        project.getTasks().named("downloadLicenses").configure(downloadTask -> {
-            // downloadLicenses 태스크 완료 후 결과물 경로 확인
-            // 기본적으로 build/reports/license 에 생성됨 (플러그인 버전에 따라 다를 수 있음)
-            // 여기서는 downloadLicenses의 출력을 패키징 태스크에 연결
-        });
-
-        // downloadLicenses 태스크 찾기
-        org.gradle.api.Task downloadLicensesTask = project.getTasks().findByName("downloadLicenses");
-        if (downloadLicensesTask != null) {
-            // 출력 디렉토리 (기본값 가정)
-            java.io.File licenseOutputDir = project.getLayout().getBuildDirectory().dir("reports/license").get().getAsFile();
-
-            // 모든 JAR 관련 태스크 (jar, shadowJar)에 포함
-            project.getTasks().withType(org.gradle.api.tasks.bundling.Jar.class).configureEach(jarTask -> {
-                jarTask.dependsOn(downloadLicensesTask);
-                jarTask.from(licenseOutputDir, copySpec -> {
-                    copySpec.into("licenses/third-party");
-                });
-                info(project, "🔗 [라이선스] 'downloadLicenses'를 태스크에 연결했습니다: " + jarTask.getName(), "🔗 [License] Linked 'downloadLicenses' to task: " + jarTask.getName());
-            });
-        }
-    }
-
-    // ========================================================================
-    // 초기화 단계 실행 메서드 (Configuration Phase)
-    // ========================================================================
 
     /**
      * Updates Servlet import statements based on Java version.
@@ -1284,38 +1182,14 @@ public class S2BuildUtils {
             if (finalBuildFatJar) {
                 project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
 
-                // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결
-                // 다른 프로젝트의 아티팩트를 포함하려면 해당 프로젝트의 빌드가 먼저 완료되어야 함을 명시해야 합니다.
-                project.getConfigurations().getByName("runtimeClasspath").getIncoming().getDependencies().forEach(dep -> {
-                    if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
-                        // 컴파일/런타임 호환성을 위해 이름으로 프로젝트 찾기 (getDependencyProject 메서드 문제 우회)
-                        org.gradle.api.Project root = project.getRootProject();
-                        String depName = dep.getName();
-                        String depGroup = dep.getGroup(); // null일 수 있음
+                // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결 (CI/Local 공통)
+                // runtimeClasspath를 구성하는 모든 의존성(프로젝트 포함)의 빌드 태스크가 먼저 실행되도록 강제합니다.
+                // 이렇게 하면 개별 ProjectDependency를 찾을 필요 없이, 아티팩트를 생성하는 모든 선행 태스크가 자동으로 연결됩니다.
+                org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().getByName("runtimeClasspath");
+                task.dependsOn(runtimeConfig.getBuildDependencies());
 
-                        org.gradle.api.Project depProject = null;
-                        for (org.gradle.api.Project p : root.getAllprojects()) {
-                            if (p.getName().equals(depName)) {
-                                // 그룹이 명시된 경우 그룹도 일치해야 함 (혹은 현재 프로젝트와 같은 그룹 의존성일 경우 depGroup이 null일 수 있음)
-                                if (depGroup == null || depGroup.equals(p.getGroup().toString())) {
-                                    depProject = p;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (depProject != null) {
-                            org.gradle.api.Task depJarTask = depProject.getTasks().findByName("jar");
-                            if (depJarTask != null) {
-                                project.getLogger().lifecycle("🔗 [FatJar] Explicit Dependency (by name): " + depJarTask.getPath());
-                                task.dependsOn(depJarTask);
-                                task.getInputs().files(depJarTask.getOutputs().getFiles());
-                            }
-                        } else {
-                            project.getLogger().debug("⚠️ [FatJar] Could not find project by name: " + depName);
-                        }
-                    }
-                });
+                // Gradle의 증분 빌드를 위해 입력 파일(Inputs)로도 명시합니다.
+                task.getInputs().files(runtimeConfig);
 
                 task.from(
                         (Callable<Object>) () -> {
@@ -1864,7 +1738,7 @@ public class S2BuildUtils {
      * @param project    Gradle 프로젝트 객체
      * @param extraFiles 포함할 파일 경로 목록
      */
-    private static void includeExtraFiles(Jar jarTask, Project project, Set<String> extraFiles) {
+    public static void includeExtraFiles(Jar jarTask, Project project, Set<String> extraFiles) {
         if (extraFiles != null && !extraFiles.isEmpty()) {
             project.getLogger().lifecycle("📋 [JAR Packaging] Including extra files into " + jarTask.getName());
 
