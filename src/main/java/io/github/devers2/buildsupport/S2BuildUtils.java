@@ -1283,6 +1283,40 @@ public class S2BuildUtils {
         project.getTasks().named("jar", Jar.class).configure(task -> {
             if (finalBuildFatJar) {
                 project.getLogger().lifecycle("📦 Building Fat JAR (including dependencies)");
+
+                // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결
+                // 다른 프로젝트의 아티팩트를 포함하려면 해당 프로젝트의 빌드가 먼저 완료되어야 함을 명시해야 합니다.
+                project.getConfigurations().getByName("runtimeClasspath").getIncoming().getDependencies().forEach(dep -> {
+                    if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
+                        // 컴파일/런타임 호환성을 위해 이름으로 프로젝트 찾기 (getDependencyProject 메서드 문제 우회)
+                        org.gradle.api.Project root = project.getRootProject();
+                        String depName = dep.getName();
+                        String depGroup = dep.getGroup(); // null일 수 있음
+
+                        org.gradle.api.Project depProject = null;
+                        for (org.gradle.api.Project p : root.getAllprojects()) {
+                            if (p.getName().equals(depName)) {
+                                // 그룹이 명시된 경우 그룹도 일치해야 함 (혹은 현재 프로젝트와 같은 그룹 의존성일 경우 depGroup이 null일 수 있음)
+                                if (depGroup == null || depGroup.equals(p.getGroup().toString())) {
+                                    depProject = p;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (depProject != null) {
+                            org.gradle.api.Task depJarTask = depProject.getTasks().findByName("jar");
+                            if (depJarTask != null) {
+                                project.getLogger().lifecycle("🔗 [FatJar] Explicit Dependency (by name): " + depJarTask.getPath());
+                                task.dependsOn(depJarTask);
+                                task.getInputs().files(depJarTask.getOutputs().getFiles());
+                            }
+                        } else {
+                            project.getLogger().debug("⚠️ [FatJar] Could not find project by name: " + depName);
+                        }
+                    }
+                });
+
                 task.from(
                         (Callable<Object>) () -> {
                             Set<String> excludes = getTransitiveDependenciesOfLocalProjects(project);
