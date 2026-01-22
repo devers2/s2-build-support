@@ -140,10 +140,6 @@ publishing {
                 }
             }
         }
-
-        mavenJava(MavenPublication) {
-            from components.java
-        }
     }
     repositories {
         // Central Portal 배포 설정
