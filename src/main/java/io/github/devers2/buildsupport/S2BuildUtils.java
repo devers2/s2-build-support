@@ -2978,10 +2978,11 @@ public class S2BuildUtils {
                     // 2. 기존 동작 제거 및 새 동작 주입
                     task.getActions().clear();
 
-                    // 서명 태스크 의존성 강제 추가 (findByName 제거 - Lazy Resolution 활용)
-                    // signing 플러그인이 적용되어 있다면 이 태스크는 반드시 존재해야 함
-                    task.dependsOn("signMavenJavaPublication");
-                    info(project, "🔗 [중앙 포털] 서명 태스크(signMavenJavaPublication) 의존성 설정 완료", "🔗 [Central Portal] Set dependency on signing task (signMavenJavaPublication).");
+                    // 서명 태스크 의존성 강제 추가
+                    // - Gradle 플러그인 프로젝트에서는 여러 Publication(sign tasks)이 존재할 수 있으므로
+                    // 모든 Sign 타입 태스크에 대해 의존성을 추가하여 .asc 파일이 항상 생성되도록 보장한다.
+                    task.dependsOn(p.getTasks().withType(org.gradle.plugins.signing.Sign.class));
+                    info(project, "🔗 [중앙 포털] 서명 태스크 의존성 설정 완료", "🔗 [Central Portal] Set dependency on signing tasks.");
 
                     task.doLast(t -> {
                         // Publication 정보 직접 가져오기 (각 Publication마다 다른 artifactId 사용)
@@ -3010,30 +3011,41 @@ public class S2BuildUtils {
 
                         // 1) JARs & Signatures (libs 폴더)
                         File libsDir = new File(buildDir, "libs");
+                        final boolean isSnapshotVersion = version.contains("SNAPSHOT");
                         if (libsDir.exists()) {
-                            final String baseName = artifactId + "-" + version;
-                            final boolean isSnapshotVersion = version.contains("SNAPSHOT");
-
+                            // 넓은 의미의 매칭: 파일 이름에 '-<version>' 패턴이 포함된 아티팩트는 모두 포함
                             File[] files = libsDir.listFiles((dir, name) -> {
-                                boolean isJarOrAsc = name.endsWith(".jar") || name.endsWith(".asc");
-                                if (!isJarOrAsc)
+                                if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
                                     return false;
-
-                                // 배포 버전이 SNAPSHOT이 아닌데 파일명에 SNAPSHOT이 포함되어 있다면 제외 (이전 빌드 잔재)
                                 if (!isSnapshotVersion && name.contains("SNAPSHOT")) {
                                     project.getLogger().debug("         - Skipping SNAPSHOT file for non-SNAPSHOT release: " + name);
                                     return false;
                                 }
-
-                                // 정확히 버전으로 끝나는 파일 (.jar, .asc) 또는 분류자(classifier)가 있는 파일 (-javadoc.jar 등)
-                                boolean exactMatch = name.equals(baseName + ".jar") || name.equals(baseName + ".jar.asc");
-                                boolean classifierMatch = name.startsWith(baseName + "-");
-
-                                return exactMatch || classifierMatch;
+                                // 일반적으로 아티팩트명은 '<artifactId>-<version>...' 형태이므로 '-<version>' 포함 여부로 필터링
+                                return name.contains("-" + version + ".") || name.contains("-" + version + "-") || name.endsWith("-" + version + ".jar") || name.endsWith("-" + version + ".pom");
                             });
 
                             if (files != null)
                                 filesToBundle.addAll(Arrays.asList(files));
+                        }
+
+                        // 1-1) publications 폴더 내 다른 Publication들(예: pluginMaven 등)에 생성된 아티팩트도 포함
+                        File publicationsRoot = new File(buildDir, "publications");
+                        if (publicationsRoot.exists()) {
+                            File[] pubDirs = publicationsRoot.listFiles(File::isDirectory);
+                            if (pubDirs != null) {
+                                for (File pubDir : pubDirs) {
+                                    File[] pubFiles = pubDir.listFiles((dir, name) -> {
+                                        if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
+                                            return false;
+                                        if (!isSnapshotVersion && name.contains("SNAPSHOT"))
+                                            return false;
+                                        return name.contains("-" + version + ".") || name.contains("-" + version + "-") || name.endsWith("-" + version + ".jar") || name.endsWith("-" + version + ".pom");
+                                    });
+                                    if (pubFiles != null)
+                                        filesToBundle.addAll(Arrays.asList(pubFiles));
+                                }
+                            }
                         }
 
                         // 2) POM & Signature (publications/[publicationName] 폴더)
@@ -3115,7 +3127,9 @@ public class S2BuildUtils {
                         }
 
                         // 3. Zip 번들 생성 (Maven Layout 적용)
-                        String bundleFileName = artifactId + "-" + version + ".zip";
+                        // publicationName이 기본 'mavenJava'가 아닐 경우 이름에 publicationName을 추가하여
+                        // pluginMaven 등 여러 출판물이 동일한 artifactId/버전으로 덮어쓰지 않도록 방지
+                        String bundleFileName = artifactId + "-" + version + ("mavenJava".equals(publicationName) ? "" : "-" + publicationName) + ".zip";
                         File zipFile = new File(buildDir, "distributions/" + bundleFileName);
                         zipFile.getParentFile().mkdirs();
 
