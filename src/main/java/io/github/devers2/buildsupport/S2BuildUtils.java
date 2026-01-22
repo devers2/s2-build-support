@@ -2988,14 +2988,15 @@ public class S2BuildUtils {
                         // Publication 정보 직접 가져오기 (각 Publication마다 다른 artifactId 사용)
                         org.gradle.api.publish.maven.MavenPublication publication = (org.gradle.api.publish.maven.MavenPublication) task.getPublication();
                         String publicationName = publication.getName();
+
                         String groupId = publication.getGroupId();
                         String artifactId = publication.getArtifactId();
                         String version = publication.getVersion();
 
                         info(
                                 project,
-                                "🚀 [중앙 포털] Zip 번들 업로드를 시작합니다 [" + publicationName + "]...",
-                                "🚀 [Central Portal] Starting Zip bundle upload [" + publicationName + "]..."
+                                "🚀 [중앙 포털] Zip 번들 업로드를 시작합니다 [" + publicationName + "] - artifactId: " + artifactId,
+                                "🚀 [Central Portal] Starting Zip bundle upload [" + publicationName + "] - artifactId: " + artifactId
                         );
 
                         // 필요한 파일 수집
@@ -3009,10 +3010,10 @@ public class S2BuildUtils {
 
                         List<File> filesToBundle = new ArrayList<>();
 
-                        // 1) JARs & Signatures (libs 폴더)
+                        // 1) JARs & Signatures (libs 폴더) - mavenJava publication만 JAR 포함
                         File libsDir = new File(buildDir, "libs");
                         final boolean isSnapshotVersion = version.contains("SNAPSHOT");
-                        if (libsDir.exists()) {
+                        if (libsDir.exists() && ("mavenJava".equals(publicationName) || "pluginMaven".equals(publicationName))) {
                             // 넓은 의미의 매칭: 파일 이름에 '-<version>' 패턴이 포함된 아티팩트는 모두 포함
                             File[] files = libsDir.listFiles((dir, name) -> {
                                 if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
@@ -3036,14 +3037,23 @@ public class S2BuildUtils {
                             if (pubDirs != null) {
                                 for (File pubDir : pubDirs) {
                                     File[] pubFiles = pubDir.listFiles((dir, name) -> {
-                                        if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
+                                        if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom") || (name.equals("module.json") && pubDir.getName().equals("pluginMaven"))))
                                             return false;
                                         if (!isSnapshotVersion && name.contains("SNAPSHOT"))
                                             return false;
-                                        return name.contains("-" + version + ".") || name.contains("-" + version + "-") || name.endsWith("-" + version + ".jar") || name.endsWith("-" + version + ".pom");
+                                        return name.contains("-" + version + ".") || name.contains("-" + version + "-") || name.endsWith("-" + version + ".jar") || name.endsWith("-" + version + ".pom") || (name.equals("module.json") && pubDir.getName().equals("pluginMaven"));
                                     });
-                                    if (pubFiles != null)
-                                        filesToBundle.addAll(Arrays.asList(pubFiles));
+                                    if (pubFiles != null) {
+                                        for (File pubFile : pubFiles) {
+                                            try {
+                                                File renamedPubFile = new File(bundleDir, pubFile.getName());
+                                                Files.copy(pubFile.toPath(), renamedPubFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                                filesToBundle.add(renamedPubFile);
+                                            } catch (IOException e) {
+                                                error(project, "❌ [중앙 포털] Publication 파일 처리 실패: " + pubFile.getName() + " - " + e.getMessage(), "❌ [Central Portal] Publication file processing failed: " + pubFile.getName() + " - " + e.getMessage());
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3089,9 +3099,9 @@ public class S2BuildUtils {
                                 continue;
                             }
 
-                            // 아티팩트(.jar, .pom)인 경우 서명 파일 존재 여부 확인
+                            // 아티팩트(.jar, .pom, module.json)인 경우 서명 파일 존재 여부 확인 (module.json은 서명 제외)
                             String ascName = f.getName() + ".asc";
-                            if (!fileNames.contains(ascName)) {
+                            if (!fileNames.contains(ascName) && !f.getName().equals("module.json")) {
                                 warn(project, "⚠️ [중앙 포털] 서명(.asc) 파일이 없어 건너뜁니다: " + f.getName(), "⚠️ [Central Portal] Missing signature (.asc), skipping: " + f.getName());
                                 continue;
                             }
