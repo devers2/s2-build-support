@@ -91,7 +91,7 @@ public class S2TestLauncher {
         // 1. JUnit 5 ConsoleLauncher 존재 여부 확인 및 실행 시도
         try {
             Class<?> consoleLauncher = Class.forName("org.junit.platform.console.ConsoleLauncher");
-            if (isKorean()) {
+            if (S2BuildUtils.isKorean()) {
                 System.out.println("🚀 [Launcher] JUnit 5 의존성이 감지되어 테스트로 실행을 시작합니다.");
             } else {
                 System.out.println("🚀 [Launcher] JUnit 5 dependency detected. Starting as a test.");
@@ -105,7 +105,7 @@ public class S2TestLauncher {
         } catch (ClassNotFoundException e) {
             // JUnit 5 없음 - 다음 단계로
         } catch (Exception e) {
-            if (isKorean()) {
+            if (S2BuildUtils.isKorean()) {
                 System.err.println("❌ [Launcher] JUnit 실행 중 오류 발생: " + e.getMessage());
             } else {
                 System.err.println("❌ [Launcher] Error occurred while running JUnit: " + e.getMessage());
@@ -116,7 +116,7 @@ public class S2TestLauncher {
         try {
             Method mainMethod = targetClass.getMethod("main", String[].class);
             if (Modifier.isStatic(mainMethod.getModifiers())) {
-                if (isKorean()) {
+                if (S2BuildUtils.isKorean()) {
                     System.out.println("🚀 [Launcher] JUnit이 없으나 'main' 메서드가 감지되어 직접 실행합니다.");
                 } else {
                     System.out.println("🚀 [Launcher] JUnit not found, but 'main' method detected. Running directly.");
@@ -132,7 +132,7 @@ public class S2TestLauncher {
             // main 메서드 없음
         }
 
-        if (isKorean()) {
+        if (S2BuildUtils.isKorean()) {
             System.err.println("\n" + "=".repeat(80));
             System.err.println("❌ [Launcher] 에러: '" + targetClassName + "' 클래스를 검증할 수 없습니다.");
             System.err.println("=".repeat(80));
@@ -154,7 +154,4 @@ public class S2TestLauncher {
         System.exit(1);
     }
 
-    private static boolean isKorean() {
-        return java.util.Locale.getDefault().getLanguage().equals("ko");
-    }
 }

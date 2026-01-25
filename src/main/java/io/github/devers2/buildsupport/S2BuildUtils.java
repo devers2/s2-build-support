@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -176,7 +177,7 @@ public class S2BuildUtils {
      * @return true if Korean, false otherwise | 한국어인 경우 true
      */
     public static boolean isKorean() {
-        return java.util.Locale.getDefault().getLanguage().equals("ko");
+        return java.util.Locale.getDefault().getLanguage().equals(Locale.KOREAN.getLanguage());
     }
 
     /**
