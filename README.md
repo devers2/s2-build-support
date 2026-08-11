@@ -14,9 +14,9 @@ The **s2-build-support** plugin is a plugin for Gradle builds.
 
 ## 🔧 Installation (설치)
 
-### settings.gradle
+### settings.gradle.kts
 
-```groovy
+```kotlin
 pluginManagement {
     repositories {
         mavenCentral()
@@ -24,11 +24,11 @@ pluginManagement {
 }
 ```
 
-### build.gradle
+### build.gradle.kts
 
-```groovy
+```kotlin
 plugins {
-    id 'io.github.devers2.buildsupport' version '0.1.0'
+    id("io.github.devers2.buildsupport") version "0.1.0"
 }
 ```
 

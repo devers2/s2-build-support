@@ -19,6 +19,7 @@ import org.gradle.api.provider.SetProperty;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.process.ExecOperations;
+import org.gradle.work.DisableCachingByDefault;
 
 /**
  * Task for building artifacts based on configured Java versions and additional sources.
@@ -57,6 +58,7 @@ import org.gradle.process.ExecOperations;
  *
  * @see <a href="https://docs.gradle.org/current/userguide/java_library_plugin.html#sec:java_library_configurations_graph">Gradle Variants</a>
  */
+@DisableCachingByDefault(because = "내부적으로 gradlew를 재귀 호출하여 외부 프로세스를 실행하므로 캐시할 수 없다.")
 public abstract class BuildVariantsTask extends DefaultTask {
 
     // 태스크 이름 상수
