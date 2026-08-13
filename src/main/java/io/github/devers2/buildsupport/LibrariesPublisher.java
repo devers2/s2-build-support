@@ -465,13 +465,20 @@ public class LibrariesPublisher {
         // 파일명을 토큰화 ([-_]로 분리)
         String[] parts = trimmedFileName.split("[-_]");
 
+        // 각 구분자([-_])의 실제 위치를 미리 계산해 둔다.
+        // (parts[i-1] 토큰과 동일한 문자열이 파일명 내에 여러 번 등장하는 경우, lastIndexOf 기반 탐색은
+        //  의도한 분할 지점이 아닌 엉뚱한 위치를 찾아 버전 후보 문자열을 잘못 잘라낼 수 있기 때문)
+        List<Integer> separatorIndices = new ArrayList<>();
+        java.util.regex.Matcher separatorMatcher = Pattern.compile("[-_]").matcher(trimmedFileName);
+        while (separatorMatcher.find()) {
+            separatorIndices.add(separatorMatcher.start());
+        }
+
         // 뒤에서부터 버전 찾기 (baseName 최소 1개 요소 필요)
-        for (int i = parts.length - 1; i > 0; i--) {
-            // parts 배열의 i번째 요소를 기준으로 원본 파일명에서 버전 후보 문자열을 자름
+        for (int i = parts.length - 1; i > 0 && i <= separatorIndices.size(); i--) {
+            // i번째 구분자 위치를 기준으로 원본 파일명에서 버전 후보 문자열을 자름
             // 이렇게 하면 '1.8.0_422'와 같이 '_'가 포함된 버전도 원본 그대로 유지됨
-            String candidateVersion = trimmedFileName.substring(
-                    trimmedFileName.lastIndexOf(parts[i - 1]) + parts[i - 1].length() + 1
-            );
+            String candidateVersion = trimmedFileName.substring(separatorIndices.get(i - 1) + 1);
 
             // 1단계: 예외적인 버전 패턴 확인
             if (exceptionalVersions != null && exceptionalVersions.length > 0) {

@@ -92,29 +92,47 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  *
  * <b>Packaging Strategies (패키징 전략)</b>
  *
- * <b>1. Publishing (Standard) - 'shadedPackagePrefix' 미설정 시</b>
+ * <p>
+ * <b>⭐ 어떤 전략이 적용될지는 딱 두 가지 조건의 조합으로만 결정된다:</b>
+ * <br>(A) {@code com.gradleup.shadow}(또는 {@code com.github.johnrengelman.shadow}) 플러그인이 적용되어 있는가
+ * <br>(B) {@code ext.shadedPackagePrefix}가 비어있지 않은 문자열로 설정되어 있는가
+ * <br>
+ * <b>(A)와 (B)가 모두 참일 때만</b> Shadow 플러그인이 실제로 패키징에 관여한다({@link #configureShadowIntegration}).
+ * 이 중 하나라도 거짓이면(Shadow 플러그인만 적용하고 prefix를 안 주는 경우 포함) 아래 표의 1/3번 경로로
+ * 조용히 폴백된다 — 이 경우 {@code shadowJar} 태스크는 Shadow 플러그인에 의해 등록만 될 뿐, 이 클래스가
+ * 관리하는 {@code assemble}/{@code publish} 파이프라인과는 무관하게 방치된다(수동으로
+ * {@code ./gradlew shadowJar}를 실행하면 Shadow 플러그인 자체 기본 동작으로 동작은 하지만, 이 클래스가
+ * 보장하는 relocation/의존성 규칙은 적용되지 않는다).
+ * <br>
+ * 빌드(assemble/build 등) vs 배포(publish 계열) 여부는 실행 중인 Gradle 태스크 이름으로 자동 판별되며,
+ * 같은 {@code shadedPackagePrefix} 설정이 두 경우 모두에 동시에 적용된다(즉 "빌드용/배포용"을 따로 켜고
+ * 끌 수는 없고, 하나의 스위치로 두 산출물의 형태가 함께 바뀐다).
+ * </p>
+ *
+ * <b>1. Publishing (Standard) - (A) 또는 (B) 중 하나라도 미충족 시</b>
  * <ul>
- * <li>결과물: Standard JAR (Shadow OFF)</li>
+ * <li>결과물: Standard JAR (일반 {@code jar} 태스크 결과물. Shadow 플러그인 미관여)</li>
  * <li>특징: 의존성을 포함하지 않음. POM을 통해 api(compile), implementation(runtime) 전이.</li>
  * </ul>
  *
- * <b>2. Publishing (Shaded) - 'shadedPackagePrefix' 설정 시</b>
+ * <b>2. Publishing (Shaded) - (A)와 (B) 모두 충족 시</b>
  * <ul>
- * <li>결과물: Shaded JAR (Shadow ON)</li>
+ * <li>결과물: Shaded JAR ({@code shadowJar} 태스크 결과물이 Publication 아티팩트로 사용됨)</li>
  * <li>특징: implementation/runtimeOnly 의존성을 Relocate하여 JAR에 포함.</li>
  * <li>전이: api는 JAR에서 제외하고 POM에 compile 스코프로 주입. implementation은 POM에서 제거.</li>
  * </ul>
  *
- * <b>3. Build (Fat JAR) - 'shadedPackagePrefix' 미설정 시</b>
+ * <b>3. Build (Fat JAR) - (A) 또는 (B) 중 하나라도 미충족 시</b>
  * <ul>
- * <li>결과물: Fat JAR (Shadow ON)</li>
+ * <li>결과물: Fat JAR (일반 {@code jar} 태스크에 runtimeClasspath를 zipTree로 직접 병합. Shadow 플러그인 미관여 —
+ * Shadow 플러그인이 없어도 동작함)</li>
  * <li>특징: Relocation 없이 모든 의존성을 JAR에 포함.</li>
  * </ul>
  *
- * <b>4. Build (Relocated Fat JAR) - 'shadedPackagePrefix' 설정 시</b>
+ * <b>4. Build (Relocated Fat JAR) - (A)와 (B) 모두 충족 시</b>
  * <ul>
- * <li>결과물: Fat JAR with Relocation (Shadow ON)</li>
- * <li>특징: 모든 의존성을 지정된 패키지로 Relocate하여 JAR에 포함.</li>
+ * <li>결과물: Fat JAR with Relocation ({@code shadowJar} 태스크 결과물)</li>
+ * <li>특징: 모든 의존성(api 포함)을 JAR에 포함하되, api를 제외한 나머지만 지정된 패키지로 Relocate.</li>
  * </ul>
  *
  * <b>🔗 의존성 전이 및 패키징 규칙 (Dependency Rules)</b>
@@ -143,16 +161,6 @@ import org.gradle.external.javadoc.StandardJavadocDocletOptions;
  * <li>Shaded: JAR에 포함(Relocate)되며, POM에서는 제거됨.</li>
  * </ul>
  * </li>
- * </ul>
- * <ul>
- * <li><b>Standard:</b> Normal JAR without dependencies. Dependencies are listed in the POM.</li>
- * <li><b>Shaded (Shadow):</b> Fat JAR containing internal dependencies (relocated to avoid conflicts).</li>
- * </ul>
- *
- * <b>Dependency Rules (의존성 규칙)</b>
- * <ul>
- * <li><b>api:</b> Public dependencies. Kept in POM, excluded from Shaded JAR.</li>
- * <li><b>implementation:</b> Internal dependencies. Removed from POM, relocated into Shaded JAR.</li>
  * </ul>
  *
  * @author devers2
@@ -419,7 +427,19 @@ public class S2BuildUtils {
      * @param excludedSources List of sources to exclude | 제외할 소스 목록
      */
     private static void performSourceToggle(Project project, Set<String> extraSources, Set<String> excludedSources) {
+        if (extraSources.isEmpty() && excludedSources.isEmpty()) {
+            return;
+        }
+
         String javaSourceRoot = (String) project.getRootProject().findProperty("JAVA_SRC_ROOT");
+        if (javaSourceRoot == null || javaSourceRoot.isBlank()) {
+            warn(
+                    project,
+                    "⚠️ [소스 토글] 'JAVA_SRC_ROOT' 속성이 설정되지 않아 소스 파일 토글(.java <-> .java.txt)을 건너뜁니다.",
+                    "⚠️ [Source Toggle] 'JAVA_SRC_ROOT' property is not set. Skipping source file toggle (.java <-> .java.txt)."
+            );
+            return;
+        }
 
         for (String extraSource : extraSources) {
             String fullPathBase = javaSourceRoot + extraSource;
@@ -1168,6 +1188,21 @@ public class S2BuildUtils {
         boolean buildFatJar;
         if (project.hasProperty("buildFatJar")) {
             buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
+
+            // [안전장치] 배포(publish) 중에는 사용자가 buildFatJar=true를 명시하더라도 강제로 무시한다.
+            // Fat JAR를 그대로 배포하면 POM에는 implementation 의존성이 runtime scope로 남아있는 채로
+            // 전이 의존성이 전파되는데, JAR 안에도 동일 클래스가 포함되어 있어 소비자 클래스패스에서
+            // 클래스 중복/충돌이 발생할 수 있다.
+            if (buildFatJar && isAnyPublish) {
+                warn(
+                        project,
+                        "⚠️ [Packaging] 배포(publish) 중에는 'buildFatJar=true' 설정이 무시되고 Standard JAR로 강제 전환됩니다. " +
+                                "Fat JAR를 배포하면 POM의 전이 의존성과 겹쳐 소비자 클래스패스에서 클래스 중복이 발생할 수 있습니다.",
+                        "⚠️ [Packaging] 'buildFatJar=true' is ignored during publishing and forced to Standard JAR. " +
+                                "Publishing a Fat JAR alongside POM transitive dependencies can cause duplicate classes on consumers' classpath."
+                );
+                buildFatJar = false;
+            }
         } else {
             buildFatJar = !isAnyPublish;
         }
@@ -1308,6 +1343,7 @@ public class S2BuildUtils {
      */
     private static void fixMetadataGeneration(Project project) {
         // Maven 배포를 위한 메타데이터 생성 태스크를 찾아 의존성을 명시적으로 설정
+        // standardJar는 실제 배포 아티팩트가 아니라 순서 보장 전용 태스크임 (registerStandardJarTask 참고)
         try {
             project.getTasks().named("generateMetadataFileForMavenJavaPublication").configure(task -> {
                 // standardJar 태스크가 존재한다면 그 결과를 보고 메타데이터를 만들도록 강제
@@ -1423,6 +1459,13 @@ public class S2BuildUtils {
      * <b>[한국어 설명]</b>
      * </p>
      * 배포 전용 Standard JAR 태스크를 등록합니다.
+     * <p>
+     * ⚠️ 주의: 이 태스크가 생성하는 {@code build/libs/*-standard.jar} 산출물은 실제 Maven Publication의
+     * 아티팩트로 사용되지 않는다. {@link #fixMetadataGeneration(Project)}에서 Gradle 9.2.1+의
+     * 암묵적 태스크 의존성 오류(Implicit Dependency Error)를 피하기 위해 순서 보장용으로만 참조된다.
+     * 실제 배포되는 아티팩트는 Standard 모드에서는 {@code jar}, Shadow 모드에서는 {@code shadowJar}이다.
+     * 향후 이 태스크를 제거하거나 용도를 변경하려면 반드시 {@code fixMetadataGeneration}과의 연결부터 확인할 것.
+     * </p>
      *
      * @param project         The Gradle project instance | Gradle 프로젝트 객체
      * @param archiveBaseName Archive base name | JAR 파일 기본 이름
@@ -1690,8 +1733,11 @@ public class S2BuildUtils {
 
             if (distributionUrl != null) {
                 // distributionUrl에서 버전 문자열을 추출하는 정규식
+                // "gradle-" 와 "-bin.zip"/"-all.zip" 사이의 전체 토큰을 캡처하여
+                // 2단계(예: 9.0), 3단계(예: 9.2.1) 버전은 물론 milestone/rc 형태(예: 9.0-milestone-1)까지 지원한다.
                 // 예: https\://.../gradle-9.2.1-bin.zip -> 9.2.1 추출
-                Pattern pattern = Pattern.compile("gradle-(\\d+\\.\\d+\\.\\d+).*\\.zip");
+                // 예: https\://.../gradle-9.0-milestone-1-all.zip -> 9.0-milestone-1 추출
+                Pattern pattern = Pattern.compile("gradle-([0-9][\\w.\\-]*)-(?:bin|all)\\.zip");
                 Matcher matcher = pattern.matcher(distributionUrl);
 
                 if (matcher.find()) {
@@ -2144,6 +2190,185 @@ public class S2BuildUtils {
         });
     }
 
+    // ========================================================================
+    // 배포 리포지토리 / 서명 공통 설정 (Repository & Signing Helpers)
+    // ========================================================================
+
+    /**
+     * Declares and configures the "CentralPortal" Maven repository for publishing.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * Maven Central(Central Portal) 배포용 리포지토리를 선언하고 인증 정보를 설정합니다.
+     * <p>
+     * {@code centralUsername}/{@code centralPassword} 프로젝트 프로퍼티(gradle.properties, {@code -P} 옵션 등)에서
+     * 인증 정보를 읽어옵니다. 실제 Zip 번들 업로드 로직은 {@link #configureCentralPortalPublishing(Project)}가
+     * ({@link #configureProject(Project)}를 통해 자동 적용됨) 담당하므로, 이 메서드는 리포지토리 선언만 수행합니다.
+     * </p>
+     * <p>
+     * <b>[⭐ 서명(Signing) 자동 적용]</b><br>
+     * Maven Central은 서명(.asc)이 없는 아티팩트는 검증 단계에서 배포 자체를 거부하기 때문에,
+     * 이 메서드는 리포지토리 등록과 함께 {@link #configurePublishSigning(Project)}를 내부적으로 자동 호출합니다.
+     * 즉 이 메서드 하나만 호출하면 "CentralPortal 리포지토리 등록 + 서명 필수화 + 모든 Publication 서명"이
+     * 한 번에 처리되며, 서명 설정을 깜빡해서 배포 시점에야 실패를 알게 되는 실수를 방지합니다.
+     * <br>
+     * {@link #configurePublishSigning(Project)}는 여전히 독립적으로도 호출 가능한 public 메서드입니다.
+     * GitHub Packages({@link #configureGitHubPackagesRepository(Project, String, String)})처럼 서명을 요구하지 않는
+     * 리포지토리만 사용할 때는 서명을 강제하고 싶지 않을 수 있으므로, 이 메서드에 묶지 않고 별도로 유지했습니다.
+     * 다만 이 메서드를 호출한 프로젝트에서 {@code configurePublishSigning}을 별도로 다시 호출해도 무방합니다.
+     * (동일 프로젝트에 대해 중복 적용되지 않도록 {@link #configurePublishSigning(Project)} 내부에서 1회만
+     * 적용되도록 방어되어 있습니다.)
+     * </p>
+     * <p>
+     * <b>[사용 예시 - build.gradle.kts]</b>
+     * </p>
+     *
+     * <pre>{@code
+     * publishing {
+     *     publications {
+     *         create<MavenPublication>("mavenJava") {
+     *             from(components["java"])
+     *             pom { ... } // 라이선스/개발자/SCM 정보는 프로젝트별로 명시적으로 선언
+     *         }
+     *     }
+     * }
+     * // 리포지토리 등록 + 서명 필수화 + 서명 적용까지 한 번에 처리됨
+     * S2BuildUtils.configureCentralPortalRepository(project)
+     * }</pre>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configureCentralPortalRepository(Project project) {
+        if (!project.getPluginManager().hasPlugin("maven-publish")) {
+            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 CentralPortal 리포지토리 설정을 건너뜁니다.", "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping CentralPortal repository setup.");
+            return;
+        }
+
+        project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing -> {
+            publishing.getRepositories().maven(maven -> {
+                maven.setName("CentralPortal");
+                // Central Portal Zip Bundle Upload API (v1)
+                // publishingType → AUTOMATIC : 자동 배포, USER_MANAGED : 사용자 관리 배포 (수동 승인/배포 필요 시)
+                maven.setUrl(URI.create("https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED"));
+                maven.credentials(credentials -> {
+                    Object username = project.findProperty("centralUsername");
+                    Object password = project.findProperty("centralPassword");
+                    credentials.setUsername(username != null ? username.toString() : null);
+                    credentials.setPassword(password != null ? password.toString() : null);
+                });
+            });
+        });
+
+        info(project, "✅ [배포] 'CentralPortal' 리포지토리가 설정되었습니다.", "✅ [Publishing] 'CentralPortal' repository configured.");
+
+        // Central Portal은 서명 없는 아티팩트를 거부하므로, 여기서 서명 설정까지 자동으로 마친다.
+        configurePublishSigning(project);
+    }
+
+    /**
+     * Declares and configures the "s2-packages" GitHub Packages Maven repository for publishing.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * GitHub Packages({@code s2-packages}) 배포용 리포지토리를 선언하고 인증 정보를 설정합니다.
+     * <p>
+     * 인증 정보는 {@code gpr.user}/{@code gpr.key} 프로젝트 프로퍼티를 우선 사용하고, 없으면
+     * {@code GITHUB_ACTOR}/{@code GITHUB_TOKEN} 환경 변수를 사용합니다 (GitHub Actions 등 CI 환경 대응).
+     * 계산된 값은 {@code REPO_BASE_URL}/{@code GITHUB_USER}/{@code GITHUB_TOKEN}이라는 이름으로
+     * 루트 프로젝트의 확장 프로퍼티(ext)에 저장되며, 이 값들은 {@link MavenPublishStrategy}(중복 배포 방지)와
+     * {@link #determineSourceJarStatus(Project)}(공개/비공개 리포지토리에 따른 소스 JAR 생성 여부 판단)에서 사용됩니다.
+     * </p>
+     * <p>
+     * ※ 리포지토리 이름은 항상 {@code "s2-packages"}로 고정됩니다. 이 이름이어야
+     * {@link MavenPublishStrategy#configureSmartPublishing(Project)}의 "이미 배포된 아티팩트 스킵" 로직이 적용됩니다.
+     * </p>
+     *
+     * @param project   The Gradle project instance | Gradle 프로젝트 객체
+     * @param repoOwner GitHub repository owner (e.g. "devers2") | GitHub 리포지토리 소유자
+     * @param repoName  GitHub repository name (e.g. "s2-util") | GitHub 리포지토리 이름
+     */
+    public static void configureGitHubPackagesRepository(Project project, String repoOwner, String repoName) {
+        if (!project.getPluginManager().hasPlugin("maven-publish")) {
+            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 s2-packages 리포지토리 설정을 건너뜁니다.", "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping s2-packages repository setup.");
+            return;
+        }
+
+        String repoBaseUrl = "https://maven.pkg.github.com/" + repoOwner + "/" + repoName;
+
+        Object userProperty = project.findProperty("gpr.user");
+        String githubUser = userProperty != null ? userProperty.toString() : System.getenv("GITHUB_ACTOR");
+
+        Object keyProperty = project.findProperty("gpr.key");
+        String githubToken = keyProperty != null ? keyProperty.toString() : System.getenv("GITHUB_TOKEN");
+
+        // MavenPublishStrategy / determineSourceJarStatus가 참조하는 rootProject ext 프로퍼티 설정
+        Project rootProject = project.getRootProject();
+        rootProject.getExtensions().getExtraProperties().set("REPO_BASE_URL", repoBaseUrl);
+        rootProject.getExtensions().getExtraProperties().set("GITHUB_USER", githubUser);
+        rootProject.getExtensions().getExtraProperties().set("GITHUB_TOKEN", githubToken);
+
+        project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing -> {
+            publishing.getRepositories().maven(maven -> {
+                maven.setName("s2-packages");
+                maven.setUrl(URI.create(repoBaseUrl));
+                maven.credentials(credentials -> {
+                    credentials.setUsername(githubUser);
+                    credentials.setPassword(githubToken);
+                });
+            });
+        });
+
+        info(project, "✅ [배포] 's2-packages' 리포지토리가 설정되었습니다: " + repoBaseUrl, "✅ [Publishing] 's2-packages' repository configured: " + repoBaseUrl);
+    }
+
+    /**
+     * Configures GPG signing so that it is only required for publishing tasks, and signs all publications.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 배포(publish) 관련 태스크가 실행될 때만 GPG 서명을 필수로 요구하도록 설정하고, 모든 Publication에 서명합니다.
+     * <p>
+     * 일반 빌드(build, test 등)에서는 서명을 건너뛰어 GPG 키가 없는 로컬 개발 환경에서도 빌드가 가능하도록 합니다.
+     * 이미 등록된 Publication뿐 아니라, 이 메서드 호출 이후에 등록되는 Publication에도 반응적으로 서명이 적용됩니다.
+     * </p>
+     * <p>
+     * <b>[중복 호출 안전]</b><br>
+     * {@link #configureCentralPortalRepository(Project)}가 이 메서드를 내부적으로 자동 호출하므로,
+     * 같은 프로젝트에서 이 메서드가 여러 경로로 중복 호출될 수 있습니다. 두 번째 호출부터는 Sign 태스크가
+     * 중복 등록(예: {@code DuplicateTaskException})되는 것을 막기 위해 조용히 무시됩니다.
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configurePublishSigning(Project project) {
+        if (!project.getPluginManager().hasPlugin("signing") || !project.getPluginManager().hasPlugin("maven-publish")) {
+            warn(project, "⚠️ [배포] 'signing' 또는 'maven-publish' 플러그인이 없어 서명 설정을 건너뜁니다.", "⚠️ [Publishing] 'signing' or 'maven-publish' plugin not found. Skipping signing setup.");
+            return;
+        }
+
+        // 동일 프로젝트에 대한 중복 호출 방지 (예: configureCentralPortalRepository의 자동 호출 + 사용자의 명시적 재호출)
+        String duplicateGuardKey = "__s2BuildSupport_publishSigningConfigured";
+        if (project.getExtensions().getExtraProperties().has(duplicateGuardKey)) {
+            project.getLogger().debug("ℹ️ [Publishing] configurePublishSigning() 중복 호출 감지 - 건너뜁니다.");
+            return;
+        }
+        project.getExtensions().getExtraProperties().set(duplicateGuardKey, true);
+
+        org.gradle.api.publish.PublishingExtension publishing = project.getExtensions().getByType(org.gradle.api.publish.PublishingExtension.class);
+
+        project.getExtensions().configure(org.gradle.plugins.signing.SigningExtension.class, signing -> {
+            // 배포(Publish) 태스크가 실행될 때만 서명 필수 (그 외 일반 빌드에서는 건너뜀)
+            signing.setRequired((java.util.concurrent.Callable<Boolean>) () ->
+                    project.getGradle().getTaskGraph().getAllTasks().stream()
+                            .anyMatch(t -> t.getName().contains("publish") || t.getName().contains("Publish"))
+            );
+            // 현재 등록된 Publication은 물론, 이후 추가되는 Publication에도 반응적으로 서명 적용
+            publishing.getPublications().all(signing::sign);
+        });
+
+        info(project, "✅ [배포] 서명(Signing) 설정이 완료되었습니다.", "✅ [Publishing] Signing configuration complete.");
+    }
+
     /**
      * Configures Shadow plugin for Publishing mode.
      * <p>
@@ -2181,33 +2406,24 @@ public class S2BuildUtils {
             // 로컬 프로젝트의 전이 의존성 제외 처리 (중복 방지)
             excludeTransitiveDependenciesOfLocalProjects(project, shadowJar); // 0. 아티팩트 충돌 방지 및 실행 순서 제어
 
-            // 배포 모드: runtimeClasspath를 포함하지 않음 (Standard JAR는 의존성을 포함하지 않음)
-            // Shadow JAR의 configurations() 메서드를 호출하여 runtimeClasspath 제거
+            // 배포 모드: runtimeClasspath를 채워 넣는다 (implementation/runtimeOnly는 재배치되어 JAR에 포함되고,
+            // api는 아래 dependencies{ exclude ... } 블록에서 걸러진다). Build 모드(configureShadowForBuild)와
+            // 동일하게 getConfigurations()에 runtimeClasspath를 채워야, 뒤따르는 "api만 제외" 로직이 실제로
+            // 걸러낼 대상을 가지게 된다.
+            // [중요] getConfigurations()는 List가 아니라 SetProperty<Configuration>이라 clear()가 아닌 empty()로
+            // 초기화해야 하며, doFirst(태스크 실행 시점)에서 호출하면 "property 'configurations' is final and
+            // cannot be changed any further" 예외가 발생한다 (Gradle이 태스크 실행 시작 시점에 Property를
+            // finalize하기 때문, 실제 배포 파이프라인을 실행해서 확인함). configureShadowForPublish 자체가 이미
+            // project.afterEvaluate 콜백 안에서 실행되므로 설정 시점(Configuration Phase)에 바로 반영하면 안전하다.
             try {
-                // ShadowJar의 configurations() 메서드로 configurations 리스트 제거
-                // Shadow 9에서는 getConfigurations()가 List<FileCollection>을 반환
-                java.lang.reflect.Method getConfigsMethod = shadowJar.getClass().getMethod("getConfigurations");
-                if (getConfigsMethod != null) {
-                    shadowJar.doFirst(new org.gradle.api.Action<org.gradle.api.Task>() {
-                        @Override
-                        public void execute(org.gradle.api.Task t) {
-                            try {
-                                // 외부의 getConfigsMethod를 그대로 사용하여 invoke
-                                Optional.ofNullable(getConfigsMethod.invoke(shadowJar))
-                                        .filter(java.util.List.class::isInstance)
-                                        .map(obj -> (java.util.List<?>) obj)
-                                        .ifPresent(list -> {
-                                            list.clear();
-                                            info(project, "✅ [Shadow] 배포 모드: configurations 설정을 초기화했습니다 (의존성 미포함).", "✅ [Shadow] Publishing Mode: Cleared configurations (dependencies excluded).");
-                                        });
-                            } catch (Exception e2) {
-                                // ignore
-                            }
-                        }
-                    });
+                org.gradle.api.artifacts.Configuration runtimeClasspathForPublish = project.getConfigurations().findByName("runtimeClasspath");
+                shadowJar.getConfigurations().empty();
+                if (runtimeClasspathForPublish != null) {
+                    shadowJar.getConfigurations().add(runtimeClasspathForPublish);
                 }
+                info(project, "✅ [Shadow] 배포 모드: configurations을 runtimeClasspath로 초기화했습니다 (api 제외 예정).", "✅ [Shadow] Publishing Mode: Initialized configurations with runtimeClasspath (api excluded later).");
             } catch (Exception e) {
-                // ignore - configurations 없을 수 있음
+                warn(project, "⚠️ [Shadow] configurations 초기화 실패: " + e.getMessage(), "⚠️ [Shadow] Failed to initialize configurations: " + e.getMessage());
             }
 
             // jar 태스크의 출력 경로를 분리하여 shadowJar와 파일명이 겹치지 않게 한다. (Classifier 대신 폴더 분리)
@@ -2219,77 +2435,47 @@ public class S2BuildUtils {
             }
 
             // Shadow JAR 기본 설정
-            java.lang.reflect.Method getArchiveBaseNameMethod = shadowTask.getClass().getMethod("getArchiveBaseName");
-            if (getArchiveBaseNameMethod != null) {
-                Object archiveBaseNameProp = getArchiveBaseNameMethod.invoke(shadowTask);
-                if (archiveBaseNameProp instanceof org.gradle.api.provider.Property) {
-                    @SuppressWarnings("unchecked")
-                    org.gradle.api.provider.Property<String> prop = (org.gradle.api.provider.Property<String>) archiveBaseNameProp;
-                    prop.set(archiveBaseName);
-                }
-            }
-
-            java.lang.reflect.Method getArchiveClassifierMethod = shadowTask.getClass().getMethod("getArchiveClassifier");
-            if (getArchiveClassifierMethod != null) {
-                Object archiveClassifierProp = getArchiveClassifierMethod.invoke(shadowTask);
-                if (archiveClassifierProp instanceof org.gradle.api.provider.Property) {
-                    @SuppressWarnings("unchecked")
-                    org.gradle.api.provider.Property<String> prop = (org.gradle.api.provider.Property<String>) archiveClassifierProp;
-                    // Gradle Plugin 프로젝트의 경우 메타데이터 충돌 방지를 위해 -shaded classifier 사용
-                    if (project.getPluginManager().hasPlugin("java-gradle-plugin")) {
-                        prop.set("shaded");
-                    } else {
-                        prop.set("");
-                    }
-                }
+            shadowJar.getArchiveBaseName().set(archiveBaseName);
+            // Gradle Plugin 프로젝트의 경우 메타데이터 충돌 방지를 위해 -shaded classifier 사용
+            if (project.getPluginManager().hasPlugin("java-gradle-plugin")) {
+                shadowJar.getArchiveClassifier().set("shaded");
+            } else {
+                shadowJar.getArchiveClassifier().set("");
             }
 
             // Shadow 9에서는 기본적으로 main 소스셋과 runtimeClasspath가 이미 포함됨
             // 추가 파일 (licenses, META-INF, readme.md) 포함
+            // ShadowJar는 Jar(AbstractCopyTask)를 상속하므로 CopySpec API(from 등)를 직접 호출할 수 있다.
             if (extraFiles != null && !extraFiles.isEmpty()) {
                 try {
-                    // Shadow 9에서는 CopySpec으로 캐스팅하여 from 메서드 호출
-                    if (shadowTask instanceof org.gradle.api.file.CopySpec) {
-                        org.gradle.api.file.CopySpec copySpec = (org.gradle.api.file.CopySpec) shadowTask;
-                        info(project, "📋 [Shadow 배포] 추가 파일을 포함합니다: " + shadowTask.getName(), "📋 [Shadow Publish] Including extra files into " + shadowTask.getName());
+                    info(project, "📋 [Shadow 배포] 추가 파일을 포함합니다: " + shadowJar.getName(), "📋 [Shadow Publish] Including extra files into " + shadowJar.getName());
 
-                        for (String filePath : extraFiles) {
-                            // 1. 프로젝트 기준 탐색
-                            File file = project.file(filePath);
+                    for (String filePath : extraFiles) {
+                        // 1. 프로젝트 기준 탐색
+                        File file = project.file(filePath);
 
-                            if (file.exists()) {
-                                String source = "projectDir";
+                        if (file.exists()) {
+                            String source = "projectDir";
 
-                                if (file.isDirectory()) {
-                                    // 디렉토리인 경우 fileTree 사용
-                                    info(project, "   ✅ 디렉토리 추가 [" + source + "]: " + filePath, "   ✅ Adding directory [" + source + "]: " + filePath);
-                                    copySpec.from(project.fileTree(file));
-                                } else if (filePath.contains("/")) {
-                                    // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
-                                    String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
-                                    info(project, "   ✅ 파일 추가 [" + source + "]: " + filePath + " -> " + parentPath + "/", "   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+                            if (file.isDirectory()) {
+                                // 디렉토리인 경우 fileTree 사용
+                                info(project, "   ✅ 디렉토리 추가 [" + source + "]: " + filePath, "   ✅ Adding directory [" + source + "]: " + filePath);
+                                shadowJar.from(project.fileTree(file));
+                            } else if (filePath.contains("/")) {
+                                // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
+                                String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
+                                info(project, "   ✅ 파일 추가 [" + source + "]: " + filePath + " -> " + parentPath + "/", "   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
 
-                                    File finalFile = file;
-                                    copySpec.from(finalFile, spec -> {
-                                        if (spec instanceof org.gradle.api.file.CopySpec) {
-                                            ((org.gradle.api.file.CopySpec) spec).into(parentPath);
-                                        }
-                                    });
-                                } else {
-                                    // 루트 레벨 파일 (예: README.md) -> 루트에 저장
-                                    info(project, "   ✅ 루트 파일 추가 [" + source + "]: " + filePath, "   ✅ Adding root file [" + source + "]: " + filePath);
-                                    copySpec.from(file);
-                                }
+                                File finalFile = file;
+                                shadowJar.from(finalFile, copySpec -> copySpec.into(parentPath));
                             } else {
-                                warn(project, "   ⚠️  파일을 찾을 수 없습니다: " + filePath, "   ⚠️  File not found: " + filePath);
+                                // 루트 레벨 파일 (예: README.md) -> 루트에 저장
+                                info(project, "   ✅ 루트 파일 추가 [" + source + "]: " + filePath, "   ✅ Adding root file [" + source + "]: " + filePath);
+                                shadowJar.from(file);
                             }
+                        } else {
+                            warn(project, "   ⚠️  파일을 찾을 수 없습니다: " + filePath, "   ⚠️  File not found: " + filePath);
                         }
-                    } else {
-                        // 리플렉션으로 from 메서드 호출
-                        java.lang.reflect.Method fromMethod = shadowTask.getClass().getMethod("from", Object.class, org.gradle.api.Action.class);
-                        fromMethod.invoke(shadowTask, project.getProjectDir(), (org.gradle.api.Action<org.gradle.api.file.CopySpec>) spec -> {
-                            spec.include(extraFiles);
-                        });
                     }
                 } catch (Exception e) {
                     warn(project, "⚠️  [Shadow] 추가 파일 포함 중 오류: " + e.getMessage(), "⚠️  [Shadow] Error including extra files: " + e.getMessage());
@@ -2301,12 +2487,9 @@ public class S2BuildUtils {
 
             // 2. Api 의존성 Artifact 식별 및 ShadowExclude
             // Shadow Plugin의 dependencies 블록을 사용하여 API 의존성을 명확히 제외
-            java.lang.reflect.Method dependenciesMethod = shadowTask.getClass().getMethod("dependencies", org.gradle.api.Action.class);
-            if (dependenciesMethod != null && project.hasProperty("shadedPackagePrefix")) {
-                dependenciesMethod.invoke(shadowTask, (org.gradle.api.Action<Object>) dependenciesSpec -> {
+            if (project.hasProperty("shadedPackagePrefix")) {
+                shadowJar.dependencies(dependenciesSpec -> {
                     try {
-                        java.lang.reflect.Method excludeMethodSpec = dependenciesSpec.getClass().getMethod("exclude", org.gradle.api.specs.Spec.class);
-
                         // api 설정 Resolve (transitive=true, JAVA_RUNTIME)
                         Set<String> apiArtifactIdsForExclude = new java.util.HashSet<>();
                         try {
@@ -2338,9 +2521,8 @@ public class S2BuildUtils {
                             }
                         }
 
-                        // Spec을 통한 제외: dependency(Dependency) -> boolean
-                        // Shadow는 내부적으로 ResolvedDependency를 사용하므로 Spec<ResolvedDependency>로 매칭
-                        excludeMethodSpec.invoke(dependenciesSpec, (org.gradle.api.specs.Spec<org.gradle.api.artifacts.ResolvedDependency>) dependency -> {
+                        // Spec을 통한 제외: Shadow는 내부적으로 ResolvedDependency를 사용하므로 Spec<ResolvedDependency>로 매칭
+                        dependenciesSpec.exclude((org.gradle.api.specs.Spec<org.gradle.api.artifacts.ResolvedDependency>) dependency -> {
                             String id = dependency.getModuleGroup() + ":" + dependency.getModuleName();
                             // API 의존성 집합에 포함되면 제외 (true 반환 시 exclude됨)
                             return apiArtifactIdsForExclude.contains(id);
@@ -2363,18 +2545,11 @@ public class S2BuildUtils {
                 if (prefix != null && !prefix.isEmpty()) {
                     Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
-                    try {
-                        java.lang.reflect.Method relocateMethod = shadowTask.getClass().getMethod("relocate", String.class, String.class);
-                        if (relocateMethod != null) {
-                            for (String pkg : packagesToRelocate) {
-                                String fromPackage = pkg;
-                                String toPackage = prefix + "." + pkg;
-                                relocateMethod.invoke(shadowTask, fromPackage, toPackage);
-                                info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage, "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
-                            }
-                        }
-                    } catch (NoSuchMethodException e) {
-                        warn(project, "⚠️  [Shadow] relocate 메서드를 찾을 수 없습니다: " + e.getMessage(), "⚠️  [Shadow] 'relocate' method not found: " + e.getMessage());
+                    for (String pkg : packagesToRelocate) {
+                        String fromPackage = pkg;
+                        String toPackage = prefix + "." + pkg;
+                        shadowJar.relocate(fromPackage, toPackage);
+                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage, "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
                     }
                 } else {
                     info(project, "ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 비어있어 재배치를 건너뜁니다.", "ℹ️ [Shadow] 'shadedPackagePrefix' property is empty, skipping relocation.");
@@ -2384,22 +2559,16 @@ public class S2BuildUtils {
             }
 
             // Manifest 설정
-            java.lang.reflect.Method manifestMethod = shadowTask.getClass().getMethod("manifest", org.gradle.api.Action.class);
-            if (manifestMethod != null) {
-                manifestMethod.invoke(shadowTask, (org.gradle.api.Action<org.gradle.api.java.archives.Manifest>) manifest -> {
-                    Map<String, String> attributes = new HashMap<>();
-                    attributes.put("Implementation-Title", project.getName());
-                    attributes.put("Implementation-Version", version);
-                    attributes.put("Built-JDK", System.getProperty("java.version"));
-                    manifest.attributes(attributes);
-                });
-            }
+            shadowJar.manifest(manifest -> {
+                Map<String, String> attributes = new HashMap<>();
+                attributes.put("Implementation-Title", project.getName());
+                attributes.put("Implementation-Version", version);
+                attributes.put("Built-JDK", System.getProperty("java.version"));
+                manifest.attributes(attributes);
+            });
 
             // 중복 파일 처리 전략
-            java.lang.reflect.Method setDuplicatesStrategyMethod = shadowTask.getClass().getMethod("setDuplicatesStrategy", DuplicatesStrategy.class);
-            if (setDuplicatesStrategyMethod != null) {
-                setDuplicatesStrategyMethod.invoke(shadowTask, DuplicatesStrategy.EXCLUDE);
-            }
+            shadowJar.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
 
         } catch (Exception e) {
             project.getLogger().warn("⚠️  [Shadow] 배포 모드 설정 중 오류: " + e.getMessage());

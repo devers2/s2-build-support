@@ -178,9 +178,8 @@ public class GitHubPackagesClient {
                     // JSON 응답 읽기
                     String responseBody = readResponseBody(connection);
 
-                    // "private":true 또는 "private": true 패턴 찾기
-                    boolean isPrivate = responseBody.contains("\"private\":true") ||
-                            responseBody.contains("\"private\": true");
+                    // "private" 필드 값 확인 (공백 유무에 관계없이 매칭되도록 정규식 사용)
+                    boolean isPrivate = Pattern.compile("\"private\"\\s*:\\s*true").matcher(responseBody).find();
 
                     if (S2BuildUtils.isKorean()) {
                         String visibility = isPrivate ? "비공개(Private)" : "공개 (Public)";

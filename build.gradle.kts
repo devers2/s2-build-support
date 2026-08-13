@@ -67,6 +67,10 @@ java {
         languageVersion = JavaLanguageVersion.of(libs.versions.java.get().toInt())
     }
     // Maven Central 필수 요건: 소스 및 자바독 JAR 생성
+    // [의도된 예외] 다른 s2-* 프로젝트는 S2BuildUtils.determineSourceJarStatus()로 조건부 생성하지만,
+    // 이 프로젝트는 자기 자신을 빌드하는 중이라 아직 컴파일된 S2BuildUtils를 여기서 참조할 수 없다
+    // (Central Portal Zip 번들링 중복과 동일한 부트스트래핑 문제). 이 프로젝트는 항상 CentralPortal로만
+    // 배포되므로 무조건 생성이 오히려 안전하다 (건너뛰면 Central 검증에서 배포 자체가 거부됨).
     withSourcesJar()
     withJavadocJar()
 }
@@ -175,6 +179,16 @@ publishing {
  * The Central Portal API (v1) requires a Zip bundle for uploads and does not support
  * individual PUT requests (which results in 404 Not Found).
  * This block hijacks the default publishing task to create and upload a Zip bundle instead.
+ *
+ * ⚠️ [Intentional duplication / 의도된 중복]
+ * This is a Kotlin-DSL twin of `S2BuildUtils.configureCentralPortalPublishing()`
+ * (src/main/java/io/github/devers2/buildsupport/S2BuildUtils.java). Every other S2 project
+ * reuses that Java method via `S2BuildUtils.configureProject(project)`, but this project
+ * (s2-build-support) cannot apply its own plugin to itself while it is still being built
+ * (the compiled classes don't exist yet on the build script classpath) — a bootstrapping
+ * chicken-and-egg problem. So this block re-implements the same bundling logic inline.
+ * If you fix a bug or add a safety check in `configureCentralPortalPublishing()`, please
+ * port the same change here (and vice versa) to avoid behavioral drift between the two.
  */
 afterEvaluate {
     tasks.withType<PublishToMavenRepository>().configureEach {
@@ -211,6 +225,9 @@ afterEvaluate {
             val pubVersion = publication.version
             val pubArtifactId = publication.artifactId
             val pubGroupId = publication.groupId
+            // S2BuildUtils.configureCentralPortalPublishing()과 동일하게, 릴리즈 배포 시에는
+            // 이전 SNAPSHOT 빌드 산출물이 libs 폴더에 잔존해 있어도 번들에 섞여 들어가지 않도록 걸러낸다.
+            val isSnapshotVersion = pubVersion.contains("SNAPSHOT")
 
             val filesToBundle = mutableListOf<File>()
 
@@ -221,6 +238,9 @@ afterEvaluate {
                     // Find main JAR, sources, javadoc and their signatures
                     val baseName = "$pubArtifactId-$pubVersion"
                     libsDir.listFiles()?.forEach { f ->
+                        if (!isSnapshotVersion && f.name.contains("SNAPSHOT")) {
+                            return@forEach
+                        }
                         if (f.name.startsWith(baseName) && (f.name.endsWith(".jar") || f.name.endsWith(".asc"))) {
                             filesToBundle += f
                         }

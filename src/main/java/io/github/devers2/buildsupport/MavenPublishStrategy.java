@@ -273,7 +273,10 @@ public class MavenPublishStrategy {
      * @return Property value | 속성 값
      */
     private static String getPropertyOrEmpty(Project project, String propertyName) {
-        Object value = project.getExtensions().getExtraProperties().get(propertyName);
+        // getExtraProperties().get()은 ext에 없으면 MissingPropertyException을 던지므로 사용하지 않는다.
+        // gradle.properties / -P 옵션으로 설정된 값도 안전하게 조회하기 위해 findProperty를 사용한다.
+        // determineSourceJarStatus와 동일하게 rootProject 기준으로 조회하여 서브프로젝트에도 일관되게 적용한다.
+        Object value = project.getRootProject().findProperty(propertyName);
         return value != null ? value.toString() : "";
     }
 

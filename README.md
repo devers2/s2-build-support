@@ -34,6 +34,44 @@ plugins {
 
 ---
 
+## 🚀 Usage (사용법)
+
+### [English]
+
+Applying the plugin only enables the baseline setup shared by every S2 project: Gradle wrapper version consistency check and UTF-8 encoding enforcement.
+
+The rest of the build logic (dynamic dependency injection, source toggling, JAR/Shadow packaging, README version sync, and Central Portal / GitHub Packages publishing) is provided as **utility methods on `S2BuildUtils`** and must be invoked explicitly from your project's `build.gradle.kts`, since each project may need different configuration (`javaSourceRoot`, `activeFeatures`, `shadedPackagePrefix`, etc.):
+
+```kotlin
+plugins {
+    id("io.github.devers2.buildsupport") version "0.1.0"
+}
+
+// Activates dependency injection, packaging (Standard/Shaded), README sync, and publishing setup.
+io.github.devers2.buildsupport.S2BuildUtils.configureProject(project)
+```
+
+Other standalone utilities (`updateVersionInFile`, `updateServletImports`, `updateCopyright`, etc.) can be called the same way wherever needed. See the Javadoc on `S2BuildUtils` for the full list and their configuration options.
+
+### [한국어]
+
+플러그인을 적용하는 것만으로는 모든 S2 프로젝트에 공통되는 기본 설정(Gradle Wrapper 버전 정합성 검사, UTF-8 인코딩 강제)만 활성화됩니다.
+
+나머지 빌드 로직(동적 의존성 주입, 소스 토글, JAR/Shadow 패키징, README 버전 동기화, Central Portal/GitHub Packages 배포 설정)은 프로젝트마다 필요한 설정(`javaSourceRoot`, `activeFeatures`, `shadedPackagePrefix` 등)이 다르기 때문에 **`S2BuildUtils`의 유틸리티 메서드**로 제공되며, 각 프로젝트의 `build.gradle.kts`에서 명시적으로 호출해야 합니다:
+
+```kotlin
+plugins {
+    id("io.github.devers2.buildsupport") version "0.1.0"
+}
+
+// 의존성 주입, 패키징(Standard/Shaded), README 동기화, 배포 설정을 활성화합니다.
+io.github.devers2.buildsupport.S2BuildUtils.configureProject(project)
+```
+
+그 외 개별 유틸리티(`updateVersionInFile`, `updateServletImports`, `updateCopyright` 등)도 필요한 위치에서 동일한 방식으로 호출하면 됩니다. 전체 목록과 설정 옵션은 `S2BuildUtils`의 Javadoc을 참고하세요.
+
+---
+
 ## ⚙️ Requirements (요구사항)
 
 ### [English]
