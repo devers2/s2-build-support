@@ -22,6 +22,7 @@ package io.github.devers2.buildsupport;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -153,9 +154,7 @@ public class LibrariesPublisher {
                 File[] files = scanDir.listFiles((dir, name) -> name.endsWith("." + extension));
 
                 if (files != null) {
-                    for (File file : files) {
-                        allFiles.add(file);
-                    }
+                    Collections.addAll(allFiles, files);
                 }
             }
         }
@@ -304,40 +303,14 @@ public class LibrariesPublisher {
 
     /**
      * Regex pattern for strict version string validation.
-     *
+     * <p>
      * 엄격한 버전 문자열 검증을 위한 정규표현식 패턴
+     * </p>
      * <p>
      * 이 패턴은 Maven, Gradle, Spring Boot, JDK 등에서 실제로 사용되는 버전 형식만 정확히 허용하며,
-     * 비표준이거나 의미 없는 버전 문자열은 철저히 차단한다.
+     * 비표준이거나 의미 없는 버전 문자열은 철저히 차단한다. 허용/차단되는 버전 형식의 전체 예시 목록은
+     * {@link #extractVersion(String, String[])} 문서를 참고한다.
      * </p>
-     *
-     * <p>
-     * <b>허용되는 버전 예시</b>
-     * </p>
-     * <ul>
-     * <li>{@code 1.0} → 기본 릴리스 버전</li>
-     * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
-     * <li>{@code 1.0.0}, {@code 2.3.4.5} → SemVer 표준 숫자 버전</li>
-     * <li>{@code 1.0.0-RC1}, {@code 2.0.0-rc2}, {@code 3.1.0-BETA5} → Release Candidate, Beta</li>
-     * <li>{@code 1.0.0-ALPHA}, {@code 1.0.0-alpha12} → Alpha 버전</li>
-     * <li>{@code 1.0.0-M1}, {@code 1.0.0-m3} → Milestone</li>
-     * <li>{@code 1.0.0-SNAPSHOT}, {@code 2.1.0-final} → 개발/최종 릴리스 태그</li>
-     * <li>{@code 1.0.0+20251203}, {@code 17.0.12+7}, {@code 1.8.0_422+8} → 빌드 메타데이터 (JDK, CI 필수!)</li>
-     * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
-     * </ul>
-     *
-     * <p>
-     * <b>차단되는 잘못된 예시 (의도된 대로 차단됨)</b>
-     * </p>
-     * <ul>
-     * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
-     * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
-     * <li>{@code 1.0-hello}, {@code 1.0-test} → 의미 없는 태그</li>
-     * <li>{@code 1.0-RC.1}, {@code 1.0-rc.2} → npm 스타일 점 구분자 (자바에선 사용 안 됨)</li>
-     * <li>{@code 1.0-SNAPSHOT1} → SNAPSHOT 뒤에 숫자 붙음 금지</li>
-     * <li>{@code 1.0-alpha-abc} → 키워드 뒤 추가 문자열 금지</li>
-     * <li>{@code 2025}, {@code latest}, {@code stable} → 숫자.숫자 형태 아님</li>
-     * </ul>
      */
     private static final Pattern STRICT_VERSION_PATTERN = Pattern.compile(
             // 1. v 접두사 선택적
@@ -364,38 +337,11 @@ public class LibrariesPublisher {
     );
 
     /**
-     * Extracts version information from a filename.
-     *
-     * 파일명에서 버전 정보를 추출 (예외 버전 형태 없음)
-     *
+     * Extracts version information from a filename (no exceptional version forms).
      * <p>
-     * <b>허용되는 버전 예시</b>
+     * 파일명에서 버전 정보를 추출합니다 (예외 버전 형태 없음). 허용/차단되는 버전 형식의 전체 예시
+     * 목록은 {@link #extractVersion(String, String[])} 문서를 참고하세요.
      * </p>
-     * <ul>
-     * <li>{@code 1.0} → 기본 릴리스 버전</li>
-     * <li>{@code v1.2.3}, {@code V2.0.1} → Git 태그 스타일 (v 접두사 허용)</li>
-     * <li>{@code 1.0.0}, {@code 2.3.4.5} → SemVer 표준 숫자 버전</li>
-     * <li>{@code 1.0.0-RC1}, {@code 2.0.0-rc2}, {@code 3.1.0-BETA5} → Release Candidate, Beta</li>
-     * <li>{@code 1.0.0-ALPHA}, {@code 1.0.0-alpha12} → Alpha 버전</li>
-     * <li>{@code 1.0.0-M1}, {@code 1.0.0-m3} → Milestone</li>
-     * <li>{@code 1.0.0-SNAPSHOT}, {@code 2.1.0-final} → 개발/최종 릴리스 태그</li>
-     * <li>{@code 1.0.0+20251203}, {@code 17.0.12+7}, {@code 1.8.0_422+8} → 빌드 메타데이터 (JDK, CI 필수!)</li>
-     * <li>{@code v1.0.0-RC1+build.123} → v 접두사 + 프리릴리스 + 메타데이터 조합</li>
-     * </ul>
-     *
-     * <p>
-     * <b>차단되는 잘못된 예시 (의도된 대로 차단됨)</b>
-     * </p>
-     * <ul>
-     * <li>{@code 1} → 점(.)과 Minor 버전 없음</li>
-     * <li>{@code 1.0-jdk17}, {@code 1.0-openjdk21} → 비표준 qualifier</li>
-     * <li>{@code 1.0-hello}, {@code 1.0-test} → 의미 없는 태그</li>
-     * <li>{@code 1.0-RC.1}, {@code 1.0-rc.2} → npm 스타일 점 구분자 (자바에선 사용 안 됨)</li>
-     * <li>{@code 1.0-SNAPSHOT1} → SNAPSHOT 뒤에 숫자 붙음 금지</li>
-     * <li>{@code 1.0-alpha-abc} → 키워드 뒤 추가 문자열 금지</li>
-     * <li>{@code 2025}, {@code latest}, {@code stable} → 숫자.숫자 형태 아님</li>
-     * </ul>
-     *
      *
      * @param fileName The filename without extension | 확장자를 제외한 파일명 (.jar 확장자 제외)
      * @return {@link VersionInfo} object | 버전 정보 객체 (baseName, version, hasVersion 포함)

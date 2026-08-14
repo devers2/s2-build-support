@@ -1592,6 +1592,136 @@ public class S2BuildUtils {
         });
     }
 
+    // ========================================================================
+    // 범용 Java 컨벤션 (General-Purpose Java Conventions)
+    // 배포 여부와 무관하게 어떤 Gradle Java 프로젝트에도 안전하게 적용 가능한 설정들.
+    // General-purpose settings safe for any Gradle Java project, regardless of publishing.
+    // ========================================================================
+
+    /**
+     * Adds compiler arguments that are safe defaults for any Java project, currently just
+     * {@code -parameters} so parameter names remain available for reflection-based frameworks
+     * (Spring, Jackson, etc.).
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 어떤 Java 프로젝트에도 안전하게 적용 가능한 컴파일러 옵션을 추가합니다.
+     * 현재는 Spring/Jackson 등 리플렉션 기반 프레임워크가 파라미터명을 인식할 수 있도록
+     * {@code -parameters} 하나만 추가합니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configureCommonCompilerArgs(Project project) {
+        project.getTasks().withType(org.gradle.api.tasks.compile.JavaCompile.class).configureEach(task -> {
+            if (!task.getOptions().getCompilerArgs().contains("-parameters")) {
+                task.getOptions().getCompilerArgs().add("-parameters");
+            }
+        });
+    }
+
+    /**
+     * Applies common JUnit 5 test defaults: the JUnit Platform test engine and extra console/IO
+     * encoding hardening on top of {@link #enforceUtf8Encoding(Project)}.
+     * <p>
+     * This is opt-in rather than applied automatically by the plugin: forcing the JUnit Platform
+     * on a project that still relies on plain JUnit 4 (without the vintage engine) would silently
+     * skip its tests, so only call this for projects that actually run JUnit 5 (Jupiter) tests.
+     * </p>
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * JUnit 5(Jupiter) 공통 테스트 기본값(JUnit Platform 사용 + {@link #enforceUtf8Encoding(Project)}에
+     * 더한 추가적인 콘솔/IO 인코딩 강화)을 적용합니다.
+     * <p>
+     * 플러그인에 의해 자동 적용되지 않고 명시적으로 호출해야 합니다. JUnit 4를 그대로 쓰는 프로젝트에
+     * (vintage 엔진 없이) 강제로 적용하면 테스트가 조용히 스킵되므로, 실제로 JUnit 5를 사용하는
+     * 프로젝트에서만 호출해야 합니다.
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configureTestDefaults(Project project) {
+        project.getTasks().withType(org.gradle.api.tasks.testing.Test.class).configureEach(task -> {
+            task.useJUnitPlatform();
+            if (!task.getJvmArgs().contains("-Dsun.jnu.encoding=UTF-8")) {
+                task.getJvmArgs().add("-Dsun.jnu.encoding=UTF-8");
+            }
+        });
+    }
+
+    /**
+     * Configures the Java toolchain and source/target compatibility from the {@code javaVersion}
+     * (and optional {@code releaseCompatibility}) extra properties, looked up on the project itself
+     * first and then on the root project.
+     * <p>
+     * {@code javaVersion} selects the JDK used to compile (the toolchain). {@code releaseCompatibility},
+     * when set to a different value, lets the project compile with a newer JDK while still producing
+     * bytecode compatible with an older Java release; when unset it defaults to {@code javaVersion},
+     * so plain single-version projects need not set it at all.
+     * </p>
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code javaVersion}(및 선택적인 {@code releaseCompatibility}) extra 프로퍼티를 기반으로
+     * Java 툴체인과 source/target 호환성을 설정합니다. 두 프로퍼티 모두 프로젝트 자신 → 루트 프로젝트
+     * 순으로 조회합니다.
+     * <p>
+     * {@code javaVersion}은 컴파일에 사용할 JDK(툴체인)를 지정합니다. {@code releaseCompatibility}를
+     * {@code javaVersion}과 다르게 설정하면, 최신 JDK로 컴파일하면서도 이전 Java 버전과 호환되는
+     * 바이트코드를 생성할 수 있습니다. 설정하지 않으면 {@code javaVersion}과 동일하게 처리되므로,
+     * 단일 버전만 쓰는 일반 프로젝트는 아예 설정할 필요가 없습니다.
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configureJavaCompatibility(Project project) {
+        if (!project.getPluginManager().hasPlugin("java")) {
+            warn(project, "⚠️ [Java 호환성] 'java' 플러그인이 없어 툴체인/호환성 설정을 건너뜁니다.", "⚠️ [Java Compatibility] 'java' plugin not found. Skipping toolchain/compatibility setup.");
+            return;
+        }
+
+        JavaVersion toolchainVersion = findProperty(project, "javaVersion", JavaVersion.class, JavaVersion.current());
+        JavaVersion releaseVersion = findProperty(project, "releaseCompatibility", JavaVersion.class, toolchainVersion);
+
+        project.getExtensions().configure(org.gradle.api.plugins.JavaPluginExtension.class, java -> {
+            java.toolchain(toolchain -> toolchain.getLanguageVersion().set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(toolchainVersion.getMajorVersion())));
+            java.setSourceCompatibility(releaseVersion);
+            java.setTargetCompatibility(releaseVersion);
+        });
+
+        if (!releaseVersion.equals(toolchainVersion)) {
+            // --release 옵션의 제약을 해제하고 구형 방식인 -source/-target을 강제로 사용하여
+            // toolchainVersion(JDK)으로 컴파일하되 releaseVersion으로 실행 가능한 바이트코드를 생성한다.
+            project.getTasks().withType(org.gradle.api.tasks.compile.JavaCompile.class).configureEach(task ->
+                    task.getOptions().getRelease().set((Integer) null)
+            );
+        }
+    }
+
+    /**
+     * Looks up an extra property (i.e. {@code extra["..."]}/{@code ext.set(...)}) on the project
+     * itself, falling back to the root project, and returns {@code fallback} if neither has it
+     * (or the value is not an instance of {@code type}).
+     * <p>
+     * Deliberately reads {@link org.gradle.api.plugins.ExtraPropertiesExtension} directly instead
+     * of {@code Project.hasProperty}/{@code property}: those also walk up to parent projects
+     * implicitly, which Gradle has deprecated (removed in Gradle 10) and would otherwise emit a
+     * warning here even though this method already does its own explicit root-project fallback.
+     * </p>
+     *
+     * @param project  The Gradle project instance | Gradle 프로젝트 객체
+     * @param key      Extra property name | extra 프로퍼티 이름
+     * @param type     Expected value type | 기대하는 값 타입
+     * @param fallback Value to use when not found | 값을 찾지 못했을 때 사용할 기본값
+     * @return Resolved property value, or {@code fallback} | 조회된 프로퍼티 값, 없으면 {@code fallback}
+     */
+    private static <T> T findProperty(Project project, String key, Class<T> type, T fallback) {
+        org.gradle.api.plugins.ExtraPropertiesExtension ownExtra = project.getExtensions().getExtraProperties();
+        org.gradle.api.plugins.ExtraPropertiesExtension rootExtra = project.getRootProject().getExtensions().getExtraProperties();
+        Object value = ownExtra.has(key) ? ownExtra.get(key) : (rootExtra.has(key) ? rootExtra.get(key) : null);
+        return type.isInstance(value) ? type.cast(value) : fallback;
+    }
+
     /**
      * Registers the {@code copyDependencies} task.
      * <p>
@@ -2367,6 +2497,220 @@ public class S2BuildUtils {
         });
 
         info(project, "✅ [배포] 서명(Signing) 설정이 완료되었습니다.", "✅ [Publishing] Signing configuration complete.");
+    }
+
+    /**
+     * Registers the standard publishable artifacts for a library: a Javadoc JAR always, and a
+     * sources JAR when {@link #determineSourceJarStatus(Project)} allows it.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 라이브러리 배포용 표준 아티팩트를 등록합니다: Javadoc JAR는 항상, 소스 JAR는
+     * {@link #determineSourceJarStatus(Project)} 판단에 따라 생성합니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configurePublishArtifacts(Project project) {
+        if (!project.getPluginManager().hasPlugin("java")) {
+            warn(project, "⚠️ [배포 아티팩트] 'java' 플러그인이 없어 Javadoc/소스 JAR 설정을 건너뜁니다.", "⚠️ [Publish Artifacts] 'java' plugin not found. Skipping Javadoc/Sources JAR setup.");
+            return;
+        }
+
+        project.getExtensions().configure(org.gradle.api.plugins.JavaPluginExtension.class, java -> {
+            java.withJavadocJar();
+            if (determineSourceJarStatus(project)) {
+                java.withSourcesJar();
+            }
+        });
+    }
+
+    /**
+     * Computes the artifact-id suffix derived from {@code javaVersion}/{@code baselineJavaVersion}
+     * (adds {@code -java<N>} when they differ from each other) and the {@code variantId} of each
+     * feature in {@code activeFeatures} (looked up via {@code dynamicSourceInfoMap}). All four
+     * properties are looked up on the project itself first, then the root project.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code javaVersion}과 {@code baselineJavaVersion}이 다르면 {@code -java<N>} 접미사를,
+     * {@code activeFeatures}에 포함된 각 기능의 {@code variantId}({@code dynamicSourceInfoMap}에서 조회)를
+     * 이어붙여 아티팩트 ID 접미사를 계산합니다. 네 프로퍼티 모두 프로젝트 자신 → 루트 프로젝트 순으로 조회합니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     * @return Computed artifact-id suffix, or an empty string if none applies | 계산된 아티팩트 ID 접미사, 없으면 빈 문자열
+     */
+    @SuppressWarnings("unchecked")
+    public static String computeArtifactSuffix(Project project) {
+        StringBuilder suffix = new StringBuilder();
+
+        JavaVersion javaVersion = findProperty(project, "javaVersion", JavaVersion.class, null);
+        JavaVersion baselineJavaVersion = findProperty(project, "baselineJavaVersion", JavaVersion.class, javaVersion);
+        if (javaVersion != null && !javaVersion.equals(baselineJavaVersion)) {
+            suffix.append("-java").append(javaVersion.getMajorVersion());
+        }
+
+        Set<String> activeFeatures = findProperty(project, "activeFeatures", Set.class, java.util.Collections.emptySet());
+        Map<String, Map<String, Object>> dynamicSourceInfoMap = findProperty(project, "dynamicSourceInfoMap", Map.class, java.util.Collections.emptyMap());
+        for (String feature : activeFeatures) {
+            Map<String, Object> info = dynamicSourceInfoMap.get(feature);
+            Object variantId = info != null ? info.get("variantId") : null;
+            if (variantId != null) {
+                suffix.append("-").append(variantId);
+            }
+        }
+
+        return suffix.toString();
+    }
+
+    /**
+     * Computes the artifact-id suffix via {@link #computeArtifactSuffix(Project)} and applies it to
+     * {@code base.archivesName} (i.e. {@code <projectName><suffix>}). No-op (with a warning) if the
+     * {@code base} plugin (implied by {@code java}/{@code java-library}/{@code application}, ...) is
+     * not applied.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@link #computeArtifactSuffix(Project)}로 계산한 접미사를 {@code base.archivesName}
+     * ({@code <프로젝트명><접미사>})에 적용합니다. {@code base} 플러그인이 없으면 경고만 남기고 아무 동작도 하지 않습니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void applyArtifactIdSuffix(Project project) {
+        String suffix = computeArtifactSuffix(project);
+        try {
+            project.getExtensions().getByType(org.gradle.api.plugins.BasePluginExtension.class)
+                    .getArchivesName().set(project.getName() + suffix);
+        } catch (Exception e) {
+            warn(project, "⚠️ [아티팩트 ID] 'base' 플러그인이 없어 archivesName 설정을 건너뜁니다.", "⚠️ [Artifact ID] 'base' plugin not found. Skipping archivesName setup.");
+        }
+    }
+
+    /**
+     * Fills in the license (Apache 2.0), developer, and SCM metadata that Maven Central requires on
+     * every published POM, leaving only {@code name}/{@code description}/{@code url} to vary per
+     * project. Uses the plugin author's own developer info as the default; see the overload below
+     * to supply different developer info. SCM connection URLs are derived from {@code repoUrl}
+     * (assumed to be an {@code https://github.com/<owner>/<repo>} URL).
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * Maven Central이 모든 배포 POM에 요구하는 라이선스(Apache 2.0)/개발자/SCM 메타데이터를 채워주며,
+     * 프로젝트마다 다른 {@code name}/{@code description}/{@code url}만 남깁니다. 개발자 정보는 플러그인
+     * 저자(devers2) 기본값을 사용합니다. 다른 개발자 정보가 필요하면 아래 오버로드를 사용하세요.
+     * SCM 연결 URL은 {@code repoUrl}({@code https://github.com/<owner>/<repo>} 형식 가정)에서 유도합니다.
+     *
+     * @param publication The Maven publication to configure | 설정할 Maven Publication
+     * @param name        POM {@code <name>} | POM {@code <name>}
+     * @param description POM {@code <description>} | POM {@code <description>}
+     * @param repoUrl     GitHub repository URL, e.g. {@code https://github.com/devers2/s2-util} | GitHub 리포지토리 URL
+     */
+    public static void applyStandardPom(org.gradle.api.publish.maven.MavenPublication publication, String name, String description, String repoUrl) {
+        applyStandardPom(publication, name, description, repoUrl, "devers2", "이승수", "eseungsu.dev@gmail.com", "devers2");
+    }
+
+    /**
+     * Same as {@link #applyStandardPom(MavenPublication, String, String, String)} but with explicit
+     * developer information, for projects maintained by someone other than the plugin's default author.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@link #applyStandardPom(MavenPublication, String, String, String)}와 동일하나, 기본 저자가 아닌
+     * 다른 관리자가 유지보수하는 프로젝트를 위해 개발자 정보를 명시적으로 받습니다.
+     *
+     * @param publication    The Maven publication to configure | 설정할 Maven Publication
+     * @param name           POM {@code <name>} | POM {@code <name>}
+     * @param description    POM {@code <description>} | POM {@code <description>}
+     * @param repoUrl        GitHub repository URL | GitHub 리포지토리 URL
+     * @param developerId    POM developer id | POM 개발자 id
+     * @param developerName  POM developer name | POM 개발자 이름
+     * @param developerEmail POM developer email | POM 개발자 이메일
+     * @param organization   POM developer organization (also used to derive {@code organizationUrl}) | POM 개발자 조직명 ({@code organizationUrl} 유도에도 사용)
+     */
+    public static void applyStandardPom(org.gradle.api.publish.maven.MavenPublication publication, String name, String description, String repoUrl,
+                                         String developerId, String developerName, String developerEmail, String organization) {
+        String cleanRepoUrl = repoUrl.endsWith("/") ? repoUrl.substring(0, repoUrl.length() - 1) : repoUrl;
+        String hostPath = cleanRepoUrl.replaceFirst("^https?://", "");
+
+        publication.pom(pom -> {
+            pom.getName().set(name);
+            pom.getDescription().set(description);
+            pom.getUrl().set(cleanRepoUrl);
+            pom.licenses(licenses -> licenses.license(license -> {
+                license.getName().set("The Apache License, Version 2.0");
+                license.getUrl().set("http://www.apache.org/licenses/LICENSE-2.0.txt");
+            }));
+            pom.developers(developers -> developers.developer(developer -> {
+                developer.getId().set(developerId);
+                developer.getName().set(developerName);
+                developer.getEmail().set(developerEmail);
+                developer.getOrganization().set(organization);
+                developer.getOrganizationUrl().set("https://github.com/" + organization);
+            }));
+            pom.scm(scm -> {
+                scm.getConnection().set("scm:git:git://" + hostPath + ".git");
+                scm.getDeveloperConnection().set("scm:git:ssh://" + hostPath + ".git");
+                scm.getUrl().set(cleanRepoUrl);
+            });
+        });
+    }
+
+    /**
+     * One-call convenience for the common case: a Java library that publishes a single
+     * {@code "mavenJava"} publication to Maven Central via Central Portal. Internally composes,
+     * in this order: {@link #applyArtifactIdSuffix(Project)}, {@link #configureJavaCompatibility(Project)},
+     * {@link #configurePublishArtifacts(Project)}, a {@code "mavenJava"} {@code MavenPublication}
+     * built from the {@code java} software component and finished with
+     * {@link #applyStandardPom(MavenPublication, String, String, String)}, and
+     * {@link #configureCentralPortalRepository(Project)} (which also configures signing).
+     * <p>
+     * Deliberately does <b>not</b> call {@link #configureProject(Project)} (dynamic feature/packaging
+     * setup) or {@link #configureTestDefaults(Project)} — those are orthogonal concerns every
+     * subproject needs regardless of how (or whether) it publishes, so callers still invoke them
+     * separately. Projects that publish elsewhere (e.g. {@link #configureGitHubPackagesRepository})
+     * or need only some of these pieces (e.g. a {@code java-gradle-plugin} project with its own
+     * {@code pluginMaven}/marker publications) should compose the individual methods instead of
+     * calling this one.
+     * </p>
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 가장 흔한 경우 — {@code "mavenJava"} 하나만 만들어서 Central Portal로 Maven Central에 배포하는
+     * Java 라이브러리 — 를 위한 원콜(one-call) 편의 메서드입니다. 내부적으로 다음을 이 순서로 조합합니다:
+     * {@link #applyArtifactIdSuffix(Project)}, {@link #configureJavaCompatibility(Project)},
+     * {@link #configurePublishArtifacts(Project)}, {@code java} 소프트웨어 컴포넌트로 구성하고
+     * {@link #applyStandardPom(MavenPublication, String, String, String)}로 마무리한 {@code "mavenJava"}
+     * {@code MavenPublication}, {@link #configureCentralPortalRepository(Project)}(서명 설정 포함).
+     * <p>
+     * {@link #configureProject(Project)}(동적 기능/패키징 설정)와 {@link #configureTestDefaults(Project)}는
+     * 호출하지 않습니다 — 배포 방식과 무관하게 모든 서브 프로젝트가 필요로 하는 별개의 관심사이므로 호출자가
+     * 여전히 따로 호출해야 합니다. GitHub Packages 등 다른 곳에 배포하거나(예: {@link #configureGitHubPackagesRepository})
+     * 이 중 일부만 필요한 프로젝트(예: 자체 {@code pluginMaven}/marker Publication을 쓰는
+     * {@code java-gradle-plugin} 프로젝트)는 이 메서드 대신 개별 메서드들을 직접 조합해서 사용해야 합니다.
+     * </p>
+     *
+     * @param project     The Gradle project instance | Gradle 프로젝트 객체
+     * @param name        POM {@code <name>} | POM {@code <name>}
+     * @param description POM {@code <description>} | POM {@code <description>}
+     * @param repoUrl     GitHub repository URL, e.g. {@code https://github.com/devers2/s2-util} | GitHub 리포지토리 URL
+     */
+    public static void configureLibraryPublishing(Project project, String name, String description, String repoUrl) {
+        if (!project.getPluginManager().hasPlugin("maven-publish")) {
+            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 라이브러리 배포 설정을 건너뜁니다.", "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping library publishing setup.");
+            return;
+        }
+
+        applyArtifactIdSuffix(project);
+        configureJavaCompatibility(project);
+        configurePublishArtifacts(project);
+
+        project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing ->
+                publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class, pub -> {
+                    pub.from(project.getComponents().getByName("java"));
+                    applyStandardPom(pub, name, description, repoUrl);
+                })
+        );
+
+        configureCentralPortalRepository(project);
     }
 
     /**
@@ -3203,7 +3547,7 @@ public class S2BuildUtils {
                         // 1-1) publications 폴더 내 다른 Publication들(예: pluginMaven 등)에 생성된 아티팩트도 포함
                         File publicationsRoot = new File(buildDir, "publications");
                         if (publicationsRoot.exists()) {
-                            File[] pubDirs = publicationsRoot.listFiles(File::isDirectory);
+                            File[] pubDirs = publicationsRoot.listFiles(file -> file.isDirectory());
                             if (pubDirs != null) {
                                 for (File pubDir : pubDirs) {
                                     File[] pubFiles = pubDir.listFiles((dir, name) -> {
@@ -3257,7 +3601,7 @@ public class S2BuildUtils {
                         // 2-1) 서명(.asc) 없는 파일 제외 & Checksum 생성
                         List<File> validatedFiles = new ArrayList<>();
                         // 서명 파일 존재 여부를 위한 Set
-                        Set<String> fileNames = filesToBundle.stream().map(File::getName).collect(java.util.stream.Collectors.toSet());
+                        Set<String> fileNames = filesToBundle.stream().map(file -> file.getName()).collect(java.util.stream.Collectors.toSet());
 
                         // Checksum 파일 리스트
                         List<File> checksumFiles = new ArrayList<>();
