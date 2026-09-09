@@ -92,6 +92,7 @@ dependencies {
 tasks.jar {
     from(".") {
         include("README.md")
+        include("README.ko.md")
         include("LICENSE")
     }
 }

@@ -281,8 +281,8 @@ public class S2BuildUtils {
                 configurePackaging(p, extraSources, excludedSources, extraLicenses);
             }
 
-            // 4. README 파일 버전 & 의존성 가이드 업데이트
-            updateReadmeWithVersionAndDependencies(p, p.file("README.md"));
+            // 4. README 파일 버전 & 의존성 가이드 업데이트 (README.md 및 README.*.md 다국어 파일 모두 지원)
+            updateReadmeWithVersionAndDependencies(p);
 
             // 5. Central Portal 배포 설정 (Hijack Task)
             configureCentralPortalPublishing(p);
@@ -3083,23 +3083,124 @@ public class S2BuildUtils {
         });
     }
 
+
     /**
-     * Updates version information and adds runtime dependency guides to the README file.
+     * Updates the version info and adds a runtime dependency guide in README files matching the given regex patterns or file paths.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 지정된 정규식 패턴(예: {@code "^README(\\..+)?\\.md$"}, {@code "^README\\..*\\.md$"}) 또는 파일 경로 문자열에
+     * 매칭되는 모든 README 파일의 버전 정보 및 런타임 의존성 가이드를 업데이트합니다.
+     * <p>
+     * <b>[파일 경로 해석 및 안전성]</b><br>
+     * 단순 파일 경로를 문자열로 전달할 경우, Gradle의 {@code project.file(pattern)}을 통해 해당 서브프로젝트
+     * 디렉토리({@code project.getProjectDir()}) 기준으로 절대경로를 안전하게 해결하므로, 스크립트에서
+     * {@code file("README.md")}와 같이 감싸지 않고 단순 문자열만 전달해도 정확하게 대상을 찾습니다.
+     * </p>
+     * <p>
+     * <b>[사용 예시 (build.gradle.kts)]</b>
+     * </p>
+     * <pre>{@code
+     * // 1. 인자 없이 호출 (기본 정규식 "^README(\\..+)?\\.md$" 적용 -> README.md 및 README.*.md 자동 처리)
+     * S2BuildUtils.updateReadmeWithVersionAndDependencies(project)
+     *
+     * // 2. 정규식 패턴 직접 지정
+     * S2BuildUtils.updateReadmeWithVersionAndDependencies(project, "^README(\\..+)?\\.md$")
+     * S2BuildUtils.updateReadmeWithVersionAndDependencies(project, "^README\\.md$", "^README\\..*\\.md$")
+     *
+     * // 3. 파일명/상대경로 문자열 직접 지정 (file() 감싸기 불필요)
+     * S2BuildUtils.updateReadmeWithVersionAndDependencies(project, "README.md", "README.ko.md")
+     * }</pre>
+     *
+     * @param project  The Gradle project instance | Gradle 프로젝트 객체
+     * @param patterns Regex patterns or relative file paths | 정규식 패턴 또는 상대 파일 경로 목록 (생략 시 기본 패턴 적용)
+     */
+    public static void updateReadmeWithVersionAndDependencies(Project project, String... patterns) {
+        if (patterns == null || patterns.length == 0) {
+            patterns = new String[] { "^README(\\..+)?\\.md$" };
+        }
+
+        File projectDir = project.getProjectDir();
+        Set<File> targetFiles = new LinkedHashSet<>();
+
+        for (String patternStr : patterns) {
+            if (patternStr == null || patternStr.isBlank()) {
+                continue;
+            }
+
+            // 1. 직접 존재하는 파일 경로인지 확인 (project.file()을 사용하여 서브프로젝트 디렉토리 기준 정확한 해결)
+            File directFile = project.file(patternStr);
+            if (directFile.exists() && directFile.isFile()) {
+                targetFiles.add(directFile);
+                continue;
+            }
+
+            // 2. 정규식 패턴으로 프로젝트 디렉토리 내 파일 매칭
+            try {
+                Pattern regex = Pattern.compile(patternStr);
+                File[] matchedFiles = projectDir.listFiles((dir, name) -> regex.matcher(name).matches());
+                if (matchedFiles != null) {
+                    targetFiles.addAll(Arrays.asList(matchedFiles));
+                }
+            } catch (java.util.regex.PatternSyntaxException e) {
+                // 단순 파일명 fallback
+                File fallback = new File(projectDir, patternStr);
+                if (fallback.exists() && fallback.isFile()) {
+                    targetFiles.add(fallback);
+                }
+            }
+        }
+
+        if (!targetFiles.isEmpty()) {
+            List<File> sortedFiles = new ArrayList<>(targetFiles);
+            sortedFiles.sort((f1, f2) -> {
+                if ("README.md".equals(f1.getName())) return -1;
+                if ("README.md".equals(f2.getName())) return 1;
+                return f1.getName().compareTo(f2.getName());
+            });
+            for (File f : sortedFiles) {
+                updateReadmeWithVersionAndDependencies(project, f);
+            }
+        }
+    }
+
+    /**
+     * Updates the version and dependency guide in all README files (README.md, README.*.md) in the project directory.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 프로젝트 디렉토리 내의 모든 README 파일(README.md, README.*.md)의 버전 및 의존성 가이드를 업데이트합니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void updateReadmeWithVersionAndDependencies(Project project) {
+        updateReadmeWithVersionAndDependencies(project, (String[]) null);
+    }
+
+    /**
+     * Updates the version info and adds a runtime dependency guide to the target README file if needed.
      * <p>
      * <b>[한국어 설명]</b>
      * </p>
      * README 파일의 버전 정보를 업데이트하고, 필요한 경우 런타임 의존성 가이드를 추가합니다.
+     * 파일명이 {@code *.ko.md}인 경우 한국어 가이드 문구를 주입하고, 그 외에는 영문 가이드 문구를 주입합니다.
      * <p>
      * 1. 버전 업데이트: {@code Implementation-Version} 패턴 등을 찾아 현재 프로젝트 버전으로 교체합니다.
      * 2. 의존성 가이드: {@code compileOnly}로 선언된 라이브러리가 있다면, 소비자가 런타임에 추가해야 함을 README에 삽입합니다.
      * </p>
      *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
-     * @param file    Target file (usually README.md) | 대상 파일 (주로 README.md)
+     * @param file    Target file (usually README.md or README.*.md) | 대상 파일 (주로 README.md 또는 README.*.md)
      */
     public static void updateReadmeWithVersionAndDependencies(Project project, File file) {
         if (!file.exists())
             return;
+
+        // 모든 의존성(dependencies {}) 선언이 완료된 후 정확히 수집하기 위해 afterEvaluate로 지연 실행
+        if (!project.getState().getExecuted()) {
+            project.afterEvaluate(p -> updateReadmeWithVersionAndDependencies(p, file));
+            return;
+        }
 
         try {
             String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
@@ -3131,26 +3232,35 @@ public class S2BuildUtils {
             String stdStartMarker = "[//]: # 'S2_DEPS_INFO_START'";
             String stdEndMarker = "[//]: # 'S2_DEPS_INFO_END'";
 
-            StringBuilder depsBlock = new StringBuilder();
+            boolean isKorean = "README.ko.md".equals(file.getName()) || file.getName().contains(".ko.");
+
             if (!depLines.isEmpty()) {
+                StringBuilder depsBlock = new StringBuilder();
                 depsBlock.append("\n").append(stdStartMarker).append("\n\n---\n\n");
-                depsBlock.append("**To use certain functionalities (e.g., S2BindValidator), the end-user project must explicitly add the following dependencies to be available at runtime.** ");
-                depsBlock.append("Failure to include these dependencies will result in a `java.lang.NoClassDefFoundError` at runtime.\n\n");
-                depsBlock.append("**[For Gradle Users]**\n\n```groovy\ndependencies {\n");
-                depsBlock.append("    // Essential runtime dependencies for optional functionalities\n");
+                if (isKorean) {
+                    depsBlock.append("**특정 기능(예: S2BindValidator)을 사용하려면 런타임에 다음 의존성을 엔드유저 프로젝트에 명시적으로 추가해야 합니다.** ");
+                    depsBlock.append("이 의존성이 누락되면 런타임에 `java.lang.NoClassDefFoundError`가 발생합니다.\n\n");
+                    depsBlock.append("**[Gradle 사용자]**\n\n```groovy\ndependencies {\n");
+                    depsBlock.append("    // 선택적 기능을 위한 필수 런타임 의존성\n");
+                } else {
+                    depsBlock.append("**To use certain functionalities (e.g., S2BindValidator), the end-user project must explicitly add the following dependencies to be available at runtime.** ");
+                    depsBlock.append("Failure to include these dependencies will result in a `java.lang.NoClassDefFoundError` at runtime.\n\n");
+                    depsBlock.append("**[For Gradle Users]**\n\n```groovy\ndependencies {\n");
+                    depsBlock.append("    // Essential runtime dependencies for optional functionalities\n");
+                }
                 for (String dl : depLines)
                     depsBlock.append(dl).append("\n");
                 depsBlock.append("}\n```\n\n").append(stdEndMarker);
-            }
 
-            // 4. 기존 블록 교체 또는 추가 로직임
-            Pattern fullBlockPattern = Pattern.compile("\n?" + startMarkerPattern + ".*?" + endMarkerPattern, Pattern.DOTALL);
-            if (fullBlockPattern.matcher(content).find()) {
-                // 기존에 어떤 형태의 마커가 있든 새 블록으로 교체함 (중복 방지 핵심)
-                content = fullBlockPattern.matcher(content).replaceAll(depsBlock.toString());
-            } else if (!depLines.isEmpty()) {
-                // 마커가 없으면 파일 끝에 추가함
-                content = content.trim() + "\n\n" + depsBlock.toString();
+                // 4. 기존 블록 교체 또는 추가 로직임
+                Pattern fullBlockPattern = Pattern.compile("\n?" + startMarkerPattern + ".*?" + endMarkerPattern, Pattern.DOTALL);
+                if (fullBlockPattern.matcher(content).find()) {
+                    // 기존에 어떤 형태의 마커가 있든 새 블록으로 교체함 (중복 방지 핵심)
+                    content = fullBlockPattern.matcher(content).replaceAll(depsBlock.toString());
+                } else if ("README.md".equals(file.getName())) {
+                    // 마커가 없는 경우: 기본 영문 메인 README.md에만 파일 끝에 추가함 (다국어 서브 문서에 원치 않는 내용 강제 삽입 방지)
+                    content = content.trim() + "\n\n" + depsBlock.toString();
+                }
             }
 
             Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
