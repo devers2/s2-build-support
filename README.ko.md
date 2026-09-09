@@ -2,11 +2,18 @@
 
 [English](README.md) | [한국어](README.ko.md)
 
+[![Java CI](https://github.com/devers2/s2-build-support/actions/workflows/ci.yml/badge.svg)](https://github.com/devers2/s2-build-support/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.devers2.internal/s2-build-support?color=brightgreen&label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.devers2.internal/s2-build-support)
+[![Java 17+](https://img.shields.io/badge/Java-17%2B-blue?logo=openjdk)](https://openjdk.org/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg)](./LICENSE)
+
+> 개인 S2 프로젝트 제품군 전반의 빌드 로직, 라이선스, 배포 표준화를 위해 설계된 **주관적(Opinionated) Gradle 빌드 컨벤션 플러그인**입니다.
+
 ---
 
 ## 📖 개요 (Overview)
 
-**s2-build-support** 플러그인은 Gradle 빌드를 위한 플러그인입니다.
+**s2-build-support** 플러그인은 S2 프로젝트 전반의 Gradle 빌드 자동화, 중앙 저장소(Maven Central / Central Portal) 배포, 라이선스 및 저작권 유지보수, 그리고 README 내 버전 동기화 작업을 표준화하는 빌드 유틸리티입니다.
 
 ---
 
@@ -18,6 +25,7 @@
 pluginManagement {
     repositories {
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 ```
@@ -26,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.1.7"
+    id("io.github.devers2.buildsupport") version "0.2.0"
 }
 ```
 
@@ -53,12 +61,13 @@ plugins {
 - `S2BuildUtils.applyStandardPom(publication, name, description, repoUrl)` — 어떤 `MavenPublication`에든 라이선스/개발자/SCM 상용구를 채워줍니다 (`configureLibraryPublishing`이 내부적으로 사용하며, 자체 Publication 체계를 쓰는 프로젝트 — 예: `java-gradle-plugin`의 `pluginMaven`/marker Publication — 에서는 직접 호출하면 됩니다)
 - `S2BuildUtils.configureCentralPortalRepository(project)` / `configureGitHubPackagesRepository(project, owner, repo)` — 위 원콜 메서드보다 세밀한 제어가 필요할 때, 리포지토리 등록만 개별적으로 수행합니다
 - `S2BuildUtils.configureProject(project)` — 동적 기능/패키징 엔진(의존성 주입, 소스 토글, Shadow JAR, README 동기화)입니다. 배포 방식과 무관한 별개의 관심사이므로, 어떤 배포 방식을 쓰든 별도로 호출해야 합니다
+- `S2BuildUtils.updateReadmeWithVersionAndDependencies(project, patterns)` — 프로젝트 버전을 README 문서 및 코드 블록 내 의존성 버전에 자동으로 동기화합니다
 
 Maven Central에 아티팩트 하나를 배포하는 일반적인 라이브러리 예시:
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.1.0"
+    id("io.github.devers2.buildsupport") version "0.2.0"
     `java-library`
     `maven-publish`
     signing
@@ -109,4 +118,4 @@ S2BuildUtils.configureTestDefaults(project)
 
 ---
 
-s2-build-support Version: 0.1.7 (2026-09-09)
+s2-build-support Version: 0.2.0 (2026-09-10)

@@ -3207,17 +3207,53 @@ public class S2BuildUtils {
             String currentVersion = project.getVersion().toString();
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
-            // 1. 버전 및 날짜 업데이트 로직 (버전이 바뀔 때만 날짜 변경함)
-            // s2-core Version, s2-validator-plugin Version 등 다양한 접두사를 지원하도록 수정
-            Pattern vPattern = Pattern.compile("(s2-[\\w-]+ Version): ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
-            Matcher vMatcher = vPattern.matcher(content);
-            if (vMatcher.find()) {
-                String prefix = vMatcher.group(1); // 예: "s2-core Version"
-                String existingVersion = vMatcher.group(2);
-                // 버전이 기존과 다를 경우에만 전체 문구 교체함
-                if (!existingVersion.equals(currentVersion)) {
-                    content = content.replace(vMatcher.group(0), prefix + ": " + currentVersion + " (" + today + ")");
+            // 1. S2 아티팩트 및 플러그인 버전 동기화 로직 (Quick Start 의존성 및 하단 버전 고지)
+            Map<String, String> artifactVersions = new HashMap<>();
+            artifactVersions.put(project.getName(), currentVersion);
+            Project root = project.getRootProject();
+            artifactVersions.put(root.getName(), root.getVersion().toString());
+            for (Project sub : root.getSubprojects()) {
+                artifactVersions.put(sub.getName(), sub.getVersion().toString());
+            }
+
+            // 1-1. 각 아티팩트의 Gradle, Maven 의존성 및 버전 줄 자동 치환
+            for (Map.Entry<String, String> entry : artifactVersions.entrySet()) {
+                String artifactId = entry.getKey();
+                String ver = entry.getValue();
+
+                // Gradle 의존성 치환: implementation 'io.github.devers2:s2-core:x.x.x'
+                Pattern gradleDepPattern = Pattern.compile("((?:implementation|api|compileOnly)[ \\t]+['\"](?:io\\.github\\.devers2(?:\\.internal)?):\\Q" + artifactId + "\\E:)[^'\"]+(['\"])");
+                content = gradleDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
+
+                // Maven 의존성 치환: <artifactId>s2-core</artifactId>\s*<version>x.x.x</version>
+                Pattern mavenDepPattern = Pattern.compile("(<artifactId>\\Q" + artifactId + "\\E</artifactId>\\s*<version>)[^<]+(</version>)");
+                content = mavenDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
+
+                // 하단 버전 고지 치환: s2-xxx Version: x.x.x (YYYY-MM-DD)
+                Pattern vPattern = Pattern.compile("(\\b\\Q" + artifactId + "\\E Version): ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
+                Matcher vMatcher = vPattern.matcher(content);
+                if (vMatcher.find()) {
+                    String existingVersion = vMatcher.group(2);
+                    if (!existingVersion.equals(ver)) {
+                        content = content.replace(vMatcher.group(0), vMatcher.group(1) + ": " + ver + " (" + today + ")");
+                    }
                 }
+            }
+
+            // 1-2. Gradle 플러그인 버전 치환: id("io.github.devers2.buildsupport") version "x.x.x"
+            Map<String, String> pluginVersions = new HashMap<>();
+            if (artifactVersions.containsKey("s2-build-support")) {
+                pluginVersions.put("io.github.devers2.buildsupport", artifactVersions.get("s2-build-support"));
+            }
+            if (artifactVersions.containsKey("s2-validator-plugin")) {
+                pluginVersions.put("io.github.devers2.validator", artifactVersions.get("s2-validator-plugin"));
+            }
+
+            for (Map.Entry<String, String> entry : pluginVersions.entrySet()) {
+                String pluginId = entry.getKey();
+                String ver = entry.getValue();
+                Pattern pluginPattern = Pattern.compile("(id\\s*[('\"']\\Q" + pluginId + "\\E['\"']\\s*\\)?\\s+version\\s+['\"])[^'\"]+(['\"])");
+                content = pluginPattern.matcher(content).replaceAll("$1" + ver + "$2");
             }
 
             // 2. 의존성 정보 수집함
