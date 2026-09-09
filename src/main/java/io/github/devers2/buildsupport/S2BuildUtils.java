@@ -3209,17 +3209,44 @@ public class S2BuildUtils {
 
             // 1. S2 아티팩트 및 플러그인 버전 동기화 로직 (Quick Start 의존성 및 하단 버전 고지)
             Map<String, String> artifactVersions = new HashMap<>();
-            artifactVersions.put(project.getName(), currentVersion);
+            if (isValidVersion(currentVersion)) {
+                artifactVersions.put(project.getName(), currentVersion);
+            }
             Project root = project.getRootProject();
-            artifactVersions.put(root.getName(), root.getVersion().toString());
+            String rootVer = root.getVersion().toString();
+            if (isValidVersion(rootVer)) {
+                artifactVersions.put(root.getName(), rootVer);
+            }
             for (Project sub : root.getSubprojects()) {
-                artifactVersions.put(sub.getName(), sub.getVersion().toString());
+                String subVer = sub.getVersion().toString();
+                if (!isValidVersion(subVer)) {
+                    // Gradle 설정 순서로 인해 아직 서브프로젝트의 version이 평가되지 않은 경우 직접 파일에서 확인
+                    File subBuildFile = new File(sub.getProjectDir(), "build.gradle.kts");
+                    if (!subBuildFile.exists()) {
+                        subBuildFile = new File(sub.getProjectDir(), "build.gradle");
+                    }
+                    if (subBuildFile.exists()) {
+                        try {
+                            String bContent = new String(Files.readAllBytes(subBuildFile.toPath()), StandardCharsets.UTF_8);
+                            Matcher m = Pattern.compile("(?:^|\\n)\\s*version\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(bContent);
+                            if (m.find()) {
+                                subVer = m.group(1).trim();
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+                if (isValidVersion(subVer)) {
+                    artifactVersions.put(sub.getName(), subVer);
+                }
             }
 
             // 1-1. 각 아티팩트의 Gradle, Maven 의존성 및 버전 줄 자동 치환
             for (Map.Entry<String, String> entry : artifactVersions.entrySet()) {
                 String artifactId = entry.getKey();
                 String ver = entry.getValue();
+                if (!isValidVersion(ver)) {
+                    continue;
+                }
 
                 // Gradle 의존성 치환: implementation 'io.github.devers2:s2-core:x.x.x'
                 Pattern gradleDepPattern = Pattern.compile("((?:implementation|api|compileOnly)[ \\t]+['\"](?:io\\.github\\.devers2(?:\\.internal)?):\\Q" + artifactId + "\\E:)[^'\"]+(['\"])");
@@ -3303,6 +3330,10 @@ public class S2BuildUtils {
         } catch (IOException e) {
             warn(project, "⚠️ [README 업데이트] " + file.getName() + " 업데이트 실패: " + e.getMessage(), "⚠️ [README Update] Failed to update " + file.getName() + ": " + e.getMessage());
         }
+    }
+
+    private static boolean isValidVersion(String ver) {
+        return ver != null && !ver.trim().isEmpty() && !"unspecified".equalsIgnoreCase(ver.trim());
     }
 
     /**
