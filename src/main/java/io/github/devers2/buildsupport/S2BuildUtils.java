@@ -3240,6 +3240,10 @@ public class S2BuildUtils {
                 }
             }
 
+            // 1-0. Gradle Version Catalog (gradle/libs.versions.toml)에서 외부 의존성 및 플러그인 버전 보강
+            Map<String, String> pluginVersions = new HashMap<>();
+            populateFromVersionCatalog(project, artifactVersions, pluginVersions);
+
             // 1-1. 각 아티팩트의 Gradle, Maven 의존성 및 버전 줄 자동 치환
             for (Map.Entry<String, String> entry : artifactVersions.entrySet()) {
                 String artifactId = entry.getKey();
@@ -3256,6 +3260,10 @@ public class S2BuildUtils {
                 Pattern mavenDepPattern = Pattern.compile("(<artifactId>\\Q" + artifactId + "\\E</artifactId>\\s*<version>)[^<]+(</version>)");
                 content = mavenDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
 
+                // 마크다운 인라인 백틱 의존성 치환: `io.github.devers2:s2-validator:x.x.x`
+                Pattern inlineDepPattern = Pattern.compile("(`(?:io\\.github\\.devers2(?:\\.internal)?):\\Q" + artifactId + "\\E:)[^`]+(`)");
+                content = inlineDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
+
                 // 하단 버전 고지 치환: s2-xxx Version: x.x.x (YYYY-MM-DD)
                 Pattern vPattern = Pattern.compile("(\\b\\Q" + artifactId + "\\E Version): ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
                 Matcher vMatcher = vPattern.matcher(content);
@@ -3268,12 +3276,11 @@ public class S2BuildUtils {
             }
 
             // 1-2. Gradle 플러그인 버전 치환: id("io.github.devers2.buildsupport") version "x.x.x"
-            Map<String, String> pluginVersions = new HashMap<>();
             if (artifactVersions.containsKey("s2-build-support")) {
-                pluginVersions.put("io.github.devers2.buildsupport", artifactVersions.get("s2-build-support"));
+                pluginVersions.putIfAbsent("io.github.devers2.buildsupport", artifactVersions.get("s2-build-support"));
             }
             if (artifactVersions.containsKey("s2-validator-plugin")) {
-                pluginVersions.put("io.github.devers2.validator", artifactVersions.get("s2-validator-plugin"));
+                pluginVersions.putIfAbsent("io.github.devers2.validator", artifactVersions.get("s2-validator-plugin"));
             }
 
             for (Map.Entry<String, String> entry : pluginVersions.entrySet()) {
@@ -3334,6 +3341,106 @@ public class S2BuildUtils {
 
     private static boolean isValidVersion(String ver) {
         return ver != null && !ver.trim().isEmpty() && !"unspecified".equalsIgnoreCase(ver.trim());
+    }
+
+    /**
+     * gradle/libs.versions.toml (Version Catalog) 파일에서 버전 및 의존성/플러그인 매핑을 추출하여 artifactVersions 및 pluginVersions에 보강합니다.
+     */
+    private static void populateFromVersionCatalog(Project project, Map<String, String> artifactVersions, Map<String, String> pluginVersions) {
+        File tomlFile = new File(project.getRootDir(), "gradle/libs.versions.toml");
+        if (!tomlFile.exists()) {
+            tomlFile = new File(project.getProjectDir(), "gradle/libs.versions.toml");
+        }
+        if (!tomlFile.exists()) {
+            return;
+        }
+
+        try {
+            List<String> lines = Files.readAllLines(tomlFile.toPath(), StandardCharsets.UTF_8);
+            Map<String, String> tomlVersions = new HashMap<>();
+            String currentSection = "";
+
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
+                if (line.startsWith("[") && line.endsWith("]")) {
+                    currentSection = line.substring(1, line.length() - 1).trim();
+                    continue;
+                }
+
+                if ("versions".equals(currentSection)) {
+                    Matcher m = Pattern.compile("^([\\w\\.\\-]+)\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                    if (m.find()) {
+                        String key = m.group(1).trim();
+                        String ver = m.group(2).trim();
+                        if (isValidVersion(ver)) {
+                            tomlVersions.put(key, ver);
+                        }
+                    }
+                } else if ("libraries".equals(currentSection)) {
+                    Matcher nameMatcher = Pattern.compile("name\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                    if (nameMatcher.find()) {
+                        String name = nameMatcher.group(1).trim();
+                        String ver = null;
+                        Matcher refMatcher = Pattern.compile("version\\.ref\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                        if (refMatcher.find()) {
+                            ver = tomlVersions.get(refMatcher.group(1).trim());
+                        } else {
+                            Matcher verMatcher = Pattern.compile("version\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                            if (verMatcher.find()) {
+                                ver = verMatcher.group(1).trim();
+                            }
+                        }
+                        if (isValidVersion(ver)) {
+                            artifactVersions.putIfAbsent(name, ver);
+                        }
+                    }
+                } else if ("plugins".equals(currentSection)) {
+                    Matcher idMatcher = Pattern.compile("id\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                    if (idMatcher.find()) {
+                        String pluginId = idMatcher.group(1).trim();
+                        String ver = null;
+                        Matcher refMatcher = Pattern.compile("version\\.ref\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                        if (refMatcher.find()) {
+                            ver = tomlVersions.get(refMatcher.group(1).trim());
+                        } else {
+                            Matcher verMatcher = Pattern.compile("version\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(line);
+                            if (verMatcher.find()) {
+                                ver = verMatcher.group(1).trim();
+                            }
+                        }
+                        if (isValidVersion(ver)) {
+                            pluginVersions.putIfAbsent(pluginId, ver);
+                        }
+                    }
+                }
+            }
+
+            // 추가 s2 관련 규칙 기반 보강 (s2-util 버전을 통해 s2-core, s2-validator, s2-jpa 매핑)
+            if (tomlVersions.containsKey("s2-util")) {
+                String utilVer = tomlVersions.get("s2-util");
+                String[] s2UtilModules = {"s2-util", "s2-core", "s2-validator", "s2-jpa"};
+                for (String mod : s2UtilModules) {
+                    artifactVersions.putIfAbsent(mod, utilVer);
+                }
+            }
+            if (tomlVersions.containsKey("s2-validator-plugin")) {
+                String pluginVer = tomlVersions.get("s2-validator-plugin");
+                artifactVersions.putIfAbsent("s2-validator-plugin", pluginVer);
+                pluginVersions.putIfAbsent("io.github.devers2.validator", pluginVer);
+            }
+            if (tomlVersions.containsKey("s2-build-support")) {
+                String buildVer = tomlVersions.get("s2-build-support");
+                artifactVersions.putIfAbsent("s2-build-support", buildVer);
+                pluginVersions.putIfAbsent("io.github.devers2.buildsupport", buildVer);
+            }
+
+        } catch (Exception ignored) {
+            // Version catalog 파일이 없거나 파싱 오류 시 무시
+        }
     }
 
     /**
