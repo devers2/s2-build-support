@@ -1,4 +1,4 @@
-# S2BuildSupport Plugin
+# s2-build-support — Gradle 빌드 컨벤션 플러그인
 
 🌐 [English](README.md) | **한국어**
 

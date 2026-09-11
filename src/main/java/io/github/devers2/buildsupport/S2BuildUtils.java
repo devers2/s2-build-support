@@ -441,8 +441,23 @@ public class S2BuildUtils {
             return;
         }
 
+        javaSourceRoot = javaSourceRoot.trim();
+        if (!javaSourceRoot.endsWith("/")) {
+            javaSourceRoot += "/";
+        }
+
         for (String extraSource : extraSources) {
-            String fullPathBase = javaSourceRoot + extraSource;
+            if (extraSource == null || extraSource.isBlank()) {
+                continue;
+            }
+            String cleanSource = extraSource.trim();
+            if (cleanSource.startsWith("/")) {
+                cleanSource = cleanSource.substring(1);
+            }
+            String fullPathBase = javaSourceRoot + cleanSource;
+            if (fullPathBase.endsWith(".txt")) {
+                fullPathBase = fullPathBase.substring(0, fullPathBase.length() - 4);
+            }
 
             File fileJava = project.file(fullPathBase);
             File fileTxt = project.file(fullPathBase + ".txt");
@@ -452,7 +467,17 @@ public class S2BuildUtils {
         }
 
         for (String excludedSource : excludedSources) {
-            String fullPathBase = javaSourceRoot + excludedSource;
+            if (excludedSource == null || excludedSource.isBlank()) {
+                continue;
+            }
+            String cleanExcluded = excludedSource.trim();
+            if (cleanExcluded.startsWith("/")) {
+                cleanExcluded = cleanExcluded.substring(1);
+            }
+            String fullPathBase = javaSourceRoot + cleanExcluded;
+            if (fullPathBase.endsWith(".txt")) {
+                fullPathBase = fullPathBase.substring(0, fullPathBase.length() - 4);
+            }
 
             File fileJava = project.file(fullPathBase);
             File fileTxt = project.file(fullPathBase + ".txt");
@@ -512,7 +537,7 @@ public class S2BuildUtils {
          * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
          * - registerStandardJarTask 헬퍼 메서드 재사용
          */
-        registerStandardJarTask(project, archiveBaseName, version, extraSources);
+        registerStandardJarTask(project, archiveBaseName, version, extraLicenses);
 
         // configurePublications is now called within afterEvaluate to ensure all plugins are loaded.
 
@@ -540,18 +565,9 @@ public class S2BuildUtils {
          * ========================================================================
          */
 
-        final Set<String> combinedExtraFiles = Optional.ofNullable(extraSources)
+        final Set<String> combinedExtraFiles = Optional.ofNullable(extraLicenses)
                 .map(HashSet::new)
                 .orElseGet(HashSet::new);
-
-        Optional.ofNullable(extraLicenses)
-                .ifPresent(
-                        licenses -> licenses.stream()
-                                .filter(Objects::nonNull)
-                                .map(String::valueOf)
-                                .filter(l -> !l.isBlank())
-                                .forEach(combinedExtraFiles::add)
-                );
 
         // Shadow 기능 활성화 여부 판단 (Publishing 모드에서의 조건부 활성화)
         // Publishing: Shadow 플러그인 + shadedPackagePrefix 필수
@@ -579,7 +595,7 @@ public class S2BuildUtils {
          * - 라이선스 파일 + JAR + 의존성을 포함한 ZIP 패키지 생성
          * - 'Gradle > Tasks > distribution > distZip' 실행 시 생성됨
          */
-        configureDistributions(project, extraSources);
+        configureDistributions(project, extraLicenses);
 
         /*
          * ========================================================================
