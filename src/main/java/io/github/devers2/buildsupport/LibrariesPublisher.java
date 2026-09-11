@@ -80,7 +80,8 @@ public class LibrariesPublisher {
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      */
-    public static void registerPublications(Project project, Object[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
+    public static void registerPublications(Project project, Object[][] fileScanRules, String[][] allowedClassifiers,
+            String[] exceptionalVersions) {
         registerPublicationsInternal(project, fileScanRules, allowedClassifiers, exceptionalVersions);
     }
 
@@ -113,7 +114,8 @@ public class LibrariesPublisher {
      *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      */
-    private static void registerPublicationsInternal(Project project, Object[][] fileScanRules, String[][] allowedClassifiers, String[] exceptionalVersions) {
+    private static void registerPublicationsInternal(Project project, Object[][] fileScanRules,
+            String[][] allowedClassifiers, String[] exceptionalVersions) {
         // artifactId:version을 키로 하는 아티팩트 맵
         Map<String, List<ArtifactItem>> artifactsMap = new HashMap<>();
 
@@ -133,8 +135,7 @@ public class LibrariesPublisher {
                     S2BuildUtils.warn(
                             project,
                             "⚠️ [LibsPublishHelper] 잘못된 규칙 형식입니다. [File, String] 기대됨.",
-                            "⚠️ [LibsPublishHelper] Invalid rule format. Expected [File, String]."
-                    );
+                            "⚠️ [LibsPublishHelper] Invalid rule format. Expected [File, String].");
                     continue;
                 }
 
@@ -145,8 +146,7 @@ public class LibrariesPublisher {
                     S2BuildUtils.warn(
                             project,
                             "⚠️ [LibsPublishHelper] 디렉토리를 찾을 수 없습니다: " + scanDir.getAbsolutePath(),
-                            "⚠️ [LibsPublishHelper] Directory not found: " + scanDir.getAbsolutePath()
-                    );
+                            "⚠️ [LibsPublishHelper] Directory not found: " + scanDir.getAbsolutePath());
                     continue;
                 }
 
@@ -163,8 +163,7 @@ public class LibrariesPublisher {
             S2BuildUtils.warn(
                     project,
                     "⚠️ [LibsPublishHelper] 배포할 파일을 찾지 못했습니다.",
-                    "⚠️ [LibsPublishHelper] No files found to publish."
-            );
+                    "⚠️ [LibsPublishHelper] No files found to publish.");
             return;
         }
 
@@ -203,8 +202,7 @@ public class LibrariesPublisher {
             // 그룹화 키: artifactId:version
             String key = distArtifactId + ":" + distVersion;
             artifactsMap.computeIfAbsent(key, k -> new ArrayList<>()).add(
-                    new ArtifactItem(jarFile, distClassifier, distArtifactId, distVersion)
-            );
+                    new ArtifactItem(jarFile, distClassifier, distArtifactId, distVersion));
         }
 
         PublishingExtension publishing = project.getExtensions().getByType(PublishingExtension.class);
@@ -240,14 +238,12 @@ public class LibrariesPublisher {
             S2BuildUtils.info(
                     project,
                     "등록된 그룹 ▶ " + distArtifactId + ":" + distVersion + " (개수: " + items.size() + ")",
-                    "Registered Group ▶ " + distArtifactId + ":" + distVersion + " (Count: " + items.size() + ")"
-            );
+                    "Registered Group ▶ " + distArtifactId + ":" + distVersion + " (Count: " + items.size() + ")");
             for (ArtifactItem item : items) {
                 S2BuildUtils.info(
                         project,
                         "  - 파일: " + item.file.getName() + " (Classifier: " + item.classifier + ")",
-                        "  - File: " + item.file.getName() + " (Classifier: " + item.classifier + ")"
-                );
+                        "  - File: " + item.file.getName() + " (Classifier: " + item.classifier + ")");
             }
         });
     }
@@ -333,8 +329,7 @@ public class LibrariesPublisher {
                     "(?:\\+[\\da-zA-Z.-]+)?" +
 
                     "$",
-            Pattern.CASE_INSENSITIVE
-    );
+            Pattern.CASE_INSENSITIVE);
 
     /**
      * Extracts version information from a filename (no exceptional version forms).
@@ -429,7 +424,8 @@ public class LibrariesPublisher {
             // 1단계: 예외적인 버전 패턴 확인
             if (exceptionalVersions != null && exceptionalVersions.length > 0) {
                 for (String exceptionalVersion : exceptionalVersions) {
-                    if (candidateVersion.equals(exceptionalVersion) || candidateVersion.startsWith(exceptionalVersion + "-")) {
+                    if (candidateVersion.equals(exceptionalVersion)
+                            || candidateVersion.startsWith(exceptionalVersion + "-")) {
                         String baseName = String.join("-", java.util.Arrays.copyOfRange(parts, 0, i));
                         return new VersionInfo(baseName, candidateVersion, true);
                     }

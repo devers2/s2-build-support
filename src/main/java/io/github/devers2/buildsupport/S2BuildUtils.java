@@ -63,6 +63,7 @@ import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.file.DuplicatesStrategy;
+import org.gradle.api.publish.maven.MavenPublication;
 import org.gradle.api.tasks.Copy;
 import org.gradle.api.tasks.JavaExec;
 import org.gradle.api.tasks.SourceSet;
@@ -267,7 +268,8 @@ public class S2BuildUtils {
             // 추가할 라이선스 목록
             Set<String> extraLicenses = new HashSet<>();
 
-            analyzeDynamicSourceInfo(project, variantIds, extraSources, excludedSources, extraDependencyMap, extraLicenses);
+            analyzeDynamicSourceInfo(project, variantIds, extraSources, excludedSources, extraDependencyMap,
+                    extraLicenses);
 
             // 1. 동적 의존성 주입 (Dynamic Dependency Injection) 및 추가 파일/variantId 정보 수집
             injectDynamicDependencies(p, extraDependencyMap);
@@ -304,9 +306,12 @@ public class S2BuildUtils {
      * @param extraLicenses      List of licenses to add | 추가할 라이선스 목록
      */
     @SuppressWarnings("unchecked")
-    private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources, Set<String> excludedSources, Map<String, String> extraDependencyMap, Set<String> extraLicenses) {
+    private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources,
+            Set<String> excludedSources, Map<String, String> extraDependencyMap, Set<String> extraLicenses) {
         Object activeFeaturesObj = project.hasProperty("activeFeatures") ? project.property("activeFeatures") : null;
-        Object dynamicSourceInfoMapObj = project.hasProperty("dynamicSourceInfoMap") ? project.property("dynamicSourceInfoMap") : null;
+        Object dynamicSourceInfoMapObj = project.hasProperty("dynamicSourceInfoMap")
+                ? project.property("dynamicSourceInfoMap")
+                : null;
         Object excludedSourcesObj = project.hasProperty("excludedSources") ? project.property("excludedSources") : null;
 
         Set<String> activeFeatures = new HashSet<>();
@@ -318,8 +323,7 @@ public class S2BuildUtils {
                                 .filter(Objects::nonNull)
                                 .map(String::valueOf)
                                 .filter(s -> !s.isBlank())
-                                .forEach(activeFeatures::add)
-                );
+                                .forEach(activeFeatures::add));
 
         if (dynamicSourceInfoMapObj instanceof Map) {
             Map<String, ?> dynamicSourceInfoMap = (Map<String, ?>) dynamicSourceInfoMapObj;
@@ -349,9 +353,11 @@ public class S2BuildUtils {
                                                     String group = dependency.get("group");
                                                     String name = dependency.get("name");
 
-                                                    if (group != null && !group.isBlank() && name != null && !name.isBlank()) {
+                                                    if (group != null && !group.isBlank() && name != null
+                                                            && !name.isBlank()) {
                                                         String version = dependency.get("version");
-                                                        String config = dependency.getOrDefault("configuration", "implementation");
+                                                        String config = dependency.getOrDefault("configuration",
+                                                                "implementation");
 
                                                         // 2. 버전 유무에 따른 notation 생성
                                                         String notation = (version != null && !version.isBlank())
@@ -360,8 +366,7 @@ public class S2BuildUtils {
 
                                                         extraDependencyMap.put(notation, config);
                                                     }
-                                                })
-                                );
+                                                }));
                     } else {
                         Optional.ofNullable(dynamicSourceInfo.get("sources"))
                                 .map(val -> (Collection<String>) val)
@@ -371,8 +376,7 @@ public class S2BuildUtils {
                                                 .map(String::valueOf)
                                                 .filter(source -> !source.isBlank())
                                                 .map(source -> source + ".txt")
-                                                .forEach(excludedSources::add)
-                                );
+                                                .forEach(excludedSources::add));
                     }
                 }
             }
@@ -385,8 +389,7 @@ public class S2BuildUtils {
                                 .filter(Objects::nonNull)
                                 .map(String::valueOf)
                                 .filter(source -> !source.isBlank())
-                                .forEach(excludedSources::add)
-                );
+                                .forEach(excludedSources::add));
     }
 
     /**
@@ -405,9 +408,11 @@ public class S2BuildUtils {
             String config = extraDependencyMap.get(notation);
             try {
                 project.getDependencies().add(config, notation);
-                info(project, "   ➕ 의존성 추가 [" + config + "]: " + notation, "   ➕ Adding dependency [" + config + "]: " + notation);
+                info(project, "   ➕ 의존성 추가 [" + config + "]: " + notation,
+                        "   ➕ Adding dependency [" + config + "]: " + notation);
             } catch (Exception e) {
-                warn(project, "   ⚠️ 의존성 추가 실패: " + notation + " -> " + e.getMessage(), "   ⚠️ Failed to add dependency: " + notation + " -> " + e.getMessage());
+                warn(project, "   ⚠️ 의존성 추가 실패: " + notation + " -> " + e.getMessage(),
+                        "   ⚠️ Failed to add dependency: " + notation + " -> " + e.getMessage());
             }
         }
     }
@@ -436,8 +441,7 @@ public class S2BuildUtils {
             warn(
                     project,
                     "⚠️ [소스 토글] 'JAVA_SRC_ROOT' 속성이 설정되지 않아 소스 파일 토글(.java <-> .java.txt)을 건너뜁니다.",
-                    "⚠️ [Source Toggle] 'JAVA_SRC_ROOT' property is not set. Skipping source file toggle (.java <-> .java.txt)."
-            );
+                    "⚠️ [Source Toggle] 'JAVA_SRC_ROOT' property is not set. Skipping source file toggle (.java <-> .java.txt).");
             return;
         }
 
@@ -510,11 +514,14 @@ public class S2BuildUtils {
      * @param excludedSources Paths to be excluded from compilation/javadoc | 제외할 소스 경로 목록
      * @param extraLicenses   Paths to additional license files | 포함할 추가 라이선스 파일 경로 목록
      */
-    public static void configurePackaging(Project project, Set<String> extraSources, Set<String> excludedSources, Set<String> extraLicenses) {
+    public static void configurePackaging(Project project, Set<String> extraSources, Set<String> excludedSources,
+            Set<String> extraLicenses) {
         if (extraSources != null && !extraSources.isEmpty()) {
-            info(project, "🔍 [패키징 디버그] " + project.getName() + " 추가 소스: " + extraSources, "🔍 [Packaging Debug] " + project.getName() + " extraSources: " + extraSources);
+            info(project, "🔍 [패키징 디버그] " + project.getName() + " 추가 소스: " + extraSources,
+                    "🔍 [Packaging Debug] " + project.getName() + " extraSources: " + extraSources);
         } else {
-            info(project, "⚠️ [패키징 디버그] " + project.getName() + " 추가 소스가 없거나 null입니다.", "⚠️ [Packaging Debug] " + project.getName() + " extraSources is empty or null");
+            info(project, "⚠️ [패키징 디버그] " + project.getName() + " 추가 소스가 없거나 null입니다.",
+                    "⚠️ [Packaging Debug] " + project.getName() + " extraSources is empty or null");
         }
 
         // 0. 소스 및 Javadoc 설정 통합 처리
@@ -582,7 +589,8 @@ public class S2BuildUtils {
         if (enableShadowIntegration) {
             // [Shadow 모드] Fat JAR 생성 및 Publish 연동
             // 타이밍 이슈 해결을 위해 내부에서 afterEvaluate를 사용하며, 이 리스너 안에서 라이선스를 재수집
-            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version, combinedExtraFiles);
+            configureShadowIntegration(project, isBuildTask, isAnyPublish, archiveBaseName, version,
+                    combinedExtraFiles);
         } else {
             // [Standard 모드] 기본 JAR 생성 (Fat JAR 선택적 생성)
             configureStandardMode(project, isAnyPublish, version, combinedExtraFiles);
@@ -632,7 +640,8 @@ public class S2BuildUtils {
      * @param activeSources     List of active extra sources | 활성화된 추가 소스 목록
      * @return List of source file paths to exclude | 제외할 소스 파일 경로 목록
      */
-    public static Set<String> resolveExcludedPaths(Map<String, Map<String, Object>> dynamicSourceInfo, Set<String> activeSources) {
+    public static Set<String> resolveExcludedPaths(Map<String, Map<String, Object>> dynamicSourceInfo,
+            Set<String> activeSources) {
         Set<String> excludedPaths = new LinkedHashSet<>();
 
         if (dynamicSourceInfo == null) {
@@ -697,7 +706,8 @@ public class S2BuildUtils {
 
             try {
                 java.nio.file.Path path = file.toPath();
-                String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
+                String content = new String(java.nio.file.Files.readAllBytes(path),
+                        java.nio.charset.StandardCharsets.UTF_8);
 
                 // servlet 관련 import가 없으면 건너뛰기
                 if (!content.contains("javax.servlet") && !content.contains("jakarta.servlet")) {
@@ -709,10 +719,16 @@ public class S2BuildUtils {
                 if (classIndex == -1) {
                     // public class가 없다면 전체 파일에서 import 교체 시도
                     if (content.contains(fromPackage)) {
-                        String updated = content.replaceAll("import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.", "import " + toPackage + ".");
+                        String updated = content.replaceAll(
+                                "import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.",
+                                "import " + toPackage + ".");
                         if (!content.equals(updated)) {
                             java.nio.file.Files.write(path, updated.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            info(project, "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage + ")", "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage + ")");
+                            info(project,
+                                    "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage
+                                            + ")",
+                                    "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → "
+                                            + toPackage + ")");
                         }
                     }
                     return;
@@ -722,15 +738,21 @@ public class S2BuildUtils {
                 String afterClass = content.substring(classIndex);
 
                 if (beforeClass.contains(fromPackage)) {
-                    String updatedBefore = beforeClass.replaceAll("import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.", "import " + toPackage + ".");
+                    String updatedBefore = beforeClass.replaceAll(
+                            "import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.",
+                            "import " + toPackage + ".");
                     String newContent = updatedBefore + afterClass;
                     if (!content.equals(newContent)) {
                         java.nio.file.Files.write(path, newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        info(project, "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage + ")", "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage + ")");
+                        info(project,
+                                "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage + ")",
+                                "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage
+                                        + ")");
                     }
                 }
             } catch (java.io.IOException e) {
-                error(project, "❌ [서블릿 임포트] " + file.getName() + " 업데이트 실패: " + e.getMessage(), "❌ [Servlet Import] Failed to update " + file.getName() + ": " + e.getMessage());
+                error(project, "❌ [서블릿 임포트] " + file.getName() + " 업데이트 실패: " + e.getMessage(),
+                        "❌ [Servlet Import] Failed to update " + file.getName() + ": " + e.getMessage());
             }
         });
     }
@@ -751,7 +773,8 @@ public class S2BuildUtils {
     public static void updateCopyright(Project project, String[] sourcePaths) {
         String currentYear = String.valueOf(java.time.Year.now().getValue());
         // 패턴: (Copyright (c) | Copyright | 저작권) 2020 - [연도] devers2
-        java.util.regex.Pattern copyrightPattern = java.util.regex.Pattern.compile("(Copyright(?: \\(c\\))?|저작권) 2020 ?[-–] ?(\\d{4}) devers2");
+        java.util.regex.Pattern copyrightPattern = java.util.regex.Pattern
+                .compile("(Copyright(?: \\(c\\))?|저작권) 2020 ?[-–] ?(\\d{4}) devers2");
 
         // 대상 확장자 목록
         Set<String> targetExtensions = new LinkedHashSet<>();
@@ -764,9 +787,7 @@ public class S2BuildUtils {
                         // CSS 관련 (표준 및 전처리기)
                         "css", "scss", "sass", "less",
                         // 문서/XML
-                        "md", "xml", "yml", "yaml"
-                )
-        );
+                        "md", "xml", "yml", "yaml"));
 
         for (String sourcePath : sourcePaths) {
             File sourceDir = project.file(sourcePath);
@@ -784,7 +805,8 @@ public class S2BuildUtils {
 
                 try {
                     java.nio.file.Path path = file.toPath();
-                    String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
+                    String content = new String(java.nio.file.Files.readAllBytes(path),
+                            java.nio.charset.StandardCharsets.UTF_8);
                     java.util.regex.Matcher matcher = copyrightPattern.matcher(content);
 
                     boolean found = false;
@@ -801,11 +823,15 @@ public class S2BuildUtils {
                     }
 
                     if (found && !content.equals(updatedContent)) {
-                        java.nio.file.Files.write(path, updatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        info(project, "©️  [저작권] " + fileName + " 업데이트 완료 (" + currentYear + "년으로 갱신)", "©️  [Copyright] Updated " + fileName + " (Multiple occurrences or single updated to " + currentYear + ")");
+                        java.nio.file.Files.write(path,
+                                updatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        info(project, "©️  [저작권] " + fileName + " 업데이트 완료 (" + currentYear + "년으로 갱신)",
+                                "©️  [Copyright] Updated " + fileName + " (Multiple occurrences or single updated to "
+                                        + currentYear + ")");
                     }
                 } catch (java.io.IOException e) {
-                    error(project, "❌ [저작권] " + fileName + " 처리 실패: " + e.getMessage(), "❌ [Copyright] Failed to process " + fileName + ": " + e.getMessage());
+                    error(project, "❌ [저작권] " + fileName + " 처리 실패: " + e.getMessage(),
+                            "❌ [Copyright] Failed to process " + fileName + ": " + e.getMessage());
                 }
             });
         }
@@ -841,10 +867,12 @@ public class S2BuildUtils {
      * @param versionTemplate Version info template with placeholders | 버전 정보 템플릿 ({{=version}}, {{=release-date}} 포함 필수)
      * @param newVersion      The new version string | 적용할 새로운 버전 문자열
      */
-    public static void updateVersionInFile(Project project, String filePath, String versionTemplate, String newVersion) {
+    public static void updateVersionInFile(Project project, String filePath, String versionTemplate,
+            String newVersion) {
         File targetFile = project.file(filePath);
         if (!targetFile.exists()) {
-            error(project, "❌ [" + filePath + "] 프로젝트 루트에서 파일을 찾을 수 없습니다.", "❌ [" + filePath + "] File not found in project root.");
+            error(project, "❌ [" + filePath + "] 프로젝트 루트에서 파일을 찾을 수 없습니다.",
+                    "❌ [" + filePath + "] File not found in project root.");
             return;
         }
 
@@ -853,7 +881,8 @@ public class S2BuildUtils {
             String datePlaceholder = "{{=release-date}}";
 
             if (!versionTemplate.contains(versionPlaceholder) || !versionTemplate.contains(datePlaceholder)) {
-                error(project, "❌ [" + filePath + "] versionTemplate은 {{=version}} 및 {{=release-date}}를 포함해야 합니다.", "❌ [" + filePath + "] versionTemplate must contain {{=version}} and {{=release-date}}.");
+                error(project, "❌ [" + filePath + "] versionTemplate은 {{=version}} 및 {{=release-date}}를 포함해야 합니다.",
+                        "❌ [" + filePath + "] versionTemplate must contain {{=version}} and {{=release-date}}.");
                 return;
             }
 
@@ -886,14 +915,17 @@ public class S2BuildUtils {
             String regex = regexBuilder.toString();
 
             java.nio.file.Path path = targetFile.toPath();
-            String content = new String(java.nio.file.Files.readAllBytes(path), java.nio.charset.StandardCharsets.UTF_8);
-            String newDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String content = new String(java.nio.file.Files.readAllBytes(path),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String newDate = java.time.LocalDate.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
             Pattern pattern = Pattern.compile(regex);
             Matcher matcher = pattern.matcher(content);
 
             if (!matcher.find()) {
-                warn(project, "⚠️  [" + filePath + "] 템플릿에서 버전 패턴을 찾을 수 없습니다: " + versionTemplate, "⚠️  [" + filePath + "] Could not find the version pattern from template: " + versionTemplate);
+                warn(project, "⚠️  [" + filePath + "] 템플릿에서 버전 패턴을 찾을 수 없습니다: " + versionTemplate,
+                        "⚠️  [" + filePath + "] Could not find the version pattern from template: " + versionTemplate);
                 return;
             }
 
@@ -911,7 +943,8 @@ public class S2BuildUtils {
 
             // 버전이 동일하면 업데이트를 건너뛴다.
             if (existingVersion.equals(newVersion)) {
-                info(project, "ℹ️  [" + filePath + "] 버전이 변경되지 않았습니다 (" + newVersion + "). 업데이트를 건너뜁니다.", "ℹ️  [" + filePath + "] Version is unchanged (" + newVersion + "). Skipping update.");
+                info(project, "ℹ️  [" + filePath + "] 버전이 변경되지 않았습니다 (" + newVersion + "). 업데이트를 건너뜁니다.",
+                        "ℹ️  [" + filePath + "] Version is unchanged (" + newVersion + "). Skipping update.");
                 return;
             }
 
@@ -925,11 +958,16 @@ public class S2BuildUtils {
 
             if (!content.equals(updatedContent)) {
                 java.nio.file.Files.write(path, updatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                info(project, "📝 [" + filePath + "] 버전 업데이트 완료: " + existingVersion + " → " + newVersion + " (날짜: " + existingDate + " → " + newDate + ")", "📝 [" + filePath + "] Updated version: " + existingVersion + " → " + newVersion + " (Date: " + existingDate + " → " + newDate + ")");
+                info(project,
+                        "📝 [" + filePath + "] 버전 업데이트 완료: " + existingVersion + " → " + newVersion + " (날짜: "
+                                + existingDate + " → " + newDate + ")",
+                        "📝 [" + filePath + "] Updated version: " + existingVersion + " → " + newVersion + " (Date: "
+                                + existingDate + " → " + newDate + ")");
             }
 
         } catch (java.io.IOException e) {
-            error(project, "❌ [" + filePath + "] 업데이트 실패: " + e.getMessage(), "❌ [" + filePath + "] Failed to update: " + e.getMessage());
+            error(project, "❌ [" + filePath + "] 업데이트 실패: " + e.getMessage(),
+                    "❌ [" + filePath + "] Failed to update: " + e.getMessage());
         }
     }
 
@@ -1080,8 +1118,7 @@ public class S2BuildUtils {
             // Javadoc에서도 제외 경로 적용
             if (excludedPaths != null && !excludedPaths.isEmpty()) {
                 javadoc.exclude(
-                        fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString())
-                );
+                        fileDetails -> excludedPaths.contains(fileDetails.getRelativePath().toString()));
             }
         });
     }
@@ -1102,11 +1139,14 @@ public class S2BuildUtils {
         boolean hasShadowPlugin = hasGradleupShadow || hasJohnrengelmanShadow;
 
         if (!hasShadowPlugin) {
-            info(project, "ℹ️ [Shadow] Shadow 플러그인이 감지되지 않았습니다. 기본 JAR 패키징으로 진행합니다.", "ℹ️ [Shadow] Shadow plugin not detected. Proceeding with standard JAR packaging.");
-            info(project, "   Fat JAR(Shaded)가 필요하다면 'com.gradleup.shadow' 플러그인을 추가하세요.", "   If you need Fat JAR (Shaded), please add 'com.gradleup.shadow' plugin.");
+            info(project, "ℹ️ [Shadow] Shadow 플러그인이 감지되지 않았습니다. 기본 JAR 패키징으로 진행합니다.",
+                    "ℹ️ [Shadow] Shadow plugin not detected. Proceeding with standard JAR packaging.");
+            info(project, "   Fat JAR(Shaded)가 필요하다면 'com.gradleup.shadow' 플러그인을 추가하세요.",
+                    "   If you need Fat JAR (Shaded), please add 'com.gradleup.shadow' plugin.");
         } else {
             String detectedPlugin = hasGradleupShadow ? "com.gradleup.shadow" : "com.github.johnrengelman.shadow";
-            info(project, "✅ [Shadow] Shadow 플러그인이 감지되었습니다 (" + detectedPlugin + ")", "✅ [Shadow] Detected Shadow plugin (" + detectedPlugin + ")");
+            info(project, "✅ [Shadow] Shadow 플러그인이 감지되었습니다 (" + detectedPlugin + ")",
+                    "✅ [Shadow] Detected Shadow plugin (" + detectedPlugin + ")");
         }
         return hasShadowPlugin;
     }
@@ -1125,7 +1165,8 @@ public class S2BuildUtils {
      * @param version            Version string | 버전 문자열
      * @param combinedExtraFiles Files to include in the JAR | 포함할 추가 파일 세트
      */
-    private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish, String archiveBaseName, String version, Set<String> combinedExtraFiles) {
+    private static void configureShadowIntegration(Project project, boolean isBuildTask, boolean isAnyPublish,
+            String archiveBaseName, String version, Set<String> combinedExtraFiles) {
         try {
             // 서브프로젝트 속성 로드 완료 후 라이선스 재수집 및 병합
             org.gradle.api.Task shadowTask = project.getTasks().findByName("shadowJar");
@@ -1140,10 +1181,12 @@ public class S2BuildUtils {
             // Shadow JAR 상세 설정 분기
             if (isBuildTask && !isAnyPublish) {
                 // [빌드 모드]: Fat JAR 생성 (Shaded + All Dependencies)
-                configureShadowForBuild(project, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
+                configureShadowForBuild(project, shadowTask, shadowExtension, archiveBaseName, version,
+                        combinedExtraFiles);
             } else if (isAnyPublish) {
                 // [배포 모드]: Standard JAR 생성, 구현체만 Shaded (pom 의존성을 위해)
-                configureShadowForPublish(project, shadowTask, shadowExtension, archiveBaseName, version, combinedExtraFiles);
+                configureShadowForPublish(project, shadowTask, shadowExtension, archiveBaseName, version,
+                        combinedExtraFiles);
             }
 
             // 7. Shadow JAR 검증 태스크 등록 (사용자 설정 시) - 모든 모드 공통
@@ -1152,7 +1195,8 @@ public class S2BuildUtils {
             // Shadow 플러그인의 startShadowScripts가 shadowJar를 사용하도록 자동 설정 보완
             if (shadowExtension != null && project.getPluginManager().hasPlugin("application")) {
                 try {
-                    java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass().getMethod("getApplication");
+                    java.lang.reflect.Method getApplicationMethod = shadowExtension.getClass()
+                            .getMethod("getApplication");
                     Object applicationExtension = getApplicationMethod.invoke(shadowExtension);
                     if (applicationExtension != null) {
                         project.getLogger().debug("✅ [Shadow] application 확장 감지됨 - startShadowScripts -> shadowJar");
@@ -1166,7 +1210,8 @@ public class S2BuildUtils {
             // 만약 이 프로젝트가 'shadedPackagePrefix'를 가지고 있다면,
             // 다른 프로젝트가 이 프로젝트를 의존성으로 참조할 때 Standard JAR 대신 Shadow JAR를 가져가도록 설정한다.
             if (project.hasProperty("shadedPackagePrefix")) {
-                project.getLogger().lifecycle("🔧 [Shadow] Outgoing Artifact를 Shadow JAR로 교체합니다. (Project Dependencies용)");
+                project.getLogger()
+                        .lifecycle("🔧 [Shadow] Outgoing Artifact를 Shadow JAR로 교체합니다. (Project Dependencies용)");
 
                 // Helper to replace artifacts
                 org.gradle.api.Action<org.gradle.api.artifacts.Configuration> replaceArtifact = conf -> {
@@ -1199,7 +1244,8 @@ public class S2BuildUtils {
      * @param version            Version string | 버전 문자열
      * @param combinedExtraFiles Files to include in the JAR | 포함할 추가 파일 세트
      */
-    private static void configureStandardMode(Project project, boolean isAnyPublish, String version, Set<String> combinedExtraFiles) {
+    private static void configureStandardMode(Project project, boolean isAnyPublish, String version,
+            Set<String> combinedExtraFiles) {
         // Fat JAR 생성 여부 결정 (배포 시에는 항상 Standard JAR)
         boolean buildFatJar;
         if (project.hasProperty("buildFatJar")) {
@@ -1215,8 +1261,7 @@ public class S2BuildUtils {
                         "⚠️ [Packaging] 배포(publish) 중에는 'buildFatJar=true' 설정이 무시되고 Standard JAR로 강제 전환됩니다. " +
                                 "Fat JAR를 배포하면 POM의 전이 의존성과 겹쳐 소비자 클래스패스에서 클래스 중복이 발생할 수 있습니다.",
                         "⚠️ [Packaging] 'buildFatJar=true' is ignored during publishing and forced to Standard JAR. " +
-                                "Publishing a Fat JAR alongside POM transitive dependencies can cause duplicate classes on consumers' classpath."
-                );
+                                "Publishing a Fat JAR alongside POM transitive dependencies can cause duplicate classes on consumers' classpath.");
                 buildFatJar = false;
             }
         } else {
@@ -1235,7 +1280,8 @@ public class S2BuildUtils {
             // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결
             // runtimeClasspath의 의존성(프로젝트 포함)을 명시적으로 dependsOn에 추가하여 실행 순서를 보장합니다.
             // Fat JAR 여부와 관계없이 순서를 보장하는 것이 안전합니다.
-            org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().getByName("runtimeClasspath");
+            org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                    .getByName("runtimeClasspath");
             task.dependsOn(runtimeConfig);
 
             if (finalBuildFatJar) {
@@ -1269,12 +1315,12 @@ public class S2BuildUtils {
                                             File file = artifact.getFile();
                                             sources.add(file.isDirectory() ? file : project.zipTree(file));
                                         } else {
-                                            project.getLogger().debug("   🚫 [FatJar] Skipping duplicated dependency: " + idStr);
+                                            project.getLogger()
+                                                    .debug("   🚫 [FatJar] Skipping duplicated dependency: " + idStr);
                                         }
                                     }
                                     return sources;
-                                })
-                );
+                                }));
             } else {
                 project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
             }
@@ -1315,7 +1361,8 @@ public class S2BuildUtils {
      * @param extraFiles List of extra files to include | 포함할 추가 파일 경로 목록 (예: 라이선스 파일 등)
      */
     private static void configureDistributions(Project project, Set<String> extraFiles) {
-        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project.getExtensions().findByName("distributions");
+        org.gradle.api.distribution.DistributionContainer distributions = (org.gradle.api.distribution.DistributionContainer) project
+                .getExtensions().findByName("distributions");
         if (distributions != null) {
             distributions.getByName("main").contents(contents -> {
                 // 1. 추가 파일 (라이선스 등)
@@ -1409,7 +1456,8 @@ public class S2BuildUtils {
                 .anyMatch(name -> name.toUpperCase().contains("OSSRH") || name.toUpperCase().contains("CENTRAL"));
 
         if (isCentralPublish) {
-            info(project, "🌍 [설정] Maven Central 배포가 감지되었습니다. 소스 JAR 생성을 강제 활성화합니다.", "🌍 [Config] Maven Central publish detected. Forcing Source JAR generation.");
+            info(project, "🌍 [설정] Maven Central 배포가 감지되었습니다. 소스 JAR 생성을 강제 활성화합니다.",
+                    "🌍 [Config] Maven Central publish detected. Forcing Source JAR generation.");
             rootProject.getExtensions().getExtraProperties().set("enableSourceJar", true);
             return true;
         }
@@ -1488,7 +1536,8 @@ public class S2BuildUtils {
      * @param version         Project version | 프로젝트 버전
      * @param licensePaths    List of license file paths | 포함할 라이선스 파일 경로 목록
      */
-    public static void registerStandardJarTask(Project project, String archiveBaseName, String version, Set<String> licensePaths) {
+    public static void registerStandardJarTask(Project project, String archiveBaseName, String version,
+            Set<String> licensePaths) {
         project.getTasks().register("standardJar", Jar.class, task -> {
             task.getArchiveBaseName().set(archiveBaseName);
             task.getArchiveClassifier().set("standard"); // 기본 jar와 충돌 방지를 위해 standard 사용
@@ -1692,7 +1741,8 @@ public class S2BuildUtils {
      */
     public static void configureJavaCompatibility(Project project) {
         if (!project.getPluginManager().hasPlugin("java")) {
-            warn(project, "⚠️ [Java 호환성] 'java' 플러그인이 없어 툴체인/호환성 설정을 건너뜁니다.", "⚠️ [Java Compatibility] 'java' plugin not found. Skipping toolchain/compatibility setup.");
+            warn(project, "⚠️ [Java 호환성] 'java' 플러그인이 없어 툴체인/호환성 설정을 건너뜁니다.",
+                    "⚠️ [Java Compatibility] 'java' plugin not found. Skipping toolchain/compatibility setup.");
             return;
         }
 
@@ -1700,7 +1750,8 @@ public class S2BuildUtils {
         JavaVersion releaseVersion = findProperty(project, "releaseCompatibility", JavaVersion.class, toolchainVersion);
 
         project.getExtensions().configure(org.gradle.api.plugins.JavaPluginExtension.class, java -> {
-            java.toolchain(toolchain -> toolchain.getLanguageVersion().set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(toolchainVersion.getMajorVersion())));
+            java.toolchain(toolchain -> toolchain.getLanguageVersion()
+                    .set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(toolchainVersion.getMajorVersion())));
             java.setSourceCompatibility(releaseVersion);
             java.setTargetCompatibility(releaseVersion);
         });
@@ -1708,9 +1759,8 @@ public class S2BuildUtils {
         if (!releaseVersion.equals(toolchainVersion)) {
             // --release 옵션의 제약을 해제하고 구형 방식인 -source/-target을 강제로 사용하여
             // toolchainVersion(JDK)으로 컴파일하되 releaseVersion으로 실행 가능한 바이트코드를 생성한다.
-            project.getTasks().withType(org.gradle.api.tasks.compile.JavaCompile.class).configureEach(task ->
-                    task.getOptions().getRelease().set((Integer) null)
-            );
+            project.getTasks().withType(org.gradle.api.tasks.compile.JavaCompile.class)
+                    .configureEach(task -> task.getOptions().getRelease().set((Integer) null));
         }
     }
 
@@ -1733,7 +1783,8 @@ public class S2BuildUtils {
      */
     private static <T> T findProperty(Project project, String key, Class<T> type, T fallback) {
         org.gradle.api.plugins.ExtraPropertiesExtension ownExtra = project.getExtensions().getExtraProperties();
-        org.gradle.api.plugins.ExtraPropertiesExtension rootExtra = project.getRootProject().getExtensions().getExtraProperties();
+        org.gradle.api.plugins.ExtraPropertiesExtension rootExtra = project.getRootProject().getExtensions()
+                .getExtraProperties();
         Object value = ownExtra.has(key) ? ownExtra.get(key) : (rootExtra.has(key) ? rootExtra.get(key) : null);
         return type.isInstance(value) ? type.cast(value) : fallback;
     }
@@ -1760,7 +1811,8 @@ public class S2BuildUtils {
             // Lazy configuration via provider
             task.from(project.getProviders().provider(() -> {
                 List<File> filesToCopy = new ArrayList<>();
-                org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+                org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                        .findByName("runtimeClasspath");
 
                 if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
                     // Use resolved configuration to access artifacts and their metadata
@@ -1835,7 +1887,8 @@ public class S2BuildUtils {
                 project.getLogger().warn("  [A] 프로젝트 표준(목표 버전: " + configuredTargetVersion + ")으로 빌드하려면:");
                 project.getLogger().warn("     시스템에 설치된 'gradle' 대신, './gradlew build'를 사용해 주세요.([프로젝트 루트]/gradlew)");
                 project.getLogger().warn("");
-                project.getLogger().warn("  [B] 현재 실행 버전(" + actualRuntimeVersion + ")으로 Wrapper 설정을 업데이트하려면 (⚠️ 신중히 결정, 시스템에 설치된 `Gradle`을 사용):");
+                project.getLogger().warn("  [B] 현재 실행 버전(" + actualRuntimeVersion
+                        + ")으로 Wrapper 설정을 업데이트하려면 (⚠️ 신중히 결정, 시스템에 설치된 `Gradle`을 사용):");
                 project.getLogger().warn("     gradle wrapper --gradle-version " + actualRuntimeVersion);
                 project.getLogger().warn(separator);
             } else {
@@ -1847,10 +1900,13 @@ public class S2BuildUtils {
                 project.getLogger().warn("");
                 project.getLogger().warn("  ➡️ Please take one of the following actions based on your situation:");
                 project.getLogger().warn("");
-                project.getLogger().warn("  [A] To build with project standard (Target Version: " + configuredTargetVersion + "):");
-                project.getLogger().warn("     Please use './gradlew build' instead of system-installed 'gradle'. ([Project Root]/gradlew)");
+                project.getLogger().warn(
+                        "  [A] To build with project standard (Target Version: " + configuredTargetVersion + "):");
+                project.getLogger().warn(
+                        "     Please use './gradlew build' instead of system-installed 'gradle'. ([Project Root]/gradlew)");
                 project.getLogger().warn("");
-                project.getLogger().warn("  [B] To update Wrapper settings to current runtime version (" + actualRuntimeVersion + ") (⚠️ Be cautious, uses your installed `Gradle`):");
+                project.getLogger().warn("  [B] To update Wrapper settings to current runtime version ("
+                        + actualRuntimeVersion + ") (⚠️ Be cautious, uses your installed `Gradle`):");
                 project.getLogger().warn("     gradle wrapper --gradle-version " + actualRuntimeVersion);
                 project.getLogger().warn(separator);
             }
@@ -1868,7 +1924,8 @@ public class S2BuildUtils {
         File wrapperPropertiesFile = project.getRootProject().file("gradle/wrapper/gradle-wrapper.properties");
 
         if (!wrapperPropertiesFile.exists()) {
-            project.getLogger().warn("[S2BuildSupport] 경고: gradle-wrapper.properties 파일이 존재하지 않습니다. Wrapper 설정을 확인해 주세요.");
+            project.getLogger()
+                    .warn("[S2BuildSupport] 경고: gradle-wrapper.properties 파일이 존재하지 않습니다. Wrapper 설정을 확인해 주세요.");
             return null;
         }
 
@@ -1976,7 +2033,8 @@ public class S2BuildUtils {
                     } else if (filePath.contains("/")) {
                         // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
                         String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
-                        project.getLogger().lifecycle("   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+                        project.getLogger().lifecycle(
+                                "   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
 
                         File finalFile = file;
                         jarTask.from(finalFile, copySpec -> {
@@ -2020,10 +2078,12 @@ public class S2BuildUtils {
     private static void configureShadowForBuild(Project project, org.gradle.api.Task shadowTask,
             Object shadowExtension, String archiveBaseName, String version, Set<String> extraFiles) {
         try {
-            info(project, "🔧 [Shadow] 빌드 모드: Fat JAR 생성 및 의존성 동적 쉐이딩을 구성합니다.", "🔧 [Shadow] Build Mode: Configuring Fat JAR generation and dynamic dependency shading.");
+            info(project, "🔧 [Shadow] 빌드 모드: Fat JAR 생성 및 의존성 동적 쉐이딩을 구성합니다.",
+                    "🔧 [Shadow] Build Mode: Configuring Fat JAR generation and dynamic dependency shading.");
 
             if (!(shadowTask instanceof com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar)) {
-                warn(project, "⚠️ [Shadow] 태스크가 ShadowJar 타입이 아닙니다. 설정이 무시될 수 있습니다.", "⚠️ [Shadow] Task is not of type ShadowJar. Settings may be ignored.");
+                warn(project, "⚠️ [Shadow] 태스크가 ShadowJar 타입이 아닙니다. 설정이 무시될 수 있습니다.",
+                        "⚠️ [Shadow] Task is not of type ShadowJar. Settings may be ignored.");
                 return;
             }
             com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar shadowJar = (com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) shadowTask;
@@ -2060,12 +2120,14 @@ public class S2BuildUtils {
                 });
 
                 // 1. 기본 설정 (Configurations) - FatJar 생성
-                org.gradle.api.artifacts.Configuration runtimeClasspath = project.getConfigurations().findByName("runtimeClasspath");
+                org.gradle.api.artifacts.Configuration runtimeClasspath = project.getConfigurations()
+                        .findByName("runtimeClasspath");
                 if (runtimeClasspath != null) {
                     // setConfigurations 대신 getConfigurations().add() 사용
                     // ShadowJar의 configurations는 List<FileCollection> 타입임
                     shadowJar.getConfigurations().add(runtimeClasspath);
-                    info(project, "✅ [Shadow] Configurations 설정을 통해 Fat JAR 모드를 활성화했습니다.", "✅ [Shadow] Fat JAR mode enabled via Configurations setting.");
+                    info(project, "✅ [Shadow] Configurations 설정을 통해 Fat JAR 모드를 활성화했습니다.",
+                            "✅ [Shadow] Fat JAR mode enabled via Configurations setting.");
                 }
 
                 // 2. 추가 파일 (licenses, META-INF, readme.md) 포함
@@ -2081,12 +2143,14 @@ public class S2BuildUtils {
 
                             if (file.isDirectory()) {
                                 // 디렉토리인 경우 fileTree 사용
-                                info(project, "   ✅ 디렉토리 추가 [" + source + "]: " + filePath, "   ✅ Adding directory [" + source + "]: " + filePath);
+                                info(project, "   ✅ 디렉토리 추가 [" + source + "]: " + filePath,
+                                        "   ✅ Adding directory [" + source + "]: " + filePath);
                                 shadowJar.from(project.fileTree(file));
                             } else if (filePath.contains("/")) {
                                 // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
                                 String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
-                                project.getLogger().lifecycle("   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+                                project.getLogger().lifecycle(
+                                        "   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
 
                                 File finalFile = file;
                                 shadowJar.from(finalFile, copySpec -> {
@@ -2094,14 +2158,16 @@ public class S2BuildUtils {
                                 });
                             } else {
                                 // 루트 레벨 파일 (예: README.md) -> 루트에 저장
-                                info(project, "   ✅ 루트 파일 추가 [" + source + "]: " + filePath, "   ✅ Adding root file [" + source + "]: " + filePath);
+                                info(project, "   ✅ 루트 파일 추가 [" + source + "]: " + filePath,
+                                        "   ✅ Adding root file [" + source + "]: " + filePath);
                                 shadowJar.from(file);
                             }
                         } else {
                             warn(project, "   ⚠️  파일을 찾을 수 없습니다: " + filePath, "   ⚠️  File not found: " + filePath);
                         }
                     }
-                    info(project, "✅ [Shadow] 추가 파일 포함 완료 (" + extraFiles.size() + "개 항목)", "✅ [Shadow] Extra files inclusion complete (" + extraFiles.size() + " items)");
+                    info(project, "✅ [Shadow] 추가 파일 포함 완료 (" + extraFiles.size() + "개 항목)",
+                            "✅ [Shadow] Extra files inclusion complete (" + extraFiles.size() + " items)");
                 }
 
                 // 4. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
@@ -2122,9 +2188,11 @@ public class S2BuildUtils {
                 if (!hasExplicitPrefix) {
                     // 커맨드라인 인자 재확인 (우선순위를 위해 남겨둘 수도 있지만, 위에서 이미 체크됨.
                     // 단, 사용자가 -P옵션으로 덮어쓰는 경우를 위해 유지하거나 병합 가능)
-                    java.util.List<String> args = project.getGradle().getStartParameter().getProjectProperties().keySet().stream()
+                    java.util.List<String> args = project.getGradle().getStartParameter().getProjectProperties()
+                            .keySet().stream()
                             .filter(key -> "shadedPackagePrefix".equals(key))
-                            .map(key -> (String) project.getGradle().getStartParameter().getProjectProperties().get(key))
+                            .map(key -> (String) project.getGradle().getStartParameter().getProjectProperties()
+                                    .get(key))
                             .collect(java.util.stream.Collectors.toList());
 
                     if (!args.isEmpty()) {
@@ -2142,10 +2210,12 @@ public class S2BuildUtils {
                         String fromPackage = pkg;
                         String toPackage = prefix + "." + pkg;
                         shadowJar.relocate(fromPackage, toPackage);
-                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage, "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage,
+                                "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
                     }
                 } else {
-                    info(project, "ℹ️ [Shadow] 빌드 모드: 패키지 재배치(Relocation)를 건너뜁니다.", "ℹ️ [Shadow] Build Mode: Skipping package relocation.");
+                    info(project, "ℹ️ [Shadow] 빌드 모드: 패키지 재배치(Relocation)를 건너뜁니다.",
+                            "ℹ️ [Shadow] Build Mode: Skipping package relocation.");
                 }
 
                 // Manifest 설정
@@ -2161,10 +2231,12 @@ public class S2BuildUtils {
                 shadowJar.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
 
             } catch (Exception e) {
-                warn(project, "⚠️ [Shadow] 빌드 모드 설정 중 오류: " + e.getMessage(), "⚠️ [Shadow] Error during Build mode configuration: " + e.getMessage());
+                warn(project, "⚠️ [Shadow] 빌드 모드 설정 중 오류: " + e.getMessage(),
+                        "⚠️ [Shadow] Error during Build mode configuration: " + e.getMessage());
             }
         } catch (Exception e) {
-            warn(project, "⚠️ [Shadow] 초기 설정 중 오류: " + e.getMessage(), "⚠️ [Shadow] Error during initial configuration: " + e.getMessage());
+            warn(project, "⚠️ [Shadow] 초기 설정 중 오류: " + e.getMessage(),
+                    "⚠️ [Shadow] Error during initial configuration: " + e.getMessage());
         }
     }
 
@@ -2216,19 +2288,28 @@ public class S2BuildUtils {
 
             // 3. 일반 test 태스크 비활성화 (검증 클래스가 지정된 경우 'testArtifact'로 검증을 일원화)
             project.getTasks().withType(org.gradle.api.tasks.testing.Test.class).configureEach(testTask -> {
-                info(project, "ℹ️ [Shadow] 'artifactTestClassNames' 설정으로 인해 일반 테스트를 비활성화하고 'testArtifact'로 대체합니다.", "ℹ️ [Shadow] 'artifactTestClassNames' detected. Disabling standard 'test' task and delegating to 'testArtifact'.");
+                info(project, "ℹ️ [Shadow] 'artifactTestClassNames' 설정으로 인해 일반 테스트를 비활성화하고 'testArtifact'로 대체합니다.",
+                        "ℹ️ [Shadow] 'artifactTestClassNames' detected. Disabling standard 'test' task and delegating to 'testArtifact'.");
                 testTask.setEnabled(false);
             });
 
-            info(project, "✅ [Shadow] 'testArtifact' 태스크가 빌드 사이클에 등록되었습니다. (대상: " + verifyClasses + ")", "✅ [Shadow] 'testArtifact' task registered to build cycle. (Targets: " + verifyClasses + ")");
+            info(project, "✅ [Shadow] 'testArtifact' 태스크가 빌드 사이클에 등록되었습니다. (대상: " + verifyClasses + ")",
+                    "✅ [Shadow] 'testArtifact' task registered to build cycle. (Targets: " + verifyClasses + ")");
         } else {
             // 가이드 로그 출력 (Cyan)
             if (isKorean()) {
-                project.getLogger().lifecycle(ANSI_CYAN + "📘 [가이드] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassNames = [\"패키지.클래스1\", \"패키지.클래스2\"]'를 설정하세요." + ANSI_RESET);
-                project.getLogger().lifecycle(ANSI_CYAN + "   -> 설정 시 './gradlew testArtifact'를 통해 최종 JAR를 클래스패스로 하여 테스트를 실행할 수 있습니다." + ANSI_RESET);
+                project.getLogger().lifecycle(ANSI_CYAN
+                        + "📘 [가이드] 빌드 완료 후 결과물을 테스트하려면 build.gradle에 'ext.artifactTestClassNames = [\"패키지.클래스1\", \"패키지.클래스2\"]'를 설정하세요."
+                        + ANSI_RESET);
+                project.getLogger().lifecycle(ANSI_CYAN
+                        + "   -> 설정 시 './gradlew testArtifact'를 통해 최종 JAR를 클래스패스로 하여 테스트를 실행할 수 있습니다." + ANSI_RESET);
             } else {
-                project.getLogger().lifecycle(ANSI_CYAN + "📘 [Guide] To test output after build, set 'ext.artifactTestClassNames = [\"package.Class1\", \"package.Class2\"]' in build.gradle." + ANSI_RESET);
-                project.getLogger().lifecycle(ANSI_CYAN + "   -> Once set, you can run tests with built JAR as classpath via './gradlew testArtifact'." + ANSI_RESET);
+                project.getLogger().lifecycle(ANSI_CYAN
+                        + "📘 [Guide] To test output after build, set 'ext.artifactTestClassNames = [\"package.Class1\", \"package.Class2\"]' in build.gradle."
+                        + ANSI_RESET);
+                project.getLogger().lifecycle(ANSI_CYAN
+                        + "   -> Once set, you can run tests with built JAR as classpath via './gradlew testArtifact'."
+                        + ANSI_RESET);
             }
         }
     }
@@ -2236,7 +2317,8 @@ public class S2BuildUtils {
     /**
      * JavaExec 기반의 검증 태스크를 내부적으로 등록한다.
      */
-    private static void registerTestArtifactJavaExecTask(Project project, org.gradle.api.Task shadowJar, String taskName, String targetClass) {
+    private static void registerTestArtifactJavaExecTask(Project project, org.gradle.api.Task shadowJar,
+            String taskName, String targetClass) {
         project.getTasks().register(taskName, JavaExec.class, task -> {
             task.setGroup("verification");
             task.setDescription("Minimize가 적용된 Shadow JAR를 기반으로 [" + targetClass + "]를 실행하여 안정성을 검증합니다.");
@@ -2256,7 +2338,8 @@ public class S2BuildUtils {
 
             // 3. S2TestLauncher를 실행하기 위해 build-support 클래스패스 추가
             try {
-                java.io.File supportJar = new java.io.File(S2BuildUtils.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+                java.io.File supportJar = new java.io.File(
+                        S2BuildUtils.class.getProtectionDomain().getCodeSource().getLocation().toURI());
                 task.setClasspath(task.getClasspath().plus(project.files(supportJar)));
             } catch (Exception e) {
                 project.getLogger().warn("⚠️ [Shadow] S2TestLauncher 클래스패스 추가 실패: " + e.getMessage());
@@ -2268,7 +2351,10 @@ public class S2BuildUtils {
 
             // 5. 작업 시작 전 안내 로그 (Cyan 색상 적용)
             task.doFirst(t -> {
-                project.getLogger().lifecycle(ANSI_CYAN + "🚀 [Verification] 'built-artifact'를 클래스패스 최우선으로 하여 런타임 검증을 수행합니다. (Target: " + targetClass + ")" + ANSI_RESET);
+                project.getLogger()
+                        .lifecycle(ANSI_CYAN
+                                + "🚀 [Verification] 'built-artifact'를 클래스패스 최우선으로 하여 런타임 검증을 수행합니다. (Target: "
+                                + targetClass + ")" + ANSI_RESET);
             });
         });
     }
@@ -2298,7 +2384,8 @@ public class S2BuildUtils {
 
         // Gradle Plugin 프로젝트의 경우 java-gradle-plugin이 이미 Publication을 생성하므로 중복 생성을 피한다.
         if (project.getPluginManager().hasPlugin("java-gradle-plugin")) {
-            info(project, "ℹ️ [배포] Gradle Plugin 프로젝트 감지됨. 별도의 'mavenJava' Publication 생성을 건너뜁니다.", "ℹ️ [Publishing] Gradle Plugin project detected. Skipping 'mavenJava' Publication creation.");
+            info(project, "ℹ️ [배포] Gradle Plugin 프로젝트 감지됨. 별도의 'mavenJava' Publication 생성을 건너뜁니다.",
+                    "ℹ️ [Publishing] Gradle Plugin project detected. Skipping 'mavenJava' Publication creation.");
             return;
         }
 
@@ -2306,10 +2393,13 @@ public class S2BuildUtils {
             // "mavenJava" Publication이 이미 존재하는지 확인
             org.gradle.api.publish.maven.MavenPublication publication;
             if (publishing.getPublications().findByName("mavenJava") != null) {
-                publication = (org.gradle.api.publish.maven.MavenPublication) publishing.getPublications().getByName("mavenJava");
-                info(project, "ℹ️ [배포] 기존 'mavenJava' Publication을 재사용하여 설정을 업데이트합니다.", "ℹ️ [Publishing] Reusing existing 'mavenJava' Publication.");
+                publication = (org.gradle.api.publish.maven.MavenPublication) publishing.getPublications()
+                        .getByName("mavenJava");
+                info(project, "ℹ️ [배포] 기존 'mavenJava' Publication을 재사용하여 설정을 업데이트합니다.",
+                        "ℹ️ [Publishing] Reusing existing 'mavenJava' Publication.");
             } else {
-                publication = publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class);
+                publication = publishing.getPublications().create("mavenJava",
+                        org.gradle.api.publish.maven.MavenPublication.class);
             }
 
             // 공통 설정 적용
@@ -2325,7 +2415,8 @@ public class S2BuildUtils {
                 } catch (Exception e) {
                     // 이미 존재하거나(중복 추가), components.java가 없는 경우
                     // 로그 레벨을 낮춰서 빌드에 지장을 주지 않도록 함 (INFO or DEBUG)
-                    project.getLogger().info("ℹ️ [Publishing] components.java 추가 건너뜀 (이미 존재하거나 사용할 수 없음): " + e.getMessage());
+                    project.getLogger()
+                            .info("ℹ️ [Publishing] components.java 추가 건너뜀 (이미 존재하거나 사용할 수 없음): " + e.getMessage());
                 }
             } else {
                 // 2. Shadow 사용: Shadow 모드
@@ -2386,7 +2477,8 @@ public class S2BuildUtils {
      */
     public static void configureCentralPortalRepository(Project project) {
         if (!project.getPluginManager().hasPlugin("maven-publish")) {
-            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 CentralPortal 리포지토리 설정을 건너뜁니다.", "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping CentralPortal repository setup.");
+            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 CentralPortal 리포지토리 설정을 건너뜁니다.",
+                    "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping CentralPortal repository setup.");
             return;
         }
 
@@ -2395,7 +2487,8 @@ public class S2BuildUtils {
                 maven.setName("CentralPortal");
                 // Central Portal Zip Bundle Upload API (v1)
                 // publishingType → AUTOMATIC : 자동 배포, USER_MANAGED : 사용자 관리 배포 (수동 승인/배포 필요 시)
-                maven.setUrl(URI.create("https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED"));
+                maven.setUrl(
+                        URI.create("https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED"));
                 maven.credentials(credentials -> {
                     Object username = project.findProperty("centralUsername");
                     Object password = project.findProperty("centralPassword");
@@ -2405,7 +2498,8 @@ public class S2BuildUtils {
             });
         });
 
-        info(project, "✅ [배포] 'CentralPortal' 리포지토리가 설정되었습니다.", "✅ [Publishing] 'CentralPortal' repository configured.");
+        info(project, "✅ [배포] 'CentralPortal' 리포지토리가 설정되었습니다.",
+                "✅ [Publishing] 'CentralPortal' repository configured.");
 
         // Central Portal은 서명 없는 아티팩트를 거부하므로, 여기서 서명 설정까지 자동으로 마친다.
         configurePublishSigning(project);
@@ -2435,7 +2529,8 @@ public class S2BuildUtils {
      */
     public static void configureGitHubPackagesRepository(Project project, String repoOwner, String repoName) {
         if (!project.getPluginManager().hasPlugin("maven-publish")) {
-            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 s2-packages 리포지토리 설정을 건너뜁니다.", "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping s2-packages repository setup.");
+            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 s2-packages 리포지토리 설정을 건너뜁니다.",
+                    "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping s2-packages repository setup.");
             return;
         }
 
@@ -2464,7 +2559,8 @@ public class S2BuildUtils {
             });
         });
 
-        info(project, "✅ [배포] 's2-packages' 리포지토리가 설정되었습니다: " + repoBaseUrl, "✅ [Publishing] 's2-packages' repository configured: " + repoBaseUrl);
+        info(project, "✅ [배포] 's2-packages' 리포지토리가 설정되었습니다: " + repoBaseUrl,
+                "✅ [Publishing] 's2-packages' repository configured: " + repoBaseUrl);
     }
 
     /**
@@ -2487,8 +2583,10 @@ public class S2BuildUtils {
      * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     public static void configurePublishSigning(Project project) {
-        if (!project.getPluginManager().hasPlugin("signing") || !project.getPluginManager().hasPlugin("maven-publish")) {
-            warn(project, "⚠️ [배포] 'signing' 또는 'maven-publish' 플러그인이 없어 서명 설정을 건너뜁니다.", "⚠️ [Publishing] 'signing' or 'maven-publish' plugin not found. Skipping signing setup.");
+        if (!project.getPluginManager().hasPlugin("signing")
+                || !project.getPluginManager().hasPlugin("maven-publish")) {
+            warn(project, "⚠️ [배포] 'signing' 또는 'maven-publish' 플러그인이 없어 서명 설정을 건너뜁니다.",
+                    "⚠️ [Publishing] 'signing' or 'maven-publish' plugin not found. Skipping signing setup.");
             return;
         }
 
@@ -2500,14 +2598,14 @@ public class S2BuildUtils {
         }
         project.getExtensions().getExtraProperties().set(duplicateGuardKey, true);
 
-        org.gradle.api.publish.PublishingExtension publishing = project.getExtensions().getByType(org.gradle.api.publish.PublishingExtension.class);
+        org.gradle.api.publish.PublishingExtension publishing = project.getExtensions()
+                .getByType(org.gradle.api.publish.PublishingExtension.class);
 
         project.getExtensions().configure(org.gradle.plugins.signing.SigningExtension.class, signing -> {
             // 배포(Publish) 태스크가 실행될 때만 서명 필수 (그 외 일반 빌드에서는 건너뜀)
-            signing.setRequired((java.util.concurrent.Callable<Boolean>) () ->
-                    project.getGradle().getTaskGraph().getAllTasks().stream()
-                            .anyMatch(t -> t.getName().contains("publish") || t.getName().contains("Publish"))
-            );
+            signing.setRequired((java.util.concurrent.Callable<Boolean>) () -> project.getGradle().getTaskGraph()
+                    .getAllTasks().stream()
+                    .anyMatch(t -> t.getName().contains("publish") || t.getName().contains("Publish")));
             // 현재 등록된 Publication은 물론, 이후 추가되는 Publication에도 반응적으로 서명 적용
             publishing.getPublications().all(signing::sign);
         });
@@ -2528,7 +2626,8 @@ public class S2BuildUtils {
      */
     public static void configurePublishArtifacts(Project project) {
         if (!project.getPluginManager().hasPlugin("java")) {
-            warn(project, "⚠️ [배포 아티팩트] 'java' 플러그인이 없어 Javadoc/소스 JAR 설정을 건너뜁니다.", "⚠️ [Publish Artifacts] 'java' plugin not found. Skipping Javadoc/Sources JAR setup.");
+            warn(project, "⚠️ [배포 아티팩트] 'java' 플러그인이 없어 Javadoc/소스 JAR 설정을 건너뜁니다.",
+                    "⚠️ [Publish Artifacts] 'java' plugin not found. Skipping Javadoc/Sources JAR setup.");
             return;
         }
 
@@ -2565,8 +2664,10 @@ public class S2BuildUtils {
             suffix.append("-java").append(javaVersion.getMajorVersion());
         }
 
-        Set<String> activeFeatures = findProperty(project, "activeFeatures", Set.class, java.util.Collections.emptySet());
-        Map<String, Map<String, Object>> dynamicSourceInfoMap = findProperty(project, "dynamicSourceInfoMap", Map.class, java.util.Collections.emptyMap());
+        Set<String> activeFeatures = findProperty(project, "activeFeatures", Set.class,
+                java.util.Collections.emptySet());
+        Map<String, Map<String, Object>> dynamicSourceInfoMap = findProperty(project, "dynamicSourceInfoMap", Map.class,
+                java.util.Collections.emptyMap());
         for (String feature : activeFeatures) {
             Map<String, Object> info = dynamicSourceInfoMap.get(feature);
             Object variantId = info != null ? info.get("variantId") : null;
@@ -2597,7 +2698,8 @@ public class S2BuildUtils {
             project.getExtensions().getByType(org.gradle.api.plugins.BasePluginExtension.class)
                     .getArchivesName().set(project.getName() + suffix);
         } catch (Exception e) {
-            warn(project, "⚠️ [아티팩트 ID] 'base' 플러그인이 없어 archivesName 설정을 건너뜁니다.", "⚠️ [Artifact ID] 'base' plugin not found. Skipping archivesName setup.");
+            warn(project, "⚠️ [아티팩트 ID] 'base' 플러그인이 없어 archivesName 설정을 건너뜁니다.",
+                    "⚠️ [Artifact ID] 'base' plugin not found. Skipping archivesName setup.");
         }
     }
 
@@ -2620,8 +2722,10 @@ public class S2BuildUtils {
      * @param description POM {@code <description>} | POM {@code <description>}
      * @param repoUrl     GitHub repository URL, e.g. {@code https://github.com/devers2/s2-util} | GitHub 리포지토리 URL
      */
-    public static void applyStandardPom(org.gradle.api.publish.maven.MavenPublication publication, String name, String description, String repoUrl) {
-        applyStandardPom(publication, name, description, repoUrl, "devers2", "이승수", "eseungsu.dev@gmail.com", "devers2");
+    public static void applyStandardPom(org.gradle.api.publish.maven.MavenPublication publication, String name,
+            String description, String repoUrl) {
+        applyStandardPom(publication, name, description, repoUrl, "devers2", "이승수", "eseungsu.dev@gmail.com",
+                "devers2");
     }
 
     /**
@@ -2642,8 +2746,9 @@ public class S2BuildUtils {
      * @param developerEmail POM developer email | POM 개발자 이메일
      * @param organization   POM developer organization (also used to derive {@code organizationUrl}) | POM 개발자 조직명 ({@code organizationUrl} 유도에도 사용)
      */
-    public static void applyStandardPom(org.gradle.api.publish.maven.MavenPublication publication, String name, String description, String repoUrl,
-                                         String developerId, String developerName, String developerEmail, String organization) {
+    public static void applyStandardPom(org.gradle.api.publish.maven.MavenPublication publication, String name,
+            String description, String repoUrl,
+            String developerId, String developerName, String developerEmail, String organization) {
         String cleanRepoUrl = repoUrl.endsWith("/") ? repoUrl.substring(0, repoUrl.length() - 1) : repoUrl;
         String hostPath = cleanRepoUrl.replaceFirst("^https?://", "");
 
@@ -2711,7 +2816,8 @@ public class S2BuildUtils {
      */
     public static void configureLibraryPublishing(Project project, String name, String description, String repoUrl) {
         if (!project.getPluginManager().hasPlugin("maven-publish")) {
-            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 라이브러리 배포 설정을 건너뜁니다.", "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping library publishing setup.");
+            warn(project, "⚠️ [배포] 'maven-publish' 플러그인이 없어 라이브러리 배포 설정을 건너뜁니다.",
+                    "⚠️ [Publishing] 'maven-publish' plugin not found. Skipping library publishing setup.");
             return;
         }
 
@@ -2719,12 +2825,11 @@ public class S2BuildUtils {
         configureJavaCompatibility(project);
         configurePublishArtifacts(project);
 
-        project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing ->
-                publishing.getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class, pub -> {
+        project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing -> publishing
+                .getPublications().create("mavenJava", org.gradle.api.publish.maven.MavenPublication.class, pub -> {
                     pub.from(project.getComponents().getByName("java"));
                     applyStandardPom(pub, name, description, repoUrl);
-                })
-        );
+                }));
 
         configureCentralPortalRepository(project);
     }
@@ -2756,7 +2861,8 @@ public class S2BuildUtils {
     private static void configureShadowForPublish(Project project, org.gradle.api.Task shadowTask,
             Object shadowExtension, String archiveBaseName, String version, Set<String> extraFiles) {
         try {
-            info(project, "🔧 [Shadow] 배포 모드: 표준 JAR 생성 및 의존성 동적 쉐이딩을 구성합니다.", "🔧 [Shadow] Publishing Mode: Configuring standard JAR generation and dynamic dependency shading.");
+            info(project, "🔧 [Shadow] 배포 모드: 표준 JAR 생성 및 의존성 동적 쉐이딩을 구성합니다.",
+                    "🔧 [Shadow] Publishing Mode: Configuring standard JAR generation and dynamic dependency shading.");
 
             if (!(shadowTask instanceof com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar)) {
                 return;
@@ -2776,14 +2882,17 @@ public class S2BuildUtils {
             // finalize하기 때문, 실제 배포 파이프라인을 실행해서 확인함). configureShadowForPublish 자체가 이미
             // project.afterEvaluate 콜백 안에서 실행되므로 설정 시점(Configuration Phase)에 바로 반영하면 안전하다.
             try {
-                org.gradle.api.artifacts.Configuration runtimeClasspathForPublish = project.getConfigurations().findByName("runtimeClasspath");
+                org.gradle.api.artifacts.Configuration runtimeClasspathForPublish = project.getConfigurations()
+                        .findByName("runtimeClasspath");
                 shadowJar.getConfigurations().empty();
                 if (runtimeClasspathForPublish != null) {
                     shadowJar.getConfigurations().add(runtimeClasspathForPublish);
                 }
-                info(project, "✅ [Shadow] 배포 모드: configurations을 runtimeClasspath로 초기화했습니다 (api 제외 예정).", "✅ [Shadow] Publishing Mode: Initialized configurations with runtimeClasspath (api excluded later).");
+                info(project, "✅ [Shadow] 배포 모드: configurations을 runtimeClasspath로 초기화했습니다 (api 제외 예정).",
+                        "✅ [Shadow] Publishing Mode: Initialized configurations with runtimeClasspath (api excluded later).");
             } catch (Exception e) {
-                warn(project, "⚠️ [Shadow] configurations 초기화 실패: " + e.getMessage(), "⚠️ [Shadow] Failed to initialize configurations: " + e.getMessage());
+                warn(project, "⚠️ [Shadow] configurations 초기화 실패: " + e.getMessage(),
+                        "⚠️ [Shadow] Failed to initialize configurations: " + e.getMessage());
             }
 
             // jar 태스크의 출력 경로를 분리하여 shadowJar와 파일명이 겹치지 않게 한다. (Classifier 대신 폴더 분리)
@@ -2808,7 +2917,8 @@ public class S2BuildUtils {
             // ShadowJar는 Jar(AbstractCopyTask)를 상속하므로 CopySpec API(from 등)를 직접 호출할 수 있다.
             if (extraFiles != null && !extraFiles.isEmpty()) {
                 try {
-                    info(project, "📋 [Shadow 배포] 추가 파일을 포함합니다: " + shadowJar.getName(), "📋 [Shadow Publish] Including extra files into " + shadowJar.getName());
+                    info(project, "📋 [Shadow 배포] 추가 파일을 포함합니다: " + shadowJar.getName(),
+                            "📋 [Shadow Publish] Including extra files into " + shadowJar.getName());
 
                     for (String filePath : extraFiles) {
                         // 1. 프로젝트 기준 탐색
@@ -2819,18 +2929,21 @@ public class S2BuildUtils {
 
                             if (file.isDirectory()) {
                                 // 디렉토리인 경우 fileTree 사용
-                                info(project, "   ✅ 디렉토리 추가 [" + source + "]: " + filePath, "   ✅ Adding directory [" + source + "]: " + filePath);
+                                info(project, "   ✅ 디렉토리 추가 [" + source + "]: " + filePath,
+                                        "   ✅ Adding directory [" + source + "]: " + filePath);
                                 shadowJar.from(project.fileTree(file));
                             } else if (filePath.contains("/")) {
                                 // 경로가 포함된 파일 (예: licenses/LICENSE-MIT) -> 상위 디렉토리 유지
                                 String parentPath = filePath.substring(0, filePath.lastIndexOf("/"));
-                                info(project, "   ✅ 파일 추가 [" + source + "]: " + filePath + " -> " + parentPath + "/", "   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
+                                info(project, "   ✅ 파일 추가 [" + source + "]: " + filePath + " -> " + parentPath + "/",
+                                        "   ✅ Adding file [" + source + "]: " + filePath + " -> " + parentPath + "/");
 
                                 File finalFile = file;
                                 shadowJar.from(finalFile, copySpec -> copySpec.into(parentPath));
                             } else {
                                 // 루트 레벨 파일 (예: README.md) -> 루트에 저장
-                                info(project, "   ✅ 루트 파일 추가 [" + source + "]: " + filePath, "   ✅ Adding root file [" + source + "]: " + filePath);
+                                info(project, "   ✅ 루트 파일 추가 [" + source + "]: " + filePath,
+                                        "   ✅ Adding root file [" + source + "]: " + filePath);
                                 shadowJar.from(file);
                             }
                         } else {
@@ -2838,7 +2951,8 @@ public class S2BuildUtils {
                         }
                     }
                 } catch (Exception e) {
-                    warn(project, "⚠️  [Shadow] 추가 파일 포함 중 오류: " + e.getMessage(), "⚠️  [Shadow] Error including extra files: " + e.getMessage());
+                    warn(project, "⚠️  [Shadow] 추가 파일 포함 중 오류: " + e.getMessage(),
+                            "⚠️  [Shadow] Error including extra files: " + e.getMessage());
                 }
             }
 
@@ -2853,26 +2967,31 @@ public class S2BuildUtils {
                         // api 설정 Resolve (transitive=true, JAVA_RUNTIME)
                         Set<String> apiArtifactIdsForExclude = new java.util.HashSet<>();
                         try {
-                            org.gradle.api.artifacts.Configuration apiConfigForExclude = project.getConfigurations().findByName("api");
+                            org.gradle.api.artifacts.Configuration apiConfigForExclude = project.getConfigurations()
+                                    .findByName("api");
                             if (apiConfigForExclude != null) {
-                                org.gradle.api.artifacts.Configuration resolvableApi = project.getConfigurations().detachedConfiguration();
+                                org.gradle.api.artifacts.Configuration resolvableApi = project.getConfigurations()
+                                        .detachedConfiguration();
                                 resolvableApi.getDependencies().addAll(apiConfigForExclude.getAllDependencies());
 
                                 resolvableApi.attributes(attrs -> {
                                     attrs.attribute(
                                             org.gradle.api.attributes.Usage.USAGE_ATTRIBUTE,
-                                            project.getObjects().named(org.gradle.api.attributes.Usage.class, org.gradle.api.attributes.Usage.JAVA_RUNTIME)
-                                    );
+                                            project.getObjects().named(org.gradle.api.attributes.Usage.class,
+                                                    org.gradle.api.attributes.Usage.JAVA_RUNTIME));
                                 });
                                 resolvableApi.setTransitive(true);
 
-                                for (ResolvedArtifact artifact : resolvableApi.getResolvedConfiguration().getResolvedArtifacts()) {
-                                    apiArtifactIdsForExclude.add(artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName());
+                                for (ResolvedArtifact artifact : resolvableApi.getResolvedConfiguration()
+                                        .getResolvedArtifacts()) {
+                                    apiArtifactIdsForExclude.add(artifact.getModuleVersion().getId().getGroup() + ":"
+                                            + artifact.getModuleVersion().getId().getName());
                                 }
                             }
                         } catch (Exception e) {
                             // Fallback
-                            org.gradle.api.artifacts.Configuration apiConfigFallback = project.getConfigurations().findByName("api");
+                            org.gradle.api.artifacts.Configuration apiConfigFallback = project.getConfigurations()
+                                    .findByName("api");
                             if (apiConfigFallback != null) {
                                 for (org.gradle.api.artifacts.Dependency dep : apiConfigFallback.getAllDependencies()) {
                                     if (dep.getGroup() != null && dep.getName() != null)
@@ -2882,16 +3001,22 @@ public class S2BuildUtils {
                         }
 
                         // Spec을 통한 제외: Shadow는 내부적으로 ResolvedDependency를 사용하므로 Spec<ResolvedDependency>로 매칭
-                        dependenciesSpec.exclude((org.gradle.api.specs.Spec<org.gradle.api.artifacts.ResolvedDependency>) dependency -> {
-                            String id = dependency.getModuleGroup() + ":" + dependency.getModuleName();
-                            // API 의존성 집합에 포함되면 제외 (true 반환 시 exclude됨)
-                            return apiArtifactIdsForExclude.contains(id);
-                        });
+                        dependenciesSpec.exclude(
+                                (org.gradle.api.specs.Spec<org.gradle.api.artifacts.ResolvedDependency>) dependency -> {
+                                    String id = dependency.getModuleGroup() + ":" + dependency.getModuleName();
+                                    // API 의존성 집합에 포함되면 제외 (true 반환 시 exclude됨)
+                                    return apiArtifactIdsForExclude.contains(id);
+                                });
 
-                        info(project, "✅ [Shadow] API 의존성(전이 포함) " + apiArtifactIdsForExclude.size() + "개를 Shadow JAR에서 제외했습니다.", "✅ [Shadow] Excluded " + apiArtifactIdsForExclude.size() + " API dependencies (including transitive) from Shadow JAR.");
+                        info(project,
+                                "✅ [Shadow] API 의존성(전이 포함) " + apiArtifactIdsForExclude.size()
+                                        + "개를 Shadow JAR에서 제외했습니다.",
+                                "✅ [Shadow] Excluded " + apiArtifactIdsForExclude.size()
+                                        + " API dependencies (including transitive) from Shadow JAR.");
 
                     } catch (Exception e) {
-                        warn(project, "⚠️ [Shadow] API 제외 설정(dependencies) 중 오류: " + e.getMessage(), "⚠️ [Shadow] Error during API exclusion (dependencies): " + e.getMessage());
+                        warn(project, "⚠️ [Shadow] API 제외 설정(dependencies) 중 오류: " + e.getMessage(),
+                                "⚠️ [Shadow] Error during API exclusion (dependencies): " + e.getMessage());
                     }
                 });
             }
@@ -2909,13 +3034,16 @@ public class S2BuildUtils {
                         String fromPackage = pkg;
                         String toPackage = prefix + "." + pkg;
                         shadowJar.relocate(fromPackage, toPackage);
-                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage, "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
+                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage,
+                                "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
                     }
                 } else {
-                    info(project, "ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 비어있어 재배치를 건너뜁니다.", "ℹ️ [Shadow] 'shadedPackagePrefix' property is empty, skipping relocation.");
+                    info(project, "ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 비어있어 재배치를 건너뜁니다.",
+                            "ℹ️ [Shadow] 'shadedPackagePrefix' property is empty, skipping relocation.");
                 }
             } else {
-                info(project, "ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 없어 재배치를 건너뜁니다.", "ℹ️ [Shadow] 'shadedPackagePrefix' property not found, skipping relocation.");
+                info(project, "ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 없어 재배치를 건너뜁니다.",
+                        "ℹ️ [Shadow] 'shadedPackagePrefix' property not found, skipping relocation.");
             }
 
             // Manifest 설정
@@ -2954,151 +3082,164 @@ public class S2BuildUtils {
         project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing -> {
             // "mavenJava" 명칭을 가진 Publication에 대해서만 Shadow 설정을 적용한다.
             // (java-gradle-plugin 등에서 자동 생성하는 "pluginMaven" 등과의 충돌 방지)
-            publishing.getPublications().withType(org.gradle.api.publish.maven.MavenPublication.class).configureEach(publication -> {
-                if (!"mavenJava".equals(publication.getName())) {
-                    return;
-                }
+            publishing.getPublications().withType(org.gradle.api.publish.maven.MavenPublication.class)
+                    .configureEach(publication -> {
+                        if (!"mavenJava".equals(publication.getName())) {
+                            return;
+                        }
 
-                // Shadow 플러그인 사용 시 from components.java를 사용하면 Gradle Module Metadata 수정 불가 오류 발생
-                // from components.java가 설정되어 있는지 확인 (기존 리플렉션 로직 유지하되 안전하게 처리)
-                boolean hasFromComponents = false;
-                try {
-                    java.lang.reflect.Method getFromMethod = publication.getClass().getMethod("getFrom");
-                    Object fromComponent = getFromMethod.invoke(publication);
-                    hasFromComponents = fromComponent != null;
-                } catch (Exception e) {
-                    // getFrom 메서드가 없거나 오류 발생 시 무시
-                }
+                        // Shadow 플러그인 사용 시 from components.java를 사용하면 Gradle Module Metadata 수정 불가 오류 발생
+                        // from components.java가 설정되어 있는지 확인 (기존 리플렉션 로직 유지하되 안전하게 처리)
+                        boolean hasFromComponents = false;
+                        try {
+                            java.lang.reflect.Method getFromMethod = publication.getClass().getMethod("getFrom");
+                            Object fromComponent = getFromMethod.invoke(publication);
+                            hasFromComponents = fromComponent != null;
+                        } catch (Exception e) {
+                            // getFrom 메서드가 없거나 오류 발생 시 무시
+                        }
 
-                if (hasFromComponents) {
-                    // from components.java가 설정되어 있으면 오류 메시지 출력
-                    String msgKo = "❌ [Shadow] 오류: Shadow 플러그인 사용 시 'from components.java'를 사용할 수 없습니다.\n" +
-                            "❌ [Shadow] build.gradle의 publishing 블록에서 'from components.java'를 제거하고\n" +
-                            "❌ [Shadow] 아티팩트를 직접 추가하세요. 예:\n" +
-                            "❌ [Shadow]   mavenJava(MavenPublication) {\n" +
-                            "❌ [Shadow]       // from components.java  <- 이 줄 제거\n" +
-                            "❌ [Shadow]       artifactId = base.archivesName.get()\n" +
-                            "❌ [Shadow]       artifact(tasks.named('shadowJar'))\n" +
-                            "❌ [Shadow]       // ... 기타 아티팩트\n" +
-                            "❌ [Shadow]   }";
-                    String msgEn = "❌ [Shadow] Error: 'from components.java' cannot be used with Shadow plugin.\n" +
-                            "❌ [Shadow] Please remove 'from components.java' from publishing block and add artifacts manually. Example:\n" +
-                            "❌ [Shadow]   mavenJava(MavenPublication) {\n" +
-                            "❌ [Shadow]       // from components.java  <- remove this line\n" +
-                            "❌ [Shadow]       artifactId = base.archivesName.get()\n" +
-                            "❌ [Shadow]       artifact(tasks.named('shadowJar'))\n" +
-                            "❌ [Shadow]       // ... other artifacts\n" +
-                            "❌ [Shadow]   }";
+                        if (hasFromComponents) {
+                            // from components.java가 설정되어 있으면 오류 메시지 출력
+                            String msgKo = "❌ [Shadow] 오류: Shadow 플러그인 사용 시 'from components.java'를 사용할 수 없습니다.\n" +
+                                    "❌ [Shadow] build.gradle의 publishing 블록에서 'from components.java'를 제거하고\n" +
+                                    "❌ [Shadow] 아티팩트를 직접 추가하세요. 예:\n" +
+                                    "❌ [Shadow]   mavenJava(MavenPublication) {\n" +
+                                    "❌ [Shadow]       // from components.java  <- 이 줄 제거\n" +
+                                    "❌ [Shadow]       artifactId = base.archivesName.get()\n" +
+                                    "❌ [Shadow]       artifact(tasks.named('shadowJar'))\n" +
+                                    "❌ [Shadow]       // ... 기타 아티팩트\n" +
+                                    "❌ [Shadow]   }";
+                            String msgEn = "❌ [Shadow] Error: 'from components.java' cannot be used with Shadow plugin.\n"
+                                    +
+                                    "❌ [Shadow] Please remove 'from components.java' from publishing block and add artifacts manually. Example:\n"
+                                    +
+                                    "❌ [Shadow]   mavenJava(MavenPublication) {\n" +
+                                    "❌ [Shadow]       // from components.java  <- remove this line\n" +
+                                    "❌ [Shadow]       artifactId = base.archivesName.get()\n" +
+                                    "❌ [Shadow]       artifact(tasks.named('shadowJar'))\n" +
+                                    "❌ [Shadow]       // ... other artifacts\n" +
+                                    "❌ [Shadow]   }";
 
-                    if (isKorean()) {
-                        project.getLogger().error(msgKo);
-                    } else {
-                        project.getLogger().error(msgEn);
-                    }
-                    throw new IllegalStateException(isKorean() ? "Shadow 플러그인 사용 시 'from components.java'를 사용할 수 없습니다." : "'from components.java' cannot be used with Shadow plugin.");
-                }
-
-                // 기존 아티팩트 제거
-                publication.getArtifacts().clear();
-
-                // Shadow JAR를 메인 아티팩트로 사용 (Lazy Configuration 사용)
-                try {
-                    publication.artifact(project.getTasks().named("shadowJar"));
-                } catch (Exception e) {
-                    warn(project, "⚠️ [Shadow] shadowJar 태스크를 찾을 수 없습니다.", "⚠️ [Shadow] shadowJar task not found.");
-                }
-
-                // Sources JAR 처리 (Lazy Configuration 사용)
-                try {
-                    org.gradle.api.tasks.TaskProvider<?> sourcesJarProvider = project.getTasks().named("sourcesJar");
-
-                    // 원격 리포지토리 공개 여부 확인
-                    // 소스 JAR 생성 여부 결정 (Unified Logic)
-                    // 이미 determineSourceJarStatus에 의해 rootProject.ext.enableSourceJar가 설정되어 있을 것이나,
-                    // Shadow 플러그인 컨텍스트에서 다시 한 번 확인하거나 값을 가져옴.
-                    boolean enableSourceJar = false;
-                    if (project.getRootProject().getExtensions().getExtraProperties().has("enableSourceJar")) {
-                        enableSourceJar = (boolean) project.getRootProject().getExtensions().getExtraProperties().get("enableSourceJar");
-                    } else {
-                        // 만약 설정이 안되어 있다면(순서 문제 등), 다시 계산
-                        enableSourceJar = determineSourceJarStatus(project);
-                    }
-
-                    if (enableSourceJar) {
-                        publication.artifact(sourcesJarProvider);
-                    }
-
-                } catch (org.gradle.api.UnknownTaskException e) {
-                    // sourcesJar 태스크가 없으면 무시
-                }
-
-                // Javadoc JAR 추가 (Lazy Configuration 사용)
-                try {
-                    publication.artifact(project.getTasks().named("javadocJar"));
-                } catch (org.gradle.api.UnknownTaskException e) {
-                    // javadocJar 태스크가 없으면 무시
-                }
-
-                // POM 설정: api 의존성을 수동으로 추가 (Shaded 모드에서는 components.java를 못 쓰므로)
-                org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
-                if (apiConfig != null) {
-                    publication.pom(pom -> {
-                        pom.withXml(xml -> {
-                            // Groovy Node 사용
-                            Object rootObj = xml.asNode();
-                            // groovy.util.Node 캐스팅 (Gradle 내장 Groovy 사용)
-                            if (rootObj instanceof groovy.util.Node) {
-                                groovy.util.Node root = (groovy.util.Node) rootObj;
-
-                                groovy.util.Node dependenciesNode;
-                                java.util.List<?> depNodes = (java.util.List<?>) root.get("dependencies");
-                                if (depNodes != null && !depNodes.isEmpty()) {
-                                    dependenciesNode = (groovy.util.Node) depNodes.get(0);
-                                } else {
-                                    dependenciesNode = root.appendNode("dependencies");
-                                }
-
-                                // 기존 하위 노드 제거 (중복 방지)
-                                dependenciesNode.children().clear();
-
-                                for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
-                                    String g = dep.getGroup();
-                                    String a = dep.getName();
-                                    String v = dep.getVersion();
-
-                                    // Project Dependency 처리
-                                    if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
-                                        try {
-                                            java.lang.reflect.Method getProjectMethod = dep.getClass().getMethod("getDependencyProject");
-                                            org.gradle.api.Project depProject = (org.gradle.api.Project) getProjectMethod.invoke(dep);
-                                            g = depProject.getGroup().toString();
-                                            a = depProject.getName();
-                                            v = depProject.getVersion().toString();
-                                        } catch (Exception e) {
-                                            // Reflection failed or method not found
-                                            project.getLogger().warn("⚠️ [Shadow Publish] Failed to resolve ProjectDependency via reflection: " + e.getMessage());
-                                        }
-                                    }
-
-                                    if (g != null && a != null && !"unspecified".equals(a)) {
-                                        groovy.util.Node depNode = dependenciesNode.appendNode("dependency");
-                                        depNode.appendNode("groupId", g);
-                                        depNode.appendNode("artifactId", a);
-                                        if (v != null && !v.isEmpty() && !"unspecified".equals(v)) {
-                                            depNode.appendNode("version", v);
-                                        }
-                                        depNode.appendNode("scope", "compile");
-                                    }
-                                }
+                            if (isKorean()) {
+                                project.getLogger().error(msgKo);
+                            } else {
+                                project.getLogger().error(msgEn);
                             }
-                        });
+                            throw new IllegalStateException(
+                                    isKorean() ? "Shadow 플러그인 사용 시 'from components.java'를 사용할 수 없습니다."
+                                            : "'from components.java' cannot be used with Shadow plugin.");
+                        }
+
+                        // 기존 아티팩트 제거
+                        publication.getArtifacts().clear();
+
+                        // Shadow JAR를 메인 아티팩트로 사용 (Lazy Configuration 사용)
+                        try {
+                            publication.artifact(project.getTasks().named("shadowJar"));
+                        } catch (Exception e) {
+                            warn(project, "⚠️ [Shadow] shadowJar 태스크를 찾을 수 없습니다.",
+                                    "⚠️ [Shadow] shadowJar task not found.");
+                        }
+
+                        // Sources JAR 처리 (Lazy Configuration 사용)
+                        try {
+                            org.gradle.api.tasks.TaskProvider<?> sourcesJarProvider = project.getTasks()
+                                    .named("sourcesJar");
+
+                            // 원격 리포지토리 공개 여부 확인
+                            // 소스 JAR 생성 여부 결정 (Unified Logic)
+                            // 이미 determineSourceJarStatus에 의해 rootProject.ext.enableSourceJar가 설정되어 있을 것이나,
+                            // Shadow 플러그인 컨텍스트에서 다시 한 번 확인하거나 값을 가져옴.
+                            boolean enableSourceJar = false;
+                            if (project.getRootProject().getExtensions().getExtraProperties().has("enableSourceJar")) {
+                                enableSourceJar = (boolean) project.getRootProject().getExtensions()
+                                        .getExtraProperties().get("enableSourceJar");
+                            } else {
+                                // 만약 설정이 안되어 있다면(순서 문제 등), 다시 계산
+                                enableSourceJar = determineSourceJarStatus(project);
+                            }
+
+                            if (enableSourceJar) {
+                                publication.artifact(sourcesJarProvider);
+                            }
+
+                        } catch (org.gradle.api.UnknownTaskException e) {
+                            // sourcesJar 태스크가 없으면 무시
+                        }
+
+                        // Javadoc JAR 추가 (Lazy Configuration 사용)
+                        try {
+                            publication.artifact(project.getTasks().named("javadocJar"));
+                        } catch (org.gradle.api.UnknownTaskException e) {
+                            // javadocJar 태스크가 없으면 무시
+                        }
+
+                        // POM 설정: api 의존성을 수동으로 추가 (Shaded 모드에서는 components.java를 못 쓰므로)
+                        org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations()
+                                .findByName("api");
+                        if (apiConfig != null) {
+                            publication.pom(pom -> {
+                                pom.withXml(xml -> {
+                                    // Groovy Node 사용
+                                    Object rootObj = xml.asNode();
+                                    // groovy.util.Node 캐스팅 (Gradle 내장 Groovy 사용)
+                                    if (rootObj instanceof groovy.util.Node) {
+                                        groovy.util.Node root = (groovy.util.Node) rootObj;
+
+                                        groovy.util.Node dependenciesNode;
+                                        java.util.List<?> depNodes = (java.util.List<?>) root.get("dependencies");
+                                        if (depNodes != null && !depNodes.isEmpty()) {
+                                            dependenciesNode = (groovy.util.Node) depNodes.get(0);
+                                        } else {
+                                            dependenciesNode = root.appendNode("dependencies");
+                                        }
+
+                                        // 기존 하위 노드 제거 (중복 방지)
+                                        dependenciesNode.children().clear();
+
+                                        for (org.gradle.api.artifacts.Dependency dep : apiConfig.getAllDependencies()) {
+                                            String g = dep.getGroup();
+                                            String a = dep.getName();
+                                            String v = dep.getVersion();
+
+                                            // Project Dependency 처리
+                                            if (dep instanceof org.gradle.api.artifacts.ProjectDependency) {
+                                                try {
+                                                    java.lang.reflect.Method getProjectMethod = dep.getClass()
+                                                            .getMethod("getDependencyProject");
+                                                    org.gradle.api.Project depProject = (org.gradle.api.Project) getProjectMethod
+                                                            .invoke(dep);
+                                                    g = depProject.getGroup().toString();
+                                                    a = depProject.getName();
+                                                    v = depProject.getVersion().toString();
+                                                } catch (Exception e) {
+                                                    // Reflection failed or method not found
+                                                    project.getLogger().warn(
+                                                            "⚠️ [Shadow Publish] Failed to resolve ProjectDependency via reflection: "
+                                                                    + e.getMessage());
+                                                }
+                                            }
+
+                                            if (g != null && a != null && !"unspecified".equals(a)) {
+                                                groovy.util.Node depNode = dependenciesNode.appendNode("dependency");
+                                                depNode.appendNode("groupId", g);
+                                                depNode.appendNode("artifactId", a);
+                                                if (v != null && !v.isEmpty() && !"unspecified".equals(v)) {
+                                                    depNode.appendNode("version", v);
+                                                }
+                                                depNode.appendNode("scope", "compile");
+                                            }
+                                        }
+                                    }
+                                });
+                            });
+                            info(project, "✅ [Shadow 배포] POM 파일에 'api' 의존성을 수동으로 추가했습니다.",
+                                    "✅ [Shadow Publish] Manually added 'api' dependencies to generated POM.");
+                        }
                     });
-                    info(project, "✅ [Shadow 배포] POM 파일에 'api' 의존성을 수동으로 추가했습니다.", "✅ [Shadow Publish] Manually added 'api' dependencies to generated POM.");
-                }
-            });
         });
     }
-
 
     /**
      * Updates the version info and adds a runtime dependency guide in README files matching the given regex patterns or file paths.
@@ -3170,8 +3311,10 @@ public class S2BuildUtils {
         if (!targetFiles.isEmpty()) {
             List<File> sortedFiles = new ArrayList<>(targetFiles);
             sortedFiles.sort((f1, f2) -> {
-                if ("README.md".equals(f1.getName())) return -1;
-                if ("README.md".equals(f2.getName())) return 1;
+                if ("README.md".equals(f1.getName()))
+                    return -1;
+                if ("README.md".equals(f2.getName()))
+                    return 1;
                 return f1.getName().compareTo(f2.getName());
             });
             for (File f : sortedFiles) {
@@ -3243,12 +3386,15 @@ public class S2BuildUtils {
                     }
                     if (subBuildFile.exists()) {
                         try {
-                            String bContent = new String(Files.readAllBytes(subBuildFile.toPath()), StandardCharsets.UTF_8);
-                            Matcher m = Pattern.compile("(?:^|\\n)\\s*version\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(bContent);
+                            String bContent = new String(Files.readAllBytes(subBuildFile.toPath()),
+                                    StandardCharsets.UTF_8);
+                            Matcher m = Pattern.compile("(?:^|\\n)\\s*version\\s*=\\s*['\"]([^'\"]+)['\"]")
+                                    .matcher(bContent);
                             if (m.find()) {
                                 subVer = m.group(1).trim();
                             }
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                        }
                     }
                 }
                 if (isValidVersion(subVer)) {
@@ -3269,24 +3415,30 @@ public class S2BuildUtils {
                 }
 
                 // Gradle 의존성 치환: implementation 'io.github.devers2:s2-core:x.x.x'
-                Pattern gradleDepPattern = Pattern.compile("((?:implementation|api|compileOnly)[ \\t]+['\"](?:io\\.github\\.devers2(?:\\.internal)?):\\Q" + artifactId + "\\E:)[^'\"]+(['\"])");
+                Pattern gradleDepPattern = Pattern.compile(
+                        "((?:implementation|api|compileOnly)[ \\t]+['\"](?:io\\.github\\.devers2(?:\\.internal)?):\\Q"
+                                + artifactId + "\\E:)[^'\"]+(['\"])");
                 content = gradleDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
 
                 // Maven 의존성 치환: <artifactId>s2-core</artifactId>\s*<version>x.x.x</version>
-                Pattern mavenDepPattern = Pattern.compile("(<artifactId>\\Q" + artifactId + "\\E</artifactId>\\s*<version>)[^<]+(</version>)");
+                Pattern mavenDepPattern = Pattern
+                        .compile("(<artifactId>\\Q" + artifactId + "\\E</artifactId>\\s*<version>)[^<]+(</version>)");
                 content = mavenDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
 
                 // 마크다운 인라인 백틱 의존성 치환: `io.github.devers2:s2-validator:x.x.x`
-                Pattern inlineDepPattern = Pattern.compile("(`(?:io\\.github\\.devers2(?:\\.internal)?):\\Q" + artifactId + "\\E:)[^`]+(`)");
+                Pattern inlineDepPattern = Pattern
+                        .compile("(`(?:io\\.github\\.devers2(?:\\.internal)?):\\Q" + artifactId + "\\E:)[^`]+(`)");
                 content = inlineDepPattern.matcher(content).replaceAll("$1" + ver + "$2");
 
                 // 하단 버전 고지 치환: s2-xxx Version: x.x.x (YYYY-MM-DD)
-                Pattern vPattern = Pattern.compile("(\\b\\Q" + artifactId + "\\E Version): ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
+                Pattern vPattern = Pattern
+                        .compile("(\\b\\Q" + artifactId + "\\E Version): ([\\w\\.\\-]+) \\((\\d{4}-\\d{2}-\\d{2})\\)");
                 Matcher vMatcher = vPattern.matcher(content);
                 if (vMatcher.find()) {
                     String existingVersion = vMatcher.group(2);
                     if (!existingVersion.equals(ver)) {
-                        content = content.replace(vMatcher.group(0), vMatcher.group(1) + ": " + ver + " (" + today + ")");
+                        content = content.replace(vMatcher.group(0),
+                                vMatcher.group(1) + ": " + ver + " (" + today + ")");
                     }
                 }
             }
@@ -3302,7 +3454,8 @@ public class S2BuildUtils {
             for (Map.Entry<String, String> entry : pluginVersions.entrySet()) {
                 String pluginId = entry.getKey();
                 String ver = entry.getValue();
-                Pattern pluginPattern = Pattern.compile("(id\\s*[('\"']\\Q" + pluginId + "\\E['\"']\\s*\\)?\\s+version\\s+['\"])[^'\"]+(['\"])");
+                Pattern pluginPattern = Pattern.compile(
+                        "(id\\s*[('\"']\\Q" + pluginId + "\\E['\"']\\s*\\)?\\s+version\\s+['\"])[^'\"]+(['\"])");
                 content = pluginPattern.matcher(content).replaceAll("$1" + ver + "$2");
             }
 
@@ -3329,8 +3482,10 @@ public class S2BuildUtils {
                     depsBlock.append("**[Gradle 사용자]**\n\n```groovy\ndependencies {\n");
                     depsBlock.append("    // 선택적 기능을 위한 필수 런타임 의존성\n");
                 } else {
-                    depsBlock.append("**To use certain functionalities (e.g., S2BindValidator), the end-user project must explicitly add the following dependencies to be available at runtime.** ");
-                    depsBlock.append("Failure to include these dependencies will result in a `java.lang.NoClassDefFoundError` at runtime.\n\n");
+                    depsBlock.append(
+                            "**To use certain functionalities (e.g., S2BindValidator), the end-user project must explicitly add the following dependencies to be available at runtime.** ");
+                    depsBlock.append(
+                            "Failure to include these dependencies will result in a `java.lang.NoClassDefFoundError` at runtime.\n\n");
                     depsBlock.append("**[For Gradle Users]**\n\n```groovy\ndependencies {\n");
                     depsBlock.append("    // Essential runtime dependencies for optional functionalities\n");
                 }
@@ -3339,7 +3494,8 @@ public class S2BuildUtils {
                 depsBlock.append("}\n```\n\n").append(stdEndMarker);
 
                 // 4. 기존 블록 교체 또는 추가 로직임
-                Pattern fullBlockPattern = Pattern.compile("\n?" + startMarkerPattern + ".*?" + endMarkerPattern, Pattern.DOTALL);
+                Pattern fullBlockPattern = Pattern.compile("\n?" + startMarkerPattern + ".*?" + endMarkerPattern,
+                        Pattern.DOTALL);
                 if (fullBlockPattern.matcher(content).find()) {
                     // 기존에 어떤 형태의 마커가 있든 새 블록으로 교체함 (중복 방지 핵심)
                     content = fullBlockPattern.matcher(content).replaceAll(depsBlock.toString());
@@ -3351,7 +3507,8 @@ public class S2BuildUtils {
 
             Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
-            warn(project, "⚠️ [README 업데이트] " + file.getName() + " 업데이트 실패: " + e.getMessage(), "⚠️ [README Update] Failed to update " + file.getName() + ": " + e.getMessage());
+            warn(project, "⚠️ [README 업데이트] " + file.getName() + " 업데이트 실패: " + e.getMessage(),
+                    "⚠️ [README Update] Failed to update " + file.getName() + ": " + e.getMessage());
         }
     }
 
@@ -3362,7 +3519,8 @@ public class S2BuildUtils {
     /**
      * gradle/libs.versions.toml (Version Catalog) 파일에서 버전 및 의존성/플러그인 매핑을 추출하여 artifactVersions 및 pluginVersions에 보강합니다.
      */
-    private static void populateFromVersionCatalog(Project project, Map<String, String> artifactVersions, Map<String, String> pluginVersions) {
+    private static void populateFromVersionCatalog(Project project, Map<String, String> artifactVersions,
+            Map<String, String> pluginVersions) {
         File tomlFile = new File(project.getRootDir(), "gradle/libs.versions.toml");
         if (!tomlFile.exists()) {
             tomlFile = new File(project.getProjectDir(), "gradle/libs.versions.toml");
@@ -3438,7 +3596,7 @@ public class S2BuildUtils {
             // 추가 s2 관련 규칙 기반 보강 (s2-util 버전을 통해 s2-core, s2-validator, s2-jpa 매핑)
             if (tomlVersions.containsKey("s2-util")) {
                 String utilVer = tomlVersions.get("s2-util");
-                String[] s2UtilModules = {"s2-util", "s2-core", "s2-validator", "s2-jpa"};
+                String[] s2UtilModules = { "s2-util", "s2-core", "s2-validator", "s2-jpa" };
                 for (String mod : s2UtilModules) {
                     artifactVersions.putIfAbsent(mod, utilVer);
                 }
@@ -3493,8 +3651,7 @@ public class S2BuildUtils {
             // 마커 패턴: [//]: # 'SECTION_START:Key' ... [//]: # 'SECTION_END:Key'
             Pattern sectionPattern = Pattern.compile(
                     "\\[//\\]: # [\\'\\\"\\(]SECTION_START:(.*?)[\\'\\\"\\)](.*?)\\[//\\]: # [\\'\\\"\\(]SECTION_END:\\1[\\'\\\"\\)]",
-                    Pattern.DOTALL
-            );
+                    Pattern.DOTALL);
             Matcher matcher = sectionPattern.matcher(content);
             StringBuilder sb = new StringBuilder();
             int lastEnd = 0;
@@ -3529,7 +3686,8 @@ public class S2BuildUtils {
             return tempNoticeFile;
 
         } catch (IOException e) {
-            warn(project, "⚠️ [라이선스] 동적 NOTICE 파일 생성 실패: " + e.getMessage(), "⚠️ [License] Failed to generate dynamic NOTICE file: " + e.getMessage());
+            warn(project, "⚠️ [라이선스] 동적 NOTICE 파일 생성 실패: " + e.getMessage(),
+                    "⚠️ [License] Failed to generate dynamic NOTICE file: " + e.getMessage());
             return sourceFile;
         }
     }
@@ -3572,7 +3730,8 @@ public class S2BuildUtils {
     private static Set<String> getTransitiveDependenciesOfLocalProjects(Project project) {
         Set<String> dependenciesToExclude = new java.util.HashSet<>();
 
-        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                .findByName("runtimeClasspath");
         if (runtimeConfig == null)
             return dependenciesToExclude;
 
@@ -3581,7 +3740,8 @@ public class S2BuildUtils {
             for (org.gradle.api.artifacts.ResolvedDependency dep : resolvedConfig.getFirstLevelModuleDependencies()) {
                 boolean isProject = false;
                 for (org.gradle.api.artifacts.ResolvedArtifact artifact : dep.getModuleArtifacts()) {
-                    if (artifact.getId().getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier) {
+                    if (artifact.getId()
+                            .getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier) {
                         isProject = true;
                         break;
                     }
@@ -3594,7 +3754,8 @@ public class S2BuildUtils {
                 }
             }
         } catch (Exception e) {
-            warn(project, "⚠️ [의존성] 제외 대상 계산 중 의존성 해제 실패: " + e.getMessage(), "⚠️ [S2BuildUtils] Failed to resolve dependencies for exclusion calculation: " + e.getMessage());
+            warn(project, "⚠️ [의존성] 제외 대상 계산 중 의존성 해제 실패: " + e.getMessage(),
+                    "⚠️ [S2BuildUtils] Failed to resolve dependencies for exclusion calculation: " + e.getMessage());
         }
         return dependenciesToExclude;
     }
@@ -3609,7 +3770,8 @@ public class S2BuildUtils {
      * @param project   The Gradle project instance | Gradle 프로젝트 객체
      * @param shadowJar Shadow JAR task | Shadow JAR 태스크
      */
-    private static void excludeTransitiveDependenciesOfLocalProjects(Project project, com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar shadowJar) {
+    private static void excludeTransitiveDependenciesOfLocalProjects(Project project,
+            com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar shadowJar) {
         Set<String> dependenciesToExclude = getTransitiveDependenciesOfLocalProjects(project);
         if (!dependenciesToExclude.isEmpty()) {
             shadowJar.dependencies(dependenciesSpec -> {
@@ -3617,7 +3779,9 @@ public class S2BuildUtils {
                     dependenciesSpec.exclude(dependenciesSpec.dependency(depId));
                 });
             });
-            info(project, "      🚫 [Shadow] 중복된 전이 의존성 " + dependenciesToExclude.size() + "개를 제외했습니다.", "      🚫 [Shadow] Excluded " + dependenciesToExclude.size() + " duplicated transitive dependencies.");
+            info(project, "      🚫 [Shadow] 중복된 전이 의존성 " + dependenciesToExclude.size() + "개를 제외했습니다.",
+                    "      🚫 [Shadow] Excluded " + dependenciesToExclude.size()
+                            + " duplicated transitive dependencies.");
             dependenciesToExclude.forEach(depId -> project.getLogger().debug("         - Exclude: " + depId));
         }
     }
@@ -3636,14 +3800,17 @@ public class S2BuildUtils {
         Set<String> packagesToRelocate = new java.util.HashSet<>();
         Set<String> targetArtifactIds = getRelocatableArtifactIDs(project);
 
-        info(project, "🔍 [Shadow] 패키지 재배치 대상 스캔을 시작합니다...", "🔍 [Shadow] Starting scan for relocation target packages...");
+        info(project, "🔍 [Shadow] 패키지 재배치 대상 스캔을 시작합니다...",
+                "🔍 [Shadow] Starting scan for relocation target packages...");
 
-        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                .findByName("runtimeClasspath");
         if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
             try {
                 Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
                 for (ResolvedArtifact artifact : artifacts) {
-                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
+                    String id = artifact.getModuleVersion().getId().getGroup() + ":"
+                            + artifact.getModuleVersion().getId().getName();
 
                     // 대상 아티팩트만 스캔
                     if (!targetArtifactIds.contains(id))
@@ -3653,7 +3820,8 @@ public class S2BuildUtils {
                     if (file == null || !file.exists() || !file.getName().toLowerCase().endsWith(".jar"))
                         continue;
 
-                    info(project, "📦 [Shadow] JAR 스캔 중: " + file.getName() + " (" + id + ")", "📦 [Shadow] Scanning JAR: " + file.getName() + " (" + id + ")");
+                    info(project, "📦 [Shadow] JAR 스캔 중: " + file.getName() + " (" + id + ")",
+                            "📦 [Shadow] Scanning JAR: " + file.getName() + " (" + id + ")");
                     scanJarForPackages(project, file, packagesToRelocate);
                 }
             } catch (Exception ignored) {
@@ -3678,15 +3846,18 @@ public class S2BuildUtils {
         try {
             org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
             if (apiConfig != null) {
-                org.gradle.api.artifacts.Configuration resolvableApi = project.getConfigurations().detachedConfiguration();
+                org.gradle.api.artifacts.Configuration resolvableApi = project.getConfigurations()
+                        .detachedConfiguration();
                 resolvableApi.getDependencies().addAll(apiConfig.getAllDependencies());
                 resolvableApi.attributes(attrs -> {
-                    attrs.attribute(org.gradle.api.attributes.Usage.USAGE_ATTRIBUTE, project.getObjects().named(org.gradle.api.attributes.Usage.class, org.gradle.api.attributes.Usage.JAVA_RUNTIME));
+                    attrs.attribute(org.gradle.api.attributes.Usage.USAGE_ATTRIBUTE, project.getObjects().named(
+                            org.gradle.api.attributes.Usage.class, org.gradle.api.attributes.Usage.JAVA_RUNTIME));
                 });
                 resolvableApi.setTransitive(true);
                 Set<ResolvedArtifact> apiArtifacts = resolvableApi.getResolvedConfiguration().getResolvedArtifacts();
                 for (ResolvedArtifact artifact : apiArtifacts) {
-                    apiDependencyIds.add(artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName());
+                    apiDependencyIds.add(artifact.getModuleVersion().getId().getGroup() + ":"
+                            + artifact.getModuleVersion().getId().getName());
                 }
             }
         } catch (Exception e) {
@@ -3700,20 +3871,24 @@ public class S2BuildUtils {
             }
         }
 
-        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations().findByName("runtimeClasspath");
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                .findByName("runtimeClasspath");
         if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
             try {
                 Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
                 for (ResolvedArtifact artifact : artifacts) {
-                    String id = artifact.getModuleVersion().getId().getGroup() + ":" + artifact.getModuleVersion().getId().getName();
+                    String id = artifact.getModuleVersion().getId().getGroup() + ":"
+                            + artifact.getModuleVersion().getId().getName();
                     if (apiDependencyIds.contains(id))
                         continue;
-                    if (artifact.getId().getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier)
+                    if (artifact.getId()
+                            .getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier)
                         continue;
                     relocatableIds.add(id);
                 }
             } catch (Exception e) {
-                warn(project, "⚠️ [Shadow] runtimeClasspath 분석 중 오류: " + e.getMessage(), "⚠️ [Shadow] Error during runtimeClasspath analysis: " + e.getMessage());
+                warn(project, "⚠️ [Shadow] runtimeClasspath 분석 중 오류: " + e.getMessage(),
+                        "⚠️ [Shadow] Error during runtimeClasspath analysis: " + e.getMessage());
             }
         }
         return relocatableIds;
@@ -3748,7 +3923,8 @@ public class S2BuildUtils {
                 }
             }
         } catch (IOException e) {
-            warn(project, "⚠️ [Shadow] JAR 스캔 실패 (" + jarFile.getName() + "): " + e.getMessage(), "⚠️ [Shadow] JAR scan failed (" + jarFile.getName() + "): " + e.getMessage());
+            warn(project, "⚠️ [Shadow] JAR 스캔 실패 (" + jarFile.getName() + "): " + e.getMessage(),
+                    "⚠️ [Shadow] JAR scan failed (" + jarFile.getName() + "): " + e.getMessage());
         }
     }
 
@@ -3760,7 +3936,8 @@ public class S2BuildUtils {
     }
 
     private static boolean isValidPackage(String pkg) {
-        return !pkg.startsWith("java.") && !pkg.startsWith("javax.") && !pkg.startsWith("sun.") && !pkg.startsWith("jdk.") &&
+        return !pkg.startsWith("java.") && !pkg.startsWith("javax.") && !pkg.startsWith("sun.")
+                && !pkg.startsWith("jdk.") &&
                 !pkg.startsWith("io.github.devers2.") && !pkg.startsWith("org.w3c.") && !pkg.startsWith("org.xml.");
     }
 
@@ -3783,282 +3960,350 @@ public class S2BuildUtils {
      */
     public static void configureCentralPortalPublishing(Project project) {
         project.afterEvaluate(p -> {
-            p.getTasks().withType(org.gradle.api.publish.maven.tasks.PublishToMavenRepository.class).configureEach(task -> {
-                // CentralPortal 리포지토리로 배포하는 태스크인지 확인
-                if (task.getRepository() != null && "CentralPortal".equals(task.getRepository().getName())) {
-                    // 1. Repository URL (build.gradle 설정 값 사용)
-                    final String centralUploadUrl = task.getRepository().getUrl().toString();
+            p.getTasks().withType(org.gradle.api.publish.maven.tasks.PublishToMavenRepository.class)
+                    .configureEach(task -> {
+                        // CentralPortal 리포지토리로 배포하는 태스크인지 확인
+                        if (task.getRepository() != null && "CentralPortal".equals(task.getRepository().getName())) {
+                            // 1. Repository URL (build.gradle 설정 값 사용)
+                            final String centralUploadUrl = task.getRepository().getUrl().toString();
 
-                    // 2. 기존 동작 제거 및 새 동작 주입
-                    task.getActions().clear();
+                            // 2. 기존 동작 제거 및 새 동작 주입
+                            task.getActions().clear();
 
-                    // 서명 태스크 의존성 강제 추가
-                    // - Gradle 플러그인 프로젝트에서는 여러 Publication(sign tasks)이 존재할 수 있으므로
-                    // 모든 Sign 타입 태스크에 대해 의존성을 추가하여 .asc 파일이 항상 생성되도록 보장한다.
-                    task.dependsOn(p.getTasks().withType(org.gradle.plugins.signing.Sign.class));
-                    info(project, "🔗 [중앙 포털] 서명 태스크 의존성 설정 완료", "🔗 [Central Portal] Set dependency on signing tasks.");
+                            // 서명 태스크 의존성 강제 추가
+                            // - Gradle 플러그인 프로젝트에서는 여러 Publication(sign tasks)이 존재할 수 있으므로
+                            // 모든 Sign 타입 태스크에 대해 의존성을 추가하여 .asc 파일이 항상 생성되도록 보장한다.
+                            task.dependsOn(p.getTasks().withType(org.gradle.plugins.signing.Sign.class));
+                            info(project, "🔗 [중앙 포털] 서명 태스크 의존성 설정 완료",
+                                    "🔗 [Central Portal] Set dependency on signing tasks.");
 
-                    task.doLast(t -> {
-                        // Publication 정보 직접 가져오기 (각 Publication마다 다른 artifactId 사용)
-                        org.gradle.api.publish.maven.MavenPublication publication = (org.gradle.api.publish.maven.MavenPublication) task.getPublication();
-                        String publicationName = publication.getName();
+                            task.doLast(t -> {
+                                // Publication 정보 직접 가져오기 (각 Publication마다 다른 artifactId 사용)
+                                org.gradle.api.publish.maven.MavenPublication publication = (org.gradle.api.publish.maven.MavenPublication) task
+                                        .getPublication();
+                                String publicationName = publication.getName();
 
-                        String groupId = publication.getGroupId();
-                        String artifactId = publication.getArtifactId();
-                        String version = publication.getVersion();
+                                String groupId = publication.getGroupId();
+                                String artifactId = publication.getArtifactId();
+                                String version = publication.getVersion();
 
-                        info(
-                                project,
-                                "🚀 [중앙 포털] Zip 번들 업로드를 시작합니다 [" + publicationName + "] - artifactId: " + artifactId,
-                                "🚀 [Central Portal] Starting Zip bundle upload [" + publicationName + "] - artifactId: " + artifactId
-                        );
+                                info(
+                                        project,
+                                        "🚀 [중앙 포털] Zip 번들 업로드를 시작합니다 [" + publicationName + "] - artifactId: "
+                                                + artifactId,
+                                        "🚀 [Central Portal] Starting Zip bundle upload [" + publicationName
+                                                + "] - artifactId: " + artifactId);
 
-                        // 필요한 파일 수집
-                        File buildDir = project.getLayout().getBuildDirectory().getAsFile().get();
+                                // 필요한 파일 수집
+                                File buildDir = project.getLayout().getBuildDirectory().getAsFile().get();
 
-                        // Publication별 독립적인 번들 디렉토리
-                        File bundleDir = new File(buildDir, "distributions/central-bundle/" + publicationName);
-                        if (bundleDir.exists())
-                            project.delete(bundleDir);
-                        bundleDir.mkdirs();
+                                // Publication별 독립적인 번들 디렉토리
+                                File bundleDir = new File(buildDir, "distributions/central-bundle/" + publicationName);
+                                if (bundleDir.exists())
+                                    project.delete(bundleDir);
+                                bundleDir.mkdirs();
 
-                        List<File> filesToBundle = new ArrayList<>();
+                                List<File> filesToBundle = new ArrayList<>();
 
-                        // 1) JARs & Signatures (libs 폴더) - mavenJava publication만 JAR 포함
-                        File libsDir = new File(buildDir, "libs");
-                        final boolean isSnapshotVersion = version.contains("SNAPSHOT");
-                        if (libsDir.exists() && ("mavenJava".equals(publicationName) || "pluginMaven".equals(publicationName))) {
-                            // 넓은 의미의 매칭: 파일 이름에 '-<version>' 패턴이 포함된 아티팩트는 모두 포함
-                            File[] files = libsDir.listFiles((dir, name) -> {
-                                if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
-                                    return false;
-                                if (!isSnapshotVersion && name.contains("SNAPSHOT")) {
-                                    project.getLogger().debug("         - Skipping SNAPSHOT file for non-SNAPSHOT release: " + name);
-                                    return false;
-                                }
-                                // 일반적으로 아티팩트명은 '<artifactId>-<version>...' 형태이므로 '-<version>' 포함 여부로 필터링
-                                return name.contains("-" + version + ".") || name.contains("-" + version + "-") || name.endsWith("-" + version + ".jar") || name.endsWith("-" + version + ".pom");
-                            });
-
-                            if (files != null)
-                                filesToBundle.addAll(Arrays.asList(files));
-                        }
-
-                        // 1-1) publications 폴더 내 다른 Publication들(예: pluginMaven 등)에 생성된 아티팩트도 포함
-                        File publicationsRoot = new File(buildDir, "publications");
-                        if (publicationsRoot.exists()) {
-                            File[] pubDirs = publicationsRoot.listFiles(file -> file.isDirectory());
-                            if (pubDirs != null) {
-                                for (File pubDir : pubDirs) {
-                                    File[] pubFiles = pubDir.listFiles((dir, name) -> {
-                                        if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom") || (name.equals("module.json") && pubDir.getName().equals("pluginMaven"))))
+                                // 1) JARs & Signatures (libs 폴더) - mavenJava publication만 JAR 포함
+                                File libsDir = new File(buildDir, "libs");
+                                final boolean isSnapshotVersion = version.contains("SNAPSHOT");
+                                if (libsDir.exists() && ("mavenJava".equals(publicationName)
+                                        || "pluginMaven".equals(publicationName))) {
+                                    // 넓은 의미의 매칭: 파일 이름에 '-<version>' 패턴이 포함된 아티팩트는 모두 포함
+                                    File[] files = libsDir.listFiles((dir, name) -> {
+                                        if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
                                             return false;
-                                        if (!isSnapshotVersion && name.contains("SNAPSHOT"))
+                                        if (!isSnapshotVersion && name.contains("SNAPSHOT")) {
+                                            project.getLogger().debug(
+                                                    "         - Skipping SNAPSHOT file for non-SNAPSHOT release: "
+                                                            + name);
                                             return false;
-                                        return name.contains("-" + version + ".") || name.contains("-" + version + "-") || name.endsWith("-" + version + ".jar") || name.endsWith("-" + version + ".pom") || (name.equals("module.json") && pubDir.getName().equals("pluginMaven"));
+                                        }
+                                        // 일반적으로 아티팩트명은 '<artifactId>-<version>...' 형태이므로 '-<version>' 포함 여부로 필터링
+                                        return name.contains("-" + version + ".") || name.contains("-" + version + "-")
+                                                || name.endsWith("-" + version + ".jar")
+                                                || name.endsWith("-" + version + ".pom");
                                     });
-                                    if (pubFiles != null) {
-                                        for (File pubFile : pubFiles) {
-                                            try {
-                                                File renamedPubFile = new File(bundleDir, pubFile.getName());
-                                                Files.copy(pubFile.toPath(), renamedPubFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                                filesToBundle.add(renamedPubFile);
-                                            } catch (IOException e) {
-                                                error(project, "❌ [중앙 포털] Publication 파일 처리 실패: " + pubFile.getName() + " - " + e.getMessage(), "❌ [Central Portal] Publication file processing failed: " + pubFile.getName() + " - " + e.getMessage());
+
+                                    if (files != null)
+                                        filesToBundle.addAll(Arrays.asList(files));
+                                }
+
+                                // 1-1) publications 폴더 내 다른 Publication들(예: pluginMaven 등)에 생성된 아티팩트도 포함
+                                File publicationsRoot = new File(buildDir, "publications");
+                                if (publicationsRoot.exists()) {
+                                    File[] pubDirs = publicationsRoot.listFiles(file -> file.isDirectory());
+                                    if (pubDirs != null) {
+                                        for (File pubDir : pubDirs) {
+                                            File[] pubFiles = pubDir.listFiles((dir, name) -> {
+                                                if (!(name.endsWith(".jar") || name.endsWith(".asc")
+                                                        || name.endsWith(".pom") || (name.equals("module.json")
+                                                                && pubDir.getName().equals("pluginMaven"))))
+                                                    return false;
+                                                if (!isSnapshotVersion && name.contains("SNAPSHOT"))
+                                                    return false;
+                                                return name.contains("-" + version + ".")
+                                                        || name.contains("-" + version + "-")
+                                                        || name.endsWith("-" + version + ".jar")
+                                                        || name.endsWith("-" + version + ".pom")
+                                                        || (name.equals("module.json")
+                                                                && pubDir.getName().equals("pluginMaven"));
+                                            });
+                                            if (pubFiles != null) {
+                                                for (File pubFile : pubFiles) {
+                                                    try {
+                                                        File renamedPubFile = new File(bundleDir, pubFile.getName());
+                                                        Files.copy(pubFile.toPath(), renamedPubFile.toPath(),
+                                                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                                        filesToBundle.add(renamedPubFile);
+                                                    } catch (IOException e) {
+                                                        error(project,
+                                                                "❌ [중앙 포털] Publication 파일 처리 실패: " + pubFile.getName()
+                                                                        + " - " + e.getMessage(),
+                                                                "❌ [Central Portal] Publication file processing failed: "
+                                                                        + pubFile.getName() + " - " + e.getMessage());
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                        }
 
-                        // 2) POM & Signature (publications/[publicationName] 폴더)
-                        File pomDir = new File(buildDir, "publications/" + publicationName);
-                        if (pomDir.exists()) {
-                            File[] poms = pomDir.listFiles((dir, name) -> name.equals("pom-default.xml"));
-                            if (poms != null) {
-                                for (File pom : poms) {
-                                    // POM 이름 변경 (artifactId-version.pom)
-                                    File renamedPom = new File(bundleDir, artifactId + "-" + version + ".pom");
-                                    try {
-                                        Files.copy(pom.toPath(), renamedPom.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                        filesToBundle.add(renamedPom);
+                                // 2) POM & Signature (publications/[publicationName] 폴더)
+                                File pomDir = new File(buildDir, "publications/" + publicationName);
+                                if (pomDir.exists()) {
+                                    File[] poms = pomDir.listFiles((dir, name) -> name.equals("pom-default.xml"));
+                                    if (poms != null) {
+                                        for (File pom : poms) {
+                                            // POM 이름 변경 (artifactId-version.pom)
+                                            File renamedPom = new File(bundleDir, artifactId + "-" + version + ".pom");
+                                            try {
+                                                Files.copy(pom.toPath(), renamedPom.toPath(),
+                                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                                filesToBundle.add(renamedPom);
 
-                                        // POM 서명 파일 찾기 (.asc)
-                                        File pomAsc = new File(pomDir, "pom-default.xml.asc");
-                                        if (pomAsc.exists()) {
-                                            File renamedPomAsc = new File(bundleDir, artifactId + "-" + version + ".pom.asc");
-                                            Files.copy(pomAsc.toPath(), renamedPomAsc.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                            filesToBundle.add(renamedPomAsc);
+                                                // POM 서명 파일 찾기 (.asc)
+                                                File pomAsc = new File(pomDir, "pom-default.xml.asc");
+                                                if (pomAsc.exists()) {
+                                                    File renamedPomAsc = new File(bundleDir,
+                                                            artifactId + "-" + version + ".pom.asc");
+                                                    Files.copy(pomAsc.toPath(), renamedPomAsc.toPath(),
+                                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                                    filesToBundle.add(renamedPomAsc);
+                                                }
+                                            } catch (IOException e) {
+                                                error(project, "❌ [중앙 포털] POM 파일 처리 실패: " + e.getMessage(),
+                                                        "❌ [Central Portal] POM file processing failed: "
+                                                                + e.getMessage());
+                                            }
                                         }
-                                    } catch (IOException e) {
-                                        error(project, "❌ [중앙 포털] POM 파일 처리 실패: " + e.getMessage(), "❌ [Central Portal] POM file processing failed: " + e.getMessage());
                                     }
                                 }
-                            }
-                        }
 
-                        // 2-1) 서명(.asc) 없는 파일 제외 & Checksum 생성
-                        List<File> validatedFiles = new ArrayList<>();
-                        // 서명 파일 존재 여부를 위한 Set
-                        Set<String> fileNames = filesToBundle.stream().map(file -> file.getName()).collect(java.util.stream.Collectors.toSet());
+                                // 2-1) 서명(.asc) 없는 파일 제외 & Checksum 생성
+                                List<File> validatedFiles = new ArrayList<>();
+                                // 서명 파일 존재 여부를 위한 Set
+                                Set<String> fileNames = filesToBundle.stream().map(file -> file.getName())
+                                        .collect(java.util.stream.Collectors.toSet());
 
-                        // Checksum 파일 리스트
-                        List<File> checksumFiles = new ArrayList<>();
+                                // Checksum 파일 리스트
+                                List<File> checksumFiles = new ArrayList<>();
 
-                        for (File f : filesToBundle) {
-                            // 서명/체크섬 파일 자체는 검증 대상에서 제외하고 그대로 포함
-                            if (f.getName().endsWith(".asc") || f.getName().endsWith(".md5") || f.getName().endsWith(".sha1")) {
-                                validatedFiles.add(f);
-                                continue;
-                            }
+                                for (File f : filesToBundle) {
+                                    // 서명/체크섬 파일 자체는 검증 대상에서 제외하고 그대로 포함
+                                    if (f.getName().endsWith(".asc") || f.getName().endsWith(".md5")
+                                            || f.getName().endsWith(".sha1")) {
+                                        validatedFiles.add(f);
+                                        continue;
+                                    }
 
-                            // 아티팩트(.jar, .pom, module.json)인 경우 서명 파일 존재 여부 확인 (module.json은 서명 제외)
-                            String ascName = f.getName() + ".asc";
-                            if (!fileNames.contains(ascName) && !f.getName().equals("module.json")) {
-                                warn(project, "⚠️ [중앙 포털] 서명(.asc) 파일이 없어 건너뜁니다: " + f.getName(), "⚠️ [Central Portal] Missing signature (.asc), skipping: " + f.getName());
-                                continue;
-                            }
-                            validatedFiles.add(f);
+                                    // 아티팩트(.jar, .pom, module.json)인 경우 서명 파일 존재 여부 확인 (module.json은 서명 제외)
+                                    String ascName = f.getName() + ".asc";
+                                    if (!fileNames.contains(ascName) && !f.getName().equals("module.json")) {
+                                        warn(project, "⚠️ [중앙 포털] 서명(.asc) 파일이 없어 건너뜁니다: " + f.getName(),
+                                                "⚠️ [Central Portal] Missing signature (.asc), skipping: "
+                                                        + f.getName());
+                                        continue;
+                                    }
+                                    validatedFiles.add(f);
 
-                            // Checksum (MD5, SHA1) 생성
-                            try {
-                                byte[] content = Files.readAllBytes(f.toPath());
+                                    // Checksum (MD5, SHA1) 생성
+                                    try {
+                                        byte[] content = Files.readAllBytes(f.toPath());
 
-                                java.security.MessageDigest md5Digest = java.security.MessageDigest.getInstance("MD5");
-                                String md5 = String.format("%032x", new java.math.BigInteger(1, md5Digest.digest(content)));
+                                        java.security.MessageDigest md5Digest = java.security.MessageDigest
+                                                .getInstance("MD5");
+                                        String md5 = String.format("%032x",
+                                                new java.math.BigInteger(1, md5Digest.digest(content)));
 
-                                java.security.MessageDigest sha1Digest = java.security.MessageDigest.getInstance("SHA-1");
-                                String sha1 = String.format("%040x", new java.math.BigInteger(1, sha1Digest.digest(content)));
+                                        java.security.MessageDigest sha1Digest = java.security.MessageDigest
+                                                .getInstance("SHA-1");
+                                        String sha1 = String.format("%040x",
+                                                new java.math.BigInteger(1, sha1Digest.digest(content)));
 
-                                File md5File = new File(bundleDir, f.getName() + ".md5");
-                                File sha1File = new File(bundleDir, f.getName() + ".sha1");
+                                        File md5File = new File(bundleDir, f.getName() + ".md5");
+                                        File sha1File = new File(bundleDir, f.getName() + ".sha1");
 
-                                Files.write(md5File.toPath(), md5.getBytes(StandardCharsets.UTF_8));
-                                Files.write(sha1File.toPath(), sha1.getBytes(StandardCharsets.UTF_8));
+                                        Files.write(md5File.toPath(), md5.getBytes(StandardCharsets.UTF_8));
+                                        Files.write(sha1File.toPath(), sha1.getBytes(StandardCharsets.UTF_8));
 
-                                checksumFiles.add(md5File);
-                                checksumFiles.add(sha1File);
-                            } catch (Exception e) {
-                                warn(project, "⚠️ [중앙 포털] 체크섬 생성 실패: " + f.getName(), "⚠️ [Central Portal] Checksum generation failed: " + f.getName());
-                            }
-                        }
-                        filesToBundle = validatedFiles;
-                        filesToBundle.addAll(checksumFiles);
+                                        checksumFiles.add(md5File);
+                                        checksumFiles.add(sha1File);
+                                    } catch (Exception e) {
+                                        warn(project, "⚠️ [중앙 포털] 체크섬 생성 실패: " + f.getName(),
+                                                "⚠️ [Central Portal] Checksum generation failed: " + f.getName());
+                                    }
+                                }
+                                filesToBundle = validatedFiles;
+                                filesToBundle.addAll(checksumFiles);
 
-                        if (filesToBundle.isEmpty()) {
-                            throw new org.gradle.api.GradleException("❌ [Central Portal] 번들링할 파일이 없습니다. (서명 파일 누락 등 확인 필요)");
-                        }
+                                if (filesToBundle.isEmpty()) {
+                                    throw new org.gradle.api.GradleException(
+                                            "❌ [Central Portal] 번들링할 파일이 없습니다. (서명 파일 누락 등 확인 필요)");
+                                }
 
-                        // 3. Zip 번들 생성 (Maven Layout 적용)
-                        // publicationName이 기본 'mavenJava'가 아닐 경우 이름에 publicationName을 추가하여
-                        // pluginMaven 등 여러 출판물이 동일한 artifactId/버전으로 덮어쓰지 않도록 방지
-                        String bundleFileName = artifactId + "-" + version + ("mavenJava".equals(publicationName) ? "" : "-" + publicationName) + ".zip";
-                        File zipFile = new File(buildDir, "distributions/" + bundleFileName);
-                        zipFile.getParentFile().mkdirs();
+                                // 3. Zip 번들 생성 (Maven Layout 적용)
+                                // publicationName이 기본 'mavenJava'가 아닐 경우 이름에 publicationName을 추가하여
+                                // pluginMaven 등 여러 출판물이 동일한 artifactId/버전으로 덮어쓰지 않도록 방지
+                                String bundleFileName = artifactId + "-" + version
+                                        + ("mavenJava".equals(publicationName) ? "" : "-" + publicationName) + ".zip";
+                                File zipFile = new File(buildDir, "distributions/" + bundleFileName);
+                                zipFile.getParentFile().mkdirs();
 
-                        try (FileOutputStream fos = new FileOutputStream(zipFile);
-                                ZipOutputStream zos = new ZipOutputStream(fos)) {
+                                try (FileOutputStream fos = new FileOutputStream(zipFile);
+                                        ZipOutputStream zos = new ZipOutputStream(fos)) {
 
-                            info(project, "📦 [중앙 포털] 번들링 대상 파일 목록 (Maven Layout 적용):", "📦 [Central Portal] Files for bundling (Maven Layout):");
-                            // Publication의 groupId 사용
-                            String groupPath = groupId.replace(".", "/");
-                            String mavenPathPrefix = groupPath + "/" + artifactId + "/" + version + "/";
+                                    info(project, "📦 [중앙 포털] 번들링 대상 파일 목록 (Maven Layout 적용):",
+                                            "📦 [Central Portal] Files for bundling (Maven Layout):");
+                                    // Publication의 groupId 사용
+                                    String groupPath = groupId.replace(".", "/");
+                                    String mavenPathPrefix = groupPath + "/" + artifactId + "/" + version + "/";
 
-                            for (File file : filesToBundle) {
-                                String entryName = mavenPathPrefix + file.getName();
-                                info(project, "   - " + entryName + " (" + file.length() + " bytes)", "   - " + entryName + " (" + file.length() + " bytes)");
+                                    for (File file : filesToBundle) {
+                                        String entryName = mavenPathPrefix + file.getName();
+                                        info(project, "   - " + entryName + " (" + file.length() + " bytes)",
+                                                "   - " + entryName + " (" + file.length() + " bytes)");
+
+                                        try {
+                                            ZipEntry zipEntry = new ZipEntry(entryName);
+                                            zos.putNextEntry(zipEntry);
+                                            Files.copy(file.toPath(), zos);
+                                            zos.closeEntry();
+                                        } catch (Exception e) {
+                                            throw new IOException(
+                                                    "파일 번들링 중 오류 발생: " + file.getName() + " - " + e.getMessage(), e);
+                                        }
+                                    }
+                                    info(project, "📦 [중앙 포털] Zip 번들 생성 완료: " + zipFile.getAbsolutePath(),
+                                            "📦 [Central Portal] Zip bundle created: " + zipFile.getAbsolutePath());
+                                    info(project, "   - 포함된 파일 수: " + filesToBundle.size(),
+                                            "   - Included files count: " + filesToBundle.size());
+                                } catch (IOException e) {
+                                    // 상세 에러 메시지를 포함하여 예외 발생
+                                    error(project, "❌ [중앙 포털] Zip 생성 중 치명적 오류: " + e.getMessage(),
+                                            "❌ [Central Portal] Critical error during Zip creation: " + e.getMessage());
+                                    throw new org.gradle.api.GradleException(isKorean()
+                                            ? "❌ [중앙 포털] Zip 번들 생성 실패: " + e.getMessage()
+                                            : "❌ [Central Portal] Zip bundle creation failed: " + e.getMessage(), e);
+                                }
+
+                                // 4. 업로드 (HttpClient)
+                                String username = (String) project.findProperty("centralUsername");
+                                String password = (String) project.findProperty("centralPassword");
+
+                                if (username == null || password == null) {
+                                    warn(project,
+                                            "⚠️ [중앙 포털] 업로드를 위한 인증 정보(centralUsername, centralPassword)가 없습니다. Zip 파일 생성까지만 진행되었습니다.",
+                                            "⚠️ [Central Portal] Missing authentication (centralUsername, centralPassword). Zip creation completed, but upload skipped.");
+                                    return;
+                                }
+
+                                // 공백 및 따옴표 제거 (사용자 실수 방지)
+                                username = username.trim().replace("\"", "").replace("'", "");
+                                password = password.trim().replace("\"", "").replace("'", "");
+
+                                info(project, "📤 [중앙 포털] 업로드를 시작합니다...", "📤 [Central Portal] Starting upload...");
+                                info(project, "   - User: " + username, "   - User: " + username);
+                                project.getLogger().debug("   - Password Length: " + password.length()); // 디버그용 (값은 노출하지 않음)
 
                                 try {
-                                    ZipEntry zipEntry = new ZipEntry(entryName);
-                                    zos.putNextEntry(zipEntry);
-                                    Files.copy(file.toPath(), zos);
-                                    zos.closeEntry();
-                                } catch (Exception e) {
-                                    throw new IOException("파일 번들링 중 오류 발생: " + file.getName() + " - " + e.getMessage(), e);
-                                }
-                            }
-                            info(project, "📦 [중앙 포털] Zip 번들 생성 완료: " + zipFile.getAbsolutePath(), "📦 [Central Portal] Zip bundle created: " + zipFile.getAbsolutePath());
-                            info(project, "   - 포함된 파일 수: " + filesToBundle.size(), "   - Included files count: " + filesToBundle.size());
-                        } catch (IOException e) {
-                            // 상세 에러 메시지를 포함하여 예외 발생
-                            error(project, "❌ [중앙 포털] Zip 생성 중 치명적 오류: " + e.getMessage(), "❌ [Central Portal] Critical error during Zip creation: " + e.getMessage());
-                            throw new org.gradle.api.GradleException(isKorean() ? "❌ [중앙 포털] Zip 번들 생성 실패: " + e.getMessage() : "❌ [Central Portal] Zip bundle creation failed: " + e.getMessage(), e);
-                        }
+                                    String boundary = "---ContentBoundary" + System.currentTimeMillis();
 
-                        // 4. 업로드 (HttpClient)
-                        String username = (String) project.findProperty("centralUsername");
-                        String password = (String) project.findProperty("centralPassword");
+                                    try (java.io.ByteArrayOutputStream bodyOs = new java.io.ByteArrayOutputStream()) {
+                                        bodyOs.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                                        // Content-Disposition에 실제 파일명 반영
+                                        bodyOs.write(("Content-Disposition: form-data; name=\"bundle\"; filename=\""
+                                                + bundleFileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+                                        bodyOs.write(("Content-Type: application/zip\r\n\r\n")
+                                                .getBytes(StandardCharsets.UTF_8));
+                                        bodyOs.write(Files.readAllBytes(zipFile.toPath()));
+                                        bodyOs.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
 
-                        if (username == null || password == null) {
-                            warn(project, "⚠️ [중앙 포털] 업로드를 위한 인증 정보(centralUsername, centralPassword)가 없습니다. Zip 파일 생성까지만 진행되었습니다.", "⚠️ [Central Portal] Missing authentication (centralUsername, centralPassword). Zip creation completed, but upload skipped.");
-                            return;
-                        }
+                                        byte[] bodyBytes = bodyOs.toByteArray();
 
-                        // 공백 및 따옴표 제거 (사용자 실수 방지)
-                        username = username.trim().replace("\"", "").replace("'", "");
-                        password = password.trim().replace("\"", "").replace("'", "");
+                                        HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                                                .build();
 
-                        info(project, "📤 [중앙 포털] 업로드를 시작합니다...", "📤 [Central Portal] Starting upload...");
-                        info(project, "   - User: " + username, "   - User: " + username);
-                        project.getLogger().debug("   - Password Length: " + password.length()); // 디버그용 (값은 노출하지 않음)
+                                        String auth = Base64.getEncoder().encodeToString(
+                                                (username + ":" + password).getBytes(StandardCharsets.UTF_8));
 
-                        try {
-                            String boundary = "---ContentBoundary" + System.currentTimeMillis();
+                                        HttpRequest request = HttpRequest.newBuilder()
+                                                .uri(URI.create(centralUploadUrl))
+                                                .header("Authorization", "Basic " + auth)
+                                                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                                                .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
+                                                .build();
 
-                            try (java.io.ByteArrayOutputStream bodyOs = new java.io.ByteArrayOutputStream()) {
-                                bodyOs.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                                // Content-Disposition에 실제 파일명 반영
-                                bodyOs.write(("Content-Disposition: form-data; name=\"bundle\"; filename=\"" + bundleFileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-                                bodyOs.write(("Content-Type: application/zip\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-                                bodyOs.write(Files.readAllBytes(zipFile.toPath()));
-                                bodyOs.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                                        HttpResponse<String> response = client.send(request,
+                                                HttpResponse.BodyHandlers.ofString());
 
-                                byte[] bodyBytes = bodyOs.toByteArray();
-
-                                HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
-
-                                String auth = Base64.getEncoder().encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
-
-                                HttpRequest request = HttpRequest.newBuilder()
-                                        .uri(URI.create(centralUploadUrl))
-                                        .header("Authorization", "Basic " + auth)
-                                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                                        .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
-                                        .build();
-
-                                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-                                if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                                    info(project, "✅ [중앙 포털] 업로드 성공! (Deployment ID: " + response.body() + ")", "✅ [Central Portal] Upload successful! (Deployment ID: " + response.body() + ")");
-                                } else {
-                                    if (response.statusCode() == 401) {
-                                        String msgKo = "🚨 [중앙 포털] 인증 실패 (401 Unauthorized)\n" +
-                                                "   👉 Sonatype Central Portal은 로그인 비밀번호가 아닌 'User Token'을 사용해야 합니다.\n" +
-                                                "   👉 토큰 생성: https://central.sonatype.com/account -> 'Generate User Token'\n" +
-                                                "   👉 gradle.properties에 'User Token Name'을 centralUsername으로,\n" +
-                                                "      'User Token Password'를 centralPassword로 설정하세요.";
-                                        String msgEn = "🚨 [Central Portal] Authentication failed (401 Unauthorized)\n" +
-                                                "   👉 Central Portal requires 'User Token', not login password.\n" +
-                                                "   👉 Generate Token: https://central.sonatype.com/account -> 'Generate User Token'\n" +
-                                                "   👉 Set 'User Token Name' as centralUsername and 'User Token Password' as centralPassword in gradle.properties.";
-
-                                        if (isKorean()) {
-                                            project.getLogger().error(msgKo);
+                                        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                                            info(project, "✅ [중앙 포털] 업로드 성공! (Deployment ID: " + response.body() + ")",
+                                                    "✅ [Central Portal] Upload successful! (Deployment ID: "
+                                                            + response.body() + ")");
                                         } else {
-                                            project.getLogger().error(msgEn);
+                                            if (response.statusCode() == 401) {
+                                                String msgKo = "🚨 [중앙 포털] 인증 실패 (401 Unauthorized)\n" +
+                                                        "   👉 Sonatype Central Portal은 로그인 비밀번호가 아닌 'User Token'을 사용해야 합니다.\n"
+                                                        +
+                                                        "   👉 토큰 생성: https://central.sonatype.com/account -> 'Generate User Token'\n"
+                                                        +
+                                                        "   👉 gradle.properties에 'User Token Name'을 centralUsername으로,\n"
+                                                        +
+                                                        "      'User Token Password'를 centralPassword로 설정하세요.";
+                                                String msgEn = "🚨 [Central Portal] Authentication failed (401 Unauthorized)\n"
+                                                        +
+                                                        "   👉 Central Portal requires 'User Token', not login password.\n"
+                                                        +
+                                                        "   👉 Generate Token: https://central.sonatype.com/account -> 'Generate User Token'\n"
+                                                        +
+                                                        "   👉 Set 'User Token Name' as centralUsername and 'User Token Password' as centralPassword in gradle.properties.";
+
+                                                if (isKorean()) {
+                                                    project.getLogger().error(msgKo);
+                                                } else {
+                                                    project.getLogger().error(msgEn);
+                                                }
+                                            }
+                                            throw new org.gradle.api.GradleException(isKorean()
+                                                    ? "❌ [중앙 포털] 업로드 실패 (HTTP " + response.statusCode() + "): "
+                                                            + response.body()
+                                                    : "❌ [Central Portal] Upload failed (HTTP " + response.statusCode()
+                                                            + "): " + response.body());
                                         }
                                     }
-                                    throw new org.gradle.api.GradleException(isKorean() ? "❌ [중앙 포털] 업로드 실패 (HTTP " + response.statusCode() + "): " + response.body() : "❌ [Central Portal] Upload failed (HTTP " + response.statusCode() + "): " + response.body());
+                                } catch (Exception e) {
+                                    error(project, "❌ [중앙 포털] 업로드 중 예외 발생: " + e.getMessage(),
+                                            "❌ [Central Portal] Exception during upload: " + e.getMessage());
+                                    throw new org.gradle.api.GradleException(
+                                            isKorean() ? "❌ [중앙 포털] 업로드 중 예외 발생: " + e.getMessage()
+                                                    : "❌ [Central Portal] Exception during upload: " + e.getMessage(),
+                                            e);
                                 }
-                            }
-                        } catch (Exception e) {
-                            error(project, "❌ [중앙 포털] 업로드 중 예외 발생: " + e.getMessage(), "❌ [Central Portal] Exception during upload: " + e.getMessage());
-                            throw new org.gradle.api.GradleException(isKorean() ? "❌ [중앙 포털] 업로드 중 예외 발생: " + e.getMessage() : "❌ [Central Portal] Exception during upload: " + e.getMessage(), e);
+                            });
                         }
                     });
-                }
-            });
         });
     }
 }

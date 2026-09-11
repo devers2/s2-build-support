@@ -296,21 +296,18 @@ public class MavenPublishStrategy {
         if (S2BuildUtils.isKorean()) {
             project.getLogger().lifecycle(
                     "🔍 [CHECK] 아티팩트 상태 확인 중: {}:{}...",
-                    publication.getArtifactId(), publication.getVersion()
-            );
+                    publication.getArtifactId(), publication.getVersion());
         } else {
             project.getLogger().lifecycle(
                     "🔍 [CHECK] Verifying artifact status: {}:{}...",
-                    publication.getArtifactId(), publication.getVersion()
-            );
+                    publication.getArtifactId(), publication.getVersion());
         }
 
         List<ArtifactInfo> artifacts = new ArrayList<>();
         publication.getArtifacts().forEach(a -> {
             project.getLogger().lifecycle(
                     "  - Artifact: {} (Classifier: {}, Ext: {})",
-                    a.getFile().getName(), a.getClassifier(), a.getExtension()
-            );
+                    a.getFile().getName(), a.getClassifier(), a.getExtension());
             artifacts.add(new ArtifactInfo(a.getClassifier(), a.getExtension()));
         });
         return artifacts;
@@ -329,14 +326,16 @@ public class MavenPublishStrategy {
      * @param decision   Publication decision | 배포 결정 결과
      * @return {@code true} to proceed with publication | 배포 진행 여부
      */
-    private static boolean logPublishDecision(Project project, String artifactId, String version, PublishDecision decision) {
+    private static boolean logPublishDecision(Project project, String artifactId, String version,
+            PublishDecision decision) {
         boolean isKo = S2BuildUtils.isKorean();
 
         if (!decision.shouldPublish) {
             if (isKo) {
                 project.getLogger().lifecycle("⏭️  [SKIP] {}:{} 버전은 이미 완전히 배포되어 있습니다.", artifactId, version);
             } else {
-                project.getLogger().lifecycle("⏭️  [SKIP] Version {}:{} is already fully deployed.", artifactId, version);
+                project.getLogger().lifecycle("⏭️  [SKIP] Version {}:{} is already fully deployed.", artifactId,
+                        version);
             }
             return false;
         }
@@ -345,7 +344,8 @@ public class MavenPublishStrategy {
             if (isKo) {
                 project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - 신규 버전 배포 (기존 POM 없음)", artifactId, version);
             } else {
-                project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - New version deployment (POM missing)", artifactId, version);
+                project.getLogger().lifecycle("🆕 [REGISTER] {}:{} - New version deployment (POM missing)", artifactId,
+                        version);
             }
             return true;
         } else {

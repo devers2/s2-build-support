@@ -194,7 +194,8 @@ public class GitHubPackagesClient {
                     if (S2BuildUtils.isKorean()) {
                         logger.warn("⚠️  GitHub API 호출 실패 (HTTP {}). 공개 리포지토리로 간주합니다.", responseCode);
                     } else {
-                        logger.warn("⚠️  GitHub API call failed (HTTP {}). Treating as public repository.", responseCode);
+                        logger.warn("⚠️  GitHub API call failed (HTTP {}). Treating as public repository.",
+                                responseCode);
                     }
                     return false;
                 }
@@ -205,7 +206,8 @@ public class GitHubPackagesClient {
             if (S2BuildUtils.isKorean()) {
                 logger.warn("⚠️  리포지토리 공개 상태 확인 실패: {}. 공개 리포지토리로 간주합니다.", e.getMessage());
             } else {
-                logger.warn("⚠️  Failed to check repository visibility: {}. Treating as public repository.", e.getMessage());
+                logger.warn("⚠️  Failed to check repository visibility: {}. Treating as public repository.",
+                        e.getMessage());
             }
             return false;
         }
@@ -260,8 +262,7 @@ public class GitHubPackagesClient {
     private static String readResponseBody(HttpURLConnection connection) throws IOException {
         // try-with-resources로 자동 리소스 정리
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8)
-        )) {
+                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
             StringBuilder response = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {

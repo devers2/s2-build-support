@@ -98,7 +98,8 @@ public class S2TestLauncher {
             }
 
             Method junitMain = consoleLauncher.getMethod("main", String[].class);
-            String[] junitArgs = { "--select-class", targetClassName, "--reports-dir", "build/test-results/testArtifact" };
+            String[] junitArgs = { "--select-class", targetClassName, "--reports-dir",
+                    "build/test-results/testArtifact" };
 
             junitMain.invoke(null, (Object) junitArgs);
             return; // 성공적으로 JUnit 실행 시 종료
@@ -139,7 +140,8 @@ public class S2TestLauncher {
             System.err.println("   검증을 완료하려면 다음 중 하나를 수행하세요:");
             System.err.println("   1. 클래스패스에 JUnit 5 런처를 추가하세요. (추천)");
             System.err.println("      -> build.gradle: testRuntimeOnly 'org.junit.platform:junit-platform-console'");
-            System.err.println("   2. '" + targetClassName + "' 클래스에 'public static void main(String[] args)' 메서드를 구현하세요.");
+            System.err.println(
+                    "   2. '" + targetClassName + "' 클래스에 'public static void main(String[] args)' 메서드를 구현하세요.");
         } else {
             System.err.println("\n" + "=".repeat(80));
             System.err.println("❌ [Launcher] Error: Unable to validate class '" + targetClassName + "'.");
@@ -147,7 +149,8 @@ public class S2TestLauncher {
             System.err.println("   To complete validation, perform one of the following:");
             System.err.println("   1. Add JUnit 5 launcher to the classpath. (Recommended)");
             System.err.println("      -> build.gradle: testRuntimeOnly 'org.junit.platform:junit-platform-console'");
-            System.err.println("   2. Implement 'public static void main(String[] args)' in class '" + targetClassName + "'.");
+            System.err.println(
+                    "   2. Implement 'public static void main(String[] args)' in class '" + targetClassName + "'.");
         }
         System.err.println("=".repeat(80) + "\n");
 

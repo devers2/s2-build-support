@@ -147,7 +147,8 @@ public abstract class BuildVariantsTask extends DefaultTask {
             // 2. Build 실행 (jar, sourcesJar?, javadocJar)
             executeBuild(gradlewPath, javaHome, javaVersion, additionalSource, generateSources);
 
-            info(getProject(), "✅ [" + displayInfo + "] 빌드가 성공적으로 완료되었습니다.", "✅ Build completed successfully for: " + displayInfo);
+            info(getProject(), "✅ [" + displayInfo + "] 빌드가 성공적으로 완료되었습니다.",
+                    "✅ Build completed successfully for: " + displayInfo);
 
         } catch (Exception e) {
             handleBuildFailure(displayInfo, javaVersion, additionalSource, e);
@@ -172,7 +173,8 @@ public abstract class BuildVariantsTask extends DefaultTask {
      */
     private String getGradlewPath() {
         String rootDir = getProject().getRootDir().getAbsolutePath();
-        String gradlew = System.getProperty("os.name").toLowerCase().contains("windows") ? GRADLEW_WINDOWS : GRADLEW_UNIX;
+        String gradlew = System.getProperty("os.name").toLowerCase().contains("windows") ? GRADLEW_WINDOWS
+                : GRADLEW_UNIX;
         return new File(rootDir, gradlew).getAbsolutePath();
     }
 
@@ -308,19 +310,21 @@ public abstract class BuildVariantsTask extends DefaultTask {
         String msgKo = "❌ [" + displayInfo + "] 빌드 실패";
         String msgEn = "❌ BUILD FAILED for: " + displayInfo;
 
-        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         error(getProject(), isKorean() ? msgKo : msgEn, isKorean() ? msgKo : msgEn);
-        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         info(getProject(), "상세 정보:", "Details:");
         info(getProject(), "  - Java Version: " + javaVersion, "  - Java Version: " + javaVersion);
         info(getProject(), "  - 추가 소스: " + additionalSource, "  - Additional Sources: " + additionalSource);
-        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        error(getProject(), "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         // 원본 예외를 다시 던져서 빌드 중단
         throw new org.gradle.api.GradleException(
                 isKorean() ? "빌드 실패: " + displayInfo : "Failed to build: " + displayInfo,
-                e
-        );
+                e);
     }
 
     /**
@@ -335,7 +339,8 @@ public abstract class BuildVariantsTask extends DefaultTask {
      * @param javaVersion      Java version | Java 버전
      * @param additionalSource Set of additional sources | 추가 소스 목록
      */
-    private void restoreWorkspace(String gradlewPath, String javaHome, JavaVersion javaVersion, Set<String> additionalSource) {
+    private void restoreWorkspace(String gradlewPath, String javaHome, JavaVersion javaVersion,
+            Set<String> additionalSource) {
         try {
             String sourcesStr = String.join(",", additionalSource);
 
@@ -357,7 +362,8 @@ public abstract class BuildVariantsTask extends DefaultTask {
             info(getProject(), "✨ 워크스페이스가 복원되었습니다.", "✨ Workspace refreshed.");
 
         } catch (Exception e) {
-            warn(getProject(), "⚠️ 워크스페이스 복원 실패: " + e.getMessage(), "⚠️ Failed to refresh workspace: " + e.getMessage());
+            warn(getProject(), "⚠️ 워크스페이스 복원 실패: " + e.getMessage(),
+                    "⚠️ Failed to refresh workspace: " + e.getMessage());
         }
     }
 }
