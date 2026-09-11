@@ -34,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.2"
+    id("io.github.devers2.buildsupport") version "0.2.3"
 }
 ```
 
@@ -67,7 +67,7 @@ Maven Central에 아티팩트 하나를 배포하는 일반적인 라이브러�
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.2"
+    id("io.github.devers2.buildsupport") version "0.2.3"
     `java-library`
     `maven-publish`
     signing
@@ -118,4 +118,4 @@ S2BuildUtils.configureTestDefaults(project)
 
 ---
 
-s2-build-support Version: 0.2.2 (2026-09-10)
+s2-build-support Version: 0.2.3 (2026-09-11)

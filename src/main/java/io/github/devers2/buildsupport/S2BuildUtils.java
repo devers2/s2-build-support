@@ -3618,6 +3618,156 @@ public class S2BuildUtils {
     }
 
     /**
+     * Updates a specific version key in gradle/libs.versions.toml with the given version.
+     * <p>
+     * The TOML file location is resolved automatically by searching standard Gradle convention paths
+     * (rootDir, projectDir, and ancestor directories for composite builds).
+     * </p>
+     * <p>
+     * <b>[한국어 설명]</b><br>
+     * {@code gradle/libs.versions.toml} 파일의 [versions] 섹션에서 지정된 {@code versionKey}의 버전을
+     * {@code newVersion}으로 자동 동기화합니다. TOML 파일 경로는 Gradle 표준 규약에 따라 자동 탐색됩니다.
+     * </p>
+     *
+     * @param project    The Gradle project instance | Gradle 프로젝트 객체
+     * @param versionKey Version key in [versions] (e.g. "s2-validator-plugin") | [versions] 섹션 내 버전 키
+     * @param newVersion New version string | 갱신할 새 버전 문자열
+     * @see #syncVersionToCatalog(Project, Object, String, String)
+     */
+    public static void syncVersionToCatalog(Project project, String versionKey, String newVersion) {
+        syncVersionToCatalog(project, (File) null, versionKey, newVersion);
+    }
+
+    /**
+     * Updates a specific version key in a Version Catalog TOML file with the given version,
+     * using an explicitly provided TOML file location.
+     * <p>
+     * This overload is useful when:
+     * <ul>
+     *   <li>The TOML file uses a non-standard name or location (e.g. {@code gradle/dependencies.toml})</li>
+     *   <li>Multiple version catalogs exist in the project</li>
+     *   <li>The TOML file resides outside the standard ancestor-directory search scope</li>
+     *   <li>Explicit path control is required for testing or CI scenarios</li>
+     * </ul>
+     * When {@code customTomlPath} is {@code null}, the method falls back to the automatic
+     * convention-based lookup (same as {@link #syncVersionToCatalog(Project, String, String)}).
+     * <p>
+     * <b>[한국어 설명]</b><br>
+     * 사용자가 직접 지정한 {@code customTomlPath} 경로의 TOML 파일에서 {@code versionKey}의 버전을
+     * {@code newVersion}으로 동기화합니다. {@code File}, {@code java.nio.file.Path}, {@code String} 타입을
+     * 모두 지원합니다. {@code null}을 전달하면 자동 탐색 방식(표준 규약 경로)으로 폴백됩니다.
+     * </p>
+     *
+     * @param project        The Gradle project instance | Gradle 프로젝트 객체
+     * @param customTomlPath Custom TOML file location: accepts {@link File}, {@link java.nio.file.Path},
+     *                       or {@link String}. Pass {@code null} to use automatic convention-based lookup.
+     *                       | 커스텀 TOML 파일 경로 ({@code File}, {@code Path}, {@code String} 허용).
+     *                       {@code null} 전달 시 자동 탐색으로 폴백.
+     * @param versionKey     Version key in [versions] section (e.g. "s2-validator-plugin")
+     *                       | [versions] 섹션 내 버전 키
+     * @param newVersion     New version string | 갱신할 새 버전 문자열
+     */
+    public static void syncVersionToCatalog(Project project, Object customTomlPath, String versionKey, String newVersion) {
+        if (!isValidVersion(newVersion) || versionKey == null || versionKey.trim().isEmpty()) {
+            return;
+        }
+
+        File tomlFile = resolveVersionCatalogFile(project, customTomlPath);
+        if (tomlFile == null || !tomlFile.exists()) {
+            return;
+        }
+
+        try {
+            String content = new String(Files.readAllBytes(tomlFile.toPath()), StandardCharsets.UTF_8);
+            Pattern pattern = Pattern.compile("(?m)^(\\s*\\Q" + versionKey + "\\E\\s*=\\s*['\"])([^'\"]+)(['\"])");
+            Matcher matcher = pattern.matcher(content);
+            if (matcher.find()) {
+                String existingVer = matcher.group(2);
+                if (!newVersion.equals(existingVer)) {
+                    String updated = matcher.replaceFirst("$1" + newVersion + "$3");
+                    Files.write(tomlFile.toPath(), updated.getBytes(StandardCharsets.UTF_8));
+                    info(project,
+                            "ℹ️ [Version Catalog] " + tomlFile.getName() + "의 '" + versionKey + "' 버전을 " + existingVer
+                                    + " -> " + newVersion + " 으로 자동 동기화했습니다.",
+                            "ℹ️ [Version Catalog] Synced '" + versionKey + "' version in " + tomlFile.getName()
+                                    + ": " + existingVer + " -> " + newVersion);
+                }
+            }
+        } catch (Exception e) {
+            warn(project,
+                    "⚠️ [Version Catalog] " + tomlFile.getName() + " 동기화 실패: " + e.getMessage(),
+                    "⚠️ [Version Catalog] Failed to sync " + tomlFile.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Resolves the Version Catalog TOML file to use.
+     * <p>
+     * If {@code customTomlPath} is non-null, it is converted to a {@link File}
+     * ({@link File}, {@link java.nio.file.Path}, and {@link String} are all supported).
+     * Otherwise, falls back to {@link #findVersionCatalogFile(Project)} which searches
+     * standard Gradle convention paths.
+     * </p>
+     *
+     * @param project        Gradle project for logging and path resolution
+     * @param customTomlPath Custom path (File / Path / String) or {@code null}
+     * @return Resolved {@link File}, or {@code null} if not found
+     */
+    private static File resolveVersionCatalogFile(Project project, Object customTomlPath) {
+        if (customTomlPath == null) {
+            return findVersionCatalogFile(project);
+        }
+        if (customTomlPath instanceof File) {
+            return (File) customTomlPath;
+        }
+        if (customTomlPath instanceof java.nio.file.Path) {
+            return ((java.nio.file.Path) customTomlPath).toFile();
+        }
+        if (customTomlPath instanceof String) {
+            String pathStr = (String) customTomlPath;
+            File f = new File(pathStr);
+            // 절대 경로가 아닌 경우 프로젝트 rootDir 기준으로 해석
+            return f.isAbsolute() ? f : new File(project.getRootDir(), pathStr);
+        }
+        warn(project,
+                "⚠️ [Version Catalog] 지원하지 않는 customTomlPath 타입: " + customTomlPath.getClass().getName(),
+                "⚠️ [Version Catalog] Unsupported customTomlPath type: " + customTomlPath.getClass().getName());
+        return null;
+    }
+
+    private static File findVersionCatalogFile(Project project) {
+        // 1. 현재 프로젝트 rootDir
+        File toml = new File(project.getRootDir(), "gradle/libs.versions.toml");
+        if (toml.exists()) {
+            return toml;
+        }
+
+        // 2. 현재 프로젝트 projectDir
+        toml = new File(project.getProjectDir(), "gradle/libs.versions.toml");
+        if (toml.exists()) {
+            return toml;
+        }
+
+        // 3. 상위 디렉터리 (Composite Build / includeBuild 인 경우 부모 저장소의 gradle/libs.versions.toml 탐색)
+        File parent = project.getRootDir().getParentFile();
+        if (parent != null) {
+            toml = new File(parent, "gradle/libs.versions.toml");
+            if (toml.exists()) {
+                return toml;
+            }
+
+            File grandParent = parent.getParentFile();
+            if (grandParent != null) {
+                toml = new File(grandParent, "gradle/libs.versions.toml");
+                if (toml.exists()) {
+                    return toml;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Toggles specific sections in the NOTICE file based on active features.
      * <p>
      * <b>[한국어 설명]</b>
