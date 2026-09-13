@@ -1700,6 +1700,16 @@ public class S2BuildUtils {
      * 엔드유저용 런타임 필수 의존성 문서(README/MANUAL) 수집 대상에서는 제외됩니다.
      * </p>
      *
+     * <p>
+     * <b>Example Usage:</b>
+     * </p>
+     *
+     * <pre>{@code
+     * dependencies {
+     *     "compileOnlyInternal"(libs.errorprone.annotations)
+     * }
+     * }</pre>
+     *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     public static void configureCompileOnlyInternal(Project project) {
