@@ -1685,6 +1685,35 @@ public class S2BuildUtils {
     }
 
     /**
+     * Configures the {@code compileOnlyInternal} configuration for internal compile-time dependencies.
+     * <p>
+     * Dependencies added to {@code compileOnlyInternal} are available during compilation
+     * (and test compilation) but are excluded from consumer runtime documentation (README/MANUAL).
+     * </p>
+     *
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 내부 컴파일 전용 의존성을 위한 {@code compileOnlyInternal} 설정을 구성합니다.
+     * <p>
+     * {@code compileOnlyInternal}에 추가된 의존성은 메인 및 테스트 컴파일 클래스패스에 포함되지만,
+     * 엔드유저용 런타임 필수 의존성 문서(README/MANUAL) 수집 대상에서는 제외됩니다.
+     * </p>
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     */
+    public static void configureCompileOnlyInternal(Project project) {
+        org.gradle.api.artifacts.ConfigurationContainer configs = project.getConfigurations();
+        org.gradle.api.artifacts.Configuration compileOnlyInternal = configs.maybeCreate("compileOnlyInternal");
+        compileOnlyInternal.setCanBeConsumed(false);
+        compileOnlyInternal.setCanBeResolved(false);
+        compileOnlyInternal.setDescription("Compile-time dependencies not exposed to consumers or manual documentation");
+
+        configs.matching(c -> "compileClasspath".equals(c.getName()) || "testCompileClasspath".equals(c.getName()))
+                .all(c -> c.extendsFrom(compileOnlyInternal));
+    }
+
+    /**
      * Applies common JUnit 5 test defaults: the JUnit Platform test engine and extra console/IO
      * encoding hardening on top of {@link #enforceUtf8Encoding(Project)}.
      * <p>

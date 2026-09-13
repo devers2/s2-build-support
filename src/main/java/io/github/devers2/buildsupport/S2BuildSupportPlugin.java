@@ -71,5 +71,8 @@ public class S2BuildSupportPlugin implements Plugin<Project> {
 
         // 소비자 프로젝트에 안전한 컴파일러 옵션(-parameters 등)을 기본 적용
         S2BuildUtils.configureCommonCompilerArgs(project);
+
+        // 내부 컴파일 전용 의존성(compileOnlyInternal) 설정 구성
+        S2BuildUtils.configureCompileOnlyInternal(project);
     }
 }
