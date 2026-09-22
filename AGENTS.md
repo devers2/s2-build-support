@@ -31,6 +31,17 @@ Java 소스 코드, Gradle 설정, 문서를 수정한 후에는 **사용자에�
 
 ---
 
-## 2. 인코딩 원칙
+## 2. Java 버전 호환성 원칙 (Java 17 Baseline & Build Toolchain Management)
+
+1. **자체 툴체인 호환성 (Java 17)**:
+   - `s2-build-support` 플러그인은 다양한 CI/CD 및 Gradle 실행기 환경과의 호환성을 위해 JDK 17 툴체인(`libs.versions.java = 17`)을 기준으로 빌드됩니다.
+   - 플러그인 소스코드 내에 Java 17을 초과하는 상위 버전 전용 문법이나 API를 사용해서는 안 됩니다.
+2. **하위 프로젝트 빌드 컨벤션 지원**:
+   - `S2BuildUtils.configureJavaCompatibility()` 등을 통해 하위 프로젝트(`s2-util`, `s2-support`)가 JDK 21 툴체인으로 컴파일하더라도 바이트코드 출력은 Java 17(`--release 17`)로 엄격히 제한되도록 제어해야 합니다.
+
+---
+
+## 3. 인코딩 원칙
 
 - 모든 소스 코드 및 설정 파일은 UTF-8 인코딩을 준수해야 합니다.
+
