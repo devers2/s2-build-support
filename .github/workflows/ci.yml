@@ -34,4 +34,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Build and Test
-        run: ./gradlew build --stacktrace 2>&1 | tail -150
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew build --stacktrace 2>&1 | tail -150
