@@ -34,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.3"
+    id("io.github.devers2.buildsupport") version "0.2.5"
 }
 ```
 
@@ -67,7 +67,7 @@ A typical library that publishes a single artifact to Maven Central:
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.3"
+    id("io.github.devers2.buildsupport") version "0.2.5"
     `java-library`
     `maven-publish`
     signing
@@ -118,4 +118,4 @@ This module utilizes the following high-quality open-source library:
 
 ---
 
-s2-build-support Version: 0.2.3 (2026-09-11)
+s2-build-support Version: 0.2.5 (2026-09-29)
