@@ -1276,6 +1276,9 @@ public class S2BuildUtils {
 
         final boolean finalBuildFatJar = buildFatJar;
 
+        // Dependency license files, kept per dependency so none is dropped as a duplicate | 의존성 라이선스 파일을 의존성별로 보존 (중복으로 버려지지 않도록)
+        final var dependencyNotices = finalBuildFatJar ? registerDependencyNoticesTask(project) : null;
+
         project.getTasks().named("jar", Jar.class).configure(task -> {
             // [Fix] Gradle 9.2.1+ Implicit Dependency Error 해결
             // runtimeClasspath의 의존성(프로젝트 포함)을 명시적으로 dependsOn에 추가하여 실행 순서를 보장합니다.
@@ -1313,7 +1316,12 @@ public class S2BuildUtils {
 
                                         if (idStr == null || !excludes.contains(idStr)) {
                                             File file = artifact.getFile();
-                                            sources.add(file.isDirectory() ? file : project.zipTree(file));
+                                            // License files of dependencies go to META-INF/licenses/<module>/ instead, so they neither
+                                            // replace this project's own (licenses/NOTICE, README.md) nor each other (META-INF/LICENSE.txt)
+                                            // | 의존성 라이선스 파일은 META-INF/licenses/<module>/ 로 옮겨, 이 프로젝트 파일이나 서로를 덮지 않게 함
+                                            sources.add(file.isDirectory()
+                                                    ? project.fileTree(file, tree -> tree.exclude(DEPENDENCY_NOTICE_PATTERNS))
+                                                    : project.zipTree(file).matching(tree -> tree.exclude(DEPENDENCY_NOTICE_PATTERNS)));
                                         } else {
                                             project.getLogger()
                                                     .debug("   🚫 [FatJar] Skipping duplicated dependency: " + idStr);
@@ -1321,6 +1329,7 @@ public class S2BuildUtils {
                                     }
                                     return sources;
                                 }));
+                task.into("META-INF/licenses", spec -> spec.from(dependencyNotices));
             } else {
                 project.getLogger().lifecycle("📦 Building standard JAR (dependencies separate)");
             }
@@ -1334,6 +1343,126 @@ public class S2BuildUtils {
             // Manifest 설정
             applyManifest(task, project, version);
         });
+    }
+
+    /**
+     * License, notice and readme files of a dependency archive (root and META-INF) | 의존성 아카이브의 라이선스·고지·README 파일
+     */
+    static final String[] DEPENDENCY_NOTICE_PATTERNS = { "LICENSE*", "NOTICE*", "README*", "licenses/**",
+            "META-INF/LICENSE*", "META-INF/NOTICE*" };
+
+    /** Whether an archive entry is one of {@link #DEPENDENCY_NOTICE_PATTERNS} | 해당 패턴의 항목인지 */
+    static boolean isDependencyNotice(String entryName) {
+        var name = entryName.replace('\\', '/');
+        if (name.endsWith("/")) {
+            return false;
+        }
+        if (name.startsWith("licenses/")) {
+            return true;
+        }
+        var slash = name.lastIndexOf('/');
+        var dir = slash < 0 ? "" : name.substring(0, slash);
+        var file = name.substring(slash + 1);
+        if (dir.isEmpty()) {
+            return file.startsWith("LICENSE") || file.startsWith("NOTICE") || file.startsWith("README");
+        }
+        return dir.equals("META-INF") && (file.startsWith("LICENSE") || file.startsWith("NOTICE"));
+    }
+
+    /**
+     * Registers a task copying each bundled dependency's license files to {@code <module>/<original path>}; the Fat JAR
+     * puts them under {@code META-INF/licenses/}.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * Fat JAR 에 포함되는 의존성마다 라이선스 파일을 {@code <모듈>/<원래 경로>}로 복사하는 태스크를 등록합니다. Fat JAR 는 이를
+     * {@code META-INF/licenses/} 아래에 넣습니다. 같은 경로({@code licenses/NOTICE}, {@code META-INF/LICENSE.txt})의 파일이 먼저 들어온
+     * 쪽만 남고 조용히 버려지던 문제를 막습니다.
+     */
+    private static org.gradle.api.tasks.TaskProvider<org.gradle.api.Task> registerDependencyNoticesTask(Project project) {
+        var runtimeConfig = project.getConfigurations().getByName("runtimeClasspath");
+        var outputDir = project.getLayout().getBuildDirectory().dir("tmp/dependencyNotices");
+        // Resolved lazily: name → archive for each bundled dependency | 지연 계산: 포함되는 의존성별 이름 → 아카이브
+        var archives = runtimeConfig.getIncoming().getArtifacts().getResolvedArtifacts().map(results -> {
+            Set<String> excludes = getTransitiveDependenciesOfLocalProjects(project);
+            Map<String, File> byName = new java.util.LinkedHashMap<>();
+            for (ResolvedArtifactResult artifact : results) {
+                ComponentIdentifier id = artifact.getId().getComponentIdentifier();
+                String name;
+                if (id instanceof ModuleComponentIdentifier mid) {
+                    if (excludes.contains(mid.getGroup() + ":" + mid.getModule())) {
+                        continue;
+                    }
+                    name = byName.containsKey(mid.getModule()) ? mid.getGroup() + "." + mid.getModule() : mid.getModule();
+                } else if (id instanceof ProjectComponentIdentifier pid) {
+                    name = pid.getProjectName();
+                } else {
+                    name = artifact.getFile().getName();
+                }
+                byName.put(name, artifact.getFile());
+            }
+            return byName;
+        });
+        return project.getTasks().register("collectDependencyNotices", task -> {
+            task.setDescription("Copies license files of bundled dependencies for the Fat JAR.");
+            task.getInputs().files(runtimeConfig);
+            task.getOutputs().dir(outputDir);
+            task.doLast(t -> {
+                var out = outputDir.get().getAsFile().toPath();
+                try {
+                    if (Files.exists(out)) {
+                        try (var paths = Files.walk(out)) {
+                            paths.sorted(java.util.Comparator.reverseOrder()).map(java.nio.file.Path::toFile)
+                                    .forEach(File::delete);
+                        }
+                    }
+                    Files.createDirectories(out);
+                    for (var entry : archives.get().entrySet()) {
+                        copyDependencyNotices(entry.getValue(), out.resolve(entry.getKey()));
+                    }
+                } catch (IOException e) {
+                    throw new org.gradle.api.GradleException("Failed to collect dependency license files", e);
+                }
+            });
+        });
+    }
+
+    /** Copies notice entries of a jar or classes directory into {@code target}, keeping their paths | 경로를 유지하여 복사 */
+    static void copyDependencyNotices(File archive, java.nio.file.Path target) throws IOException {
+        if (archive.isDirectory()) {
+            var root = archive.toPath();
+            try (var paths = Files.walk(root)) {
+                for (var path : (Iterable<java.nio.file.Path>) paths::iterator) {
+                    var relative = root.relativize(path).toString().replace(File.separatorChar, '/');
+                    if (Files.isRegularFile(path) && isDependencyNotice(relative)) {
+                        var destination = target.resolve(relative);
+                        Files.createDirectories(destination.getParent());
+                        Files.copy(path, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+            return;
+        }
+        if (!archive.isFile()) {
+            return;
+        }
+        try (var zip = new java.util.zip.ZipFile(archive)) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                if (entry.isDirectory() || !isDependencyNotice(entry.getName())) {
+                    continue;
+                }
+                var destination = target.resolve(entry.getName()).normalize();
+                if (!destination.startsWith(target)) {
+                    continue; // Zip Slip guard | 경로 이탈 방지
+                }
+                Files.createDirectories(destination.getParent());
+                try (var in = zip.getInputStream(entry)) {
+                    Files.copy(in, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
     }
 
     /**
