@@ -222,6 +222,43 @@ public class S2BuildUtils {
         project.getLogger().error(ANSI_RED + (isKorean() ? koMessage : enMessage) + ANSI_RESET);
     }
 
+    /**
+     * Looks up a build setting without Gradle's implicit lookup in parent projects (deprecated, an error in Gradle 10):
+     * the project's own extra properties, then the root project's, then Gradle properties ({@code gradle.properties},
+     * {@code -P}).
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 빌드 설정 값을 찾습니다. Gradle 의 부모 프로젝트 암묵 조회(Gradle 10 에서 오류)를 쓰지 않고, 자기 프로젝트의 extra 속성 → 루트 프로젝트의
+     * extra 속성 → Gradle 속성({@code gradle.properties}, {@code -P}) 순으로 찾습니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     * @param key     Setting name | 설정 이름
+     * @return The value, or null | 값, 없으면 null
+     */
+    static Object setting(Project project, String key) {
+        var own = project.getExtensions().getExtraProperties();
+        if (own.has(key)) {
+            return own.get(key);
+        }
+        var root = project.getRootProject().getExtensions().getExtraProperties();
+        if (root.has(key)) {
+            return root.get(key);
+        }
+        return project.getProviders().gradleProperty(key).getOrNull();
+    }
+
+    /** Whether a setting is {@code true} (a Boolean or the text "true") | 설정이 true 인지 (Boolean 또는 "true") */
+    static boolean isTrue(Object value) {
+        return Boolean.TRUE.equals(value) || (value instanceof String text && Boolean.parseBoolean(text.trim()));
+    }
+
+    /** The {@code shadedPackagePrefix} setting, or null when unset or blank | 설정값, 없거나 비어 있으면 null */
+    static String shadedPackagePrefix(Project project) {
+        Object prefix = setting(project, "shadedPackagePrefix");
+        return prefix == null || prefix.toString().isBlank() ? null : prefix.toString().trim();
+    }
+
     // ========================================================================
     // 프로젝트 통합 설정 메서드 (Unified Configuration)
     // ========================================================================
@@ -279,7 +316,7 @@ public class S2BuildUtils {
 
             // 3. 패키징 및 빌드 설정 (경로 자동 계산 포함)
             // ext.skipPackaging = true인 프로젝트는 패키징 스킵
-            if (!Boolean.TRUE.equals(p.findProperty("skipPackaging"))) {
+            if (!isTrue(setting(p, "skipPackaging"))) {
                 configurePackaging(p, extraSources, excludedSources, extraLicenses);
             }
 
@@ -308,11 +345,9 @@ public class S2BuildUtils {
     @SuppressWarnings("unchecked")
     private static void analyzeDynamicSourceInfo(Project project, Set<String> variantIds, Set<String> extraSources,
             Set<String> excludedSources, Map<String, String> extraDependencyMap, Set<String> extraLicenses) {
-        Object activeFeaturesObj = project.hasProperty("activeFeatures") ? project.property("activeFeatures") : null;
-        Object dynamicSourceInfoMapObj = project.hasProperty("dynamicSourceInfoMap")
-                ? project.property("dynamicSourceInfoMap")
-                : null;
-        Object excludedSourcesObj = project.hasProperty("excludedSources") ? project.property("excludedSources") : null;
+        Object activeFeaturesObj = setting(project, "activeFeatures");
+        Object dynamicSourceInfoMapObj = setting(project, "dynamicSourceInfoMap");
+        Object excludedSourcesObj = setting(project, "excludedSources");
 
         Set<String> activeFeatures = new HashSet<>();
         Optional.ofNullable(activeFeaturesObj)
@@ -463,11 +498,7 @@ public class S2BuildUtils {
                 fullPathBase = fullPathBase.substring(0, fullPathBase.length() - 4);
             }
 
-            File fileJava = project.file(fullPathBase);
-            File fileTxt = project.file(fullPathBase + ".txt");
-            if (fileTxt.exists()) {
-                fileTxt.renameTo(fileJava);
-            }
+            toggleSource(project, project.file(fullPathBase + ".txt"), project.file(fullPathBase));
         }
 
         for (String excludedSource : excludedSources) {
@@ -483,12 +514,39 @@ public class S2BuildUtils {
                 fullPathBase = fullPathBase.substring(0, fullPathBase.length() - 4);
             }
 
-            File fileJava = project.file(fullPathBase);
-            File fileTxt = project.file(fullPathBase + ".txt");
-            if (fileJava.exists()) {
-                fileJava.renameTo(fileTxt);
-            }
+            toggleSource(project, project.file(fullPathBase), project.file(fullPathBase + ".txt"));
         }
+    }
+
+    /**
+     * Renames {@code from} to {@code to} when {@code from} exists, never over an existing {@code to}: if both exist (for
+     * example after a checkout), neither is touched and a warning tells which one to remove.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code from}이 있으면 {@code to}로 이름을 바꿉니다. {@code to}가 이미 있으면 덮어쓰지 않습니다. 둘 다 있으면(예: 체크아웃 직후) 아무것도
+     * 바꾸지 않고 어느 쪽을 지울지 경고합니다 (리눅스의 rename 은 대상 파일을 조용히 덮어써 수정한 소스를 잃을 수 있음).
+     *
+     * @return true when renamed | 이름을 바꿨으면 true
+     */
+    static boolean toggleSource(Project project, File from, File to) {
+        if (!from.exists()) {
+            return false;
+        }
+        if (to.exists()) {
+            warn(project,
+                    "⚠️ [소스 토글] " + from.getName() + " 와 " + to.getName() + " 가 함께 있어 바꾸지 않습니다. 필요 없는 쪽을 지우십시오: "
+                            + from.getParent(),
+                    "⚠️ [Source Toggle] Both " + from.getName() + " and " + to.getName()
+                            + " exist; leaving them as they are. Remove the one you do not need: " + from.getParent());
+            return false;
+        }
+        if (!from.renameTo(to)) {
+            warn(project, "⚠️ [소스 토글] 이름을 바꾸지 못했습니다: " + from + " -> " + to.getName(),
+                    "⚠️ [Source Toggle] Could not rename " + from + " -> " + to.getName());
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -516,13 +574,7 @@ public class S2BuildUtils {
      */
     public static void configurePackaging(Project project, Set<String> extraSources, Set<String> excludedSources,
             Set<String> extraLicenses) {
-        if (extraSources != null && !extraSources.isEmpty()) {
-            info(project, "🔍 [패키징 디버그] " + project.getName() + " 추가 소스: " + extraSources,
-                    "🔍 [Packaging Debug] " + project.getName() + " extraSources: " + extraSources);
-        } else {
-            info(project, "⚠️ [패키징 디버그] " + project.getName() + " 추가 소스가 없거나 null입니다.",
-                    "⚠️ [Packaging Debug] " + project.getName() + " extraSources is empty or null");
-        }
+        project.getLogger().debug("[Packaging] {} extraSources: {}", project.getName(), extraSources);
 
         // 0. 소스 및 Javadoc 설정 통합 처리
         applySourceSettings(project, excludedSources);
@@ -582,8 +634,7 @@ public class S2BuildUtils {
         boolean enableShadowIntegration = false;
         if (useShadow) {
             // Shadow 기능(Fat JAR/Relocation)은 shadedPackagePrefix가 설정된 경우에만 활성화
-            Object prefix = project.findProperty("shadedPackagePrefix");
-            enableShadowIntegration = prefix != null && !prefix.toString().trim().isEmpty();
+            enableShadowIntegration = shadedPackagePrefix(project) != null;
         }
 
         if (enableShadowIntegration) {
@@ -618,9 +669,7 @@ public class S2BuildUtils {
 
         // 2. 배포 설정 (Maven Publication 등록)
         // Publishing에서 Shadow 사용 여부를 결정 (plugin 존재 && prefix 설정 존재)
-        Object prefix = project.findProperty("shadedPackagePrefix");
-        boolean hasValidPrefix = prefix != null && !prefix.toString().trim().isEmpty();
-        boolean enableShadowPub = useShadow && hasValidPrefix;
+        boolean enableShadowPub = useShadow && shadedPackagePrefix(project) != null;
         configurePublications(project, enableShadowPub, archiveBaseName);
 
         // 3. Shadow 사용 시 publishing 설정 (아티팩트 교체 등)
@@ -1092,17 +1141,17 @@ public class S2BuildUtils {
             // 모든 경고 및 오류 검사 비활성화
             options.addStringOption("Xdoclint:none", "-quiet");
 
-            // 모든 접근 제어자 문서화
-            options.addBooleanOption("private", true);
+            // 공개 API 문서: public·protected 만 (private 멤버는 노출하지 않음) | Public API docs: public and protected only
             options.setMemberLevel(JavadocMemberLevel.PROTECTED);
 
             // 링크 및 상속 설정
             options.setLinkSource(true);
             options.setUse(true);
 
-            // 타이틀 설정
-            options.setWindowTitle("S2Util API Documentation");
-            options.setDocTitle("S2Util API Documentation");
+            // 타이틀 설정 (프로젝트 이름과 버전) | Title from the project name and version
+            String docTitle = project.getName() + " " + project.getVersion() + " API";
+            options.setWindowTitle(docTitle);
+            options.setDocTitle(docTitle);
 
             // 커스텀 태그
             options.setTags(java.util.Arrays.asList("details:a:Details:", "example:a:Example:"));
@@ -1212,7 +1261,7 @@ public class S2BuildUtils {
             // 8. [Shadow] Outgoing Artifact 교체 (Project Dependency용)
             // 만약 이 프로젝트가 'shadedPackagePrefix'를 가지고 있다면,
             // 다른 프로젝트가 이 프로젝트를 의존성으로 참조할 때 Standard JAR 대신 Shadow JAR를 가져가도록 설정한다.
-            if (project.hasProperty("shadedPackagePrefix")) {
+            if (shadedPackagePrefix(project) != null) {
                 project.getLogger()
                         .lifecycle("🔧 [Shadow] Outgoing Artifact를 Shadow JAR로 교체합니다. (Project Dependencies용)");
 
@@ -1251,8 +1300,9 @@ public class S2BuildUtils {
             Set<String> combinedExtraFiles) {
         // Fat JAR 생성 여부 결정 (배포 시에는 항상 Standard JAR)
         boolean buildFatJar;
-        if (project.hasProperty("buildFatJar")) {
-            buildFatJar = Boolean.parseBoolean(project.findProperty("buildFatJar").toString());
+        Object buildFatJarSetting = setting(project, "buildFatJar");
+        if (buildFatJarSetting != null) {
+            buildFatJar = isTrue(buildFatJarSetting);
 
             // [안전장치] 배포(publish) 중에는 사용자가 buildFatJar=true를 명시하더라도 강제로 무시한다.
             // Fat JAR를 그대로 배포하면 POM에는 implementation 의존성이 runtime scope로 남아있는 채로
@@ -1717,7 +1767,6 @@ public class S2BuildUtils {
      *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
-    @SuppressWarnings("unchecked")
     public static void enforceUtf8Encoding(Project project) {
         /*
          * 컴파일 태스크: 소스 인코딩 및 컴파일러 JVM 인코딩 강제
@@ -1733,52 +1782,19 @@ public class S2BuildUtils {
 
         /*
          * 테스트 태스크: 테스트 런타임 인코딩 강제
-         * - Test 태스크는 테스트 코드가 실행되는 JVM에 인코딩 인자를 설정한다.
+         * - getJvmArgs()는 사본을 돌려주므로 add()는 반영되지 않는다. defaultCharacterEncoding 으로 -Dfile.encoding 을 지정한다.
+         * | getJvmArgs() returns a copy, so add() is lost; defaultCharacterEncoding sets -Dfile.encoding
          */
-        project.getTasks().withType(org.gradle.api.tasks.testing.Test.class).configureEach(testTask -> {
-            // 테스트 코드의 Console 출력 및 I/O 인코딩을 UTF-8로 설정한다.
-            testTask.getJvmArgs().add("-Dfile.encoding=UTF-8");
-        });
+        project.getTasks().withType(org.gradle.api.tasks.testing.Test.class)
+                .configureEach(testTask -> testTask.setDefaultCharacterEncoding("UTF-8"));
 
         /*
-         * 애플리케이션 실행 태스크: 런타임 인코딩 강제 (Application Plugin 적용 시에만 동작)
-         * - application 플러그인이 적용된 프로젝트의 애플리케이션 실행 태스크에 인코딩 인자를 설정한다.
+         * 애플리케이션 실행 태스크: 런타임 인코딩 강제 (application 플러그인이 나중에 적용되어도 반영)
+         * | Application run tasks, also when the application plugin is applied later
          */
-        if (project.getPluginManager().hasPlugin("application")) {
-            try {
-                // 리플렉션을 사용하여 'Run' 클래스를 동적으로 로드함으로써 application 플러그인이 없는 환경에서 컴파일 오류가 발생하는 것을 방지한다.
-                Class<?> runTaskClass = Class.forName("org.gradle.api.tasks.application.Run");
-
-                // withType의 제네릭 요구사항을 충족시키기 위해 명시적 캐스팅을 수행한다.
-                Class<? extends org.gradle.api.Task> typedRunTaskClass = (Class<? extends org.gradle.api.Task>) runTaskClass;
-
-                // Raw Type Action을 사용하여 복잡한 제네릭 타입 추론 오류를 회피한다.
-                @SuppressWarnings("rawtypes")
-                org.gradle.api.Action rawAction = new org.gradle.api.Action<org.gradle.api.Task>() {
-                    @Override
-                    public void execute(org.gradle.api.Task runTask) {
-                        try {
-                            // getJvmArgs() 메서드를 리플렉션으로 호출하여 JVM 인자를 설정한다.
-                            java.lang.reflect.Method getJvmArgs = runTask.getClass().getMethod("getJvmArgs");
-
-                            java.util.List<String> jvmArgs = (java.util.List<String>) getJvmArgs.invoke(runTask);
-
-                            // 인코딩 인자가 중복되지 않도록 확인 후 추가한다.
-                            if (!jvmArgs.contains("-Dfile.encoding=UTF-8")) {
-                                jvmArgs.add("-Dfile.encoding=UTF-8");
-                            }
-                        } catch (Exception ignored) {
-                            // 메소드가 없거나 접근할 수 없는 경우는 무시한다. (안전 장치)
-                        }
-                    }
-                };
-
-                project.getTasks().withType(typedRunTaskClass).configureEach(rawAction);
-
-            } catch (ClassNotFoundException e) {
-                // application 플러그인이 적용되었으나 Run 클래스가 비정상적으로 누락된 경우를 무시한다.
-            }
-        }
+        project.getPluginManager().withPlugin("application", plugin -> project.getTasks()
+                .withType(org.gradle.api.tasks.JavaExec.class)
+                .configureEach(runTask -> runTask.setDefaultCharacterEncoding("UTF-8")));
 
         /*
          * Javadoc 태스크: Javadoc 생성 인코딩 설정 (선택적)
@@ -1879,8 +1895,9 @@ public class S2BuildUtils {
     public static void configureTestDefaults(Project project) {
         project.getTasks().withType(org.gradle.api.tasks.testing.Test.class).configureEach(task -> {
             task.useJUnitPlatform();
-            if (!task.getJvmArgs().contains("-Dsun.jnu.encoding=UTF-8")) {
-                task.getJvmArgs().add("-Dsun.jnu.encoding=UTF-8");
+            // jvmArgs(...) appends; getJvmArgs() is a copy without them, so check getAllJvmArgs() | jvmArgs(...)로 추가하고 getAllJvmArgs()로 중복 확인
+            if (!task.getAllJvmArgs().contains("-Dsun.jnu.encoding=UTF-8")) {
+                task.jvmArgs("-Dsun.jnu.encoding=UTF-8");
             }
         });
     }
@@ -1904,7 +1921,7 @@ public class S2BuildUtils {
      * <p>
      * {@code javaVersion}은 컴파일에 사용할 JDK(툴체인)를 지정합니다. {@code releaseCompatibility}를
      * {@code javaVersion}과 다르게 설정하면, 최신 JDK로 컴파일하면서도 이전 Java 버전과 호환되는
-     * 바이트코드를 생성할 수 있습니다. 설정하지 않으면 {@code javaVersion}과 동일하게 처리되므로,
+     * 바이트코드를 생성할 수 있습니다. {@code --release}로 컴파일하므로 이전 버전에 없는 JDK API 를 쓰면 컴파일 오류가 납니다. 설정하지 않으면 {@code javaVersion}과 동일하게 처리되므로,
      * 단일 버전만 쓰는 일반 프로젝트는 아예 설정할 필요가 없습니다.
      * </p>
      *
@@ -1927,12 +1944,12 @@ public class S2BuildUtils {
             java.setTargetCompatibility(releaseVersion);
         });
 
-        if (!releaseVersion.equals(toolchainVersion)) {
-            // --release 옵션의 제약을 해제하고 구형 방식인 -source/-target을 강제로 사용하여
-            // toolchainVersion(JDK)으로 컴파일하되 releaseVersion으로 실행 가능한 바이트코드를 생성한다.
-            project.getTasks().withType(org.gradle.api.tasks.compile.JavaCompile.class)
-                    .configureEach(task -> task.getOptions().getRelease().set((Integer) null));
-        }
+        // --release also checks the JDK API: with only -source/-target, a newer-JDK call such as List.getFirst() compiles
+        // and fails on the older runtime | --release 는 JDK API 까지 검사한다. -source/-target 만 쓰면 새 JDK 전용 호출(List.getFirst()
+        // 등)이 컴파일되어 이전 버전 런타임에서야 실패함
+        int release = Integer.parseInt(releaseVersion.getMajorVersion());
+        project.getTasks().withType(org.gradle.api.tasks.compile.JavaCompile.class)
+                .configureEach(task -> task.getOptions().getRelease().set(release));
     }
 
     /**
@@ -2344,33 +2361,9 @@ public class S2BuildUtils {
                 // 4. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
                 // 빌드 모드에서는 relocation을 하지 않음 (명시적으로 전달된 prefix만 사용)
                 // 커맨드라인에서 -PshadedPackagePrefix=... 로 명시적으로 prefix를 전달한 경우에만 relocation 수행
-                boolean hasExplicitPrefix = false;
-                String prefix = "";
-
-                // [Fix] 커맨드라인 인자 뿐만 아니라 build.gradle의 ext 속성도 확인하도록 변경
-                if (project.hasProperty("shadedPackagePrefix")) {
-                    String propPrefix = (String) project.property("shadedPackagePrefix");
-                    if (propPrefix != null && !propPrefix.trim().isEmpty()) {
-                        hasExplicitPrefix = true;
-                        prefix = propPrefix;
-                    }
-                }
-
-                if (!hasExplicitPrefix) {
-                    // 커맨드라인 인자 재확인 (우선순위를 위해 남겨둘 수도 있지만, 위에서 이미 체크됨.
-                    // 단, 사용자가 -P옵션으로 덮어쓰는 경우를 위해 유지하거나 병합 가능)
-                    java.util.List<String> args = project.getGradle().getStartParameter().getProjectProperties()
-                            .keySet().stream()
-                            .filter(key -> "shadedPackagePrefix".equals(key))
-                            .map(key -> (String) project.getGradle().getStartParameter().getProjectProperties()
-                                    .get(key))
-                            .collect(java.util.stream.Collectors.toList());
-
-                    if (!args.isEmpty()) {
-                        hasExplicitPrefix = true;
-                        prefix = args.get(0);
-                    }
-                }
+                // ext 속성과 -PshadedPackagePrefix=... 모두 setting() 이 찾음 | Both ext and -P are found by setting()
+                String prefix = shadedPackagePrefix(project);
+                boolean hasExplicitPrefix = prefix != null;
 
                 // 빌드 모드: relocation 하지 않음 (prefix가 명시적으로 전달되지 않은 경우)
                 if (hasExplicitPrefix && prefix != null && !prefix.isEmpty()) {
@@ -2423,8 +2416,8 @@ public class S2BuildUtils {
      */
     private static void registerTestArtifactTask(Project project, org.gradle.api.Task shadowJar) {
         List<String> verifyClasses = new ArrayList<>();
-        if (project.hasProperty("artifactTestClassNames")) {
-            Object prop = project.findProperty("artifactTestClassNames");
+        Object prop = setting(project, "artifactTestClassNames");
+        if (prop != null) {
             if (prop instanceof Collection) {
                 for (Object o : (Collection<?>) prop) {
                     if (o != null)
@@ -2774,9 +2767,10 @@ public class S2BuildUtils {
 
         project.getExtensions().configure(org.gradle.plugins.signing.SigningExtension.class, signing -> {
             // 배포(Publish) 태스크가 실행될 때만 서명 필수 (그 외 일반 빌드에서는 건너뜀)
+            // publishToMavenLocal 은 내 PC 에만 쓰므로 서명을 요구하지 않음 | Not for publishToMavenLocal (local only)
             signing.setRequired((java.util.concurrent.Callable<Boolean>) () -> project.getGradle().getTaskGraph()
                     .getAllTasks().stream()
-                    .anyMatch(t -> t.getName().contains("publish") || t.getName().contains("Publish")));
+                    .anyMatch(t -> t instanceof org.gradle.api.publish.maven.tasks.PublishToMavenRepository));
             // 현재 등록된 Publication은 물론, 이후 추가되는 Publication에도 반응적으로 서명 적용
             publishing.getPublications().all(signing::sign);
         });
@@ -3132,7 +3126,7 @@ public class S2BuildUtils {
 
             // 2. Api 의존성 Artifact 식별 및 ShadowExclude
             // Shadow Plugin의 dependencies 블록을 사용하여 API 의존성을 명확히 제외
-            if (project.hasProperty("shadedPackagePrefix")) {
+            if (shadedPackagePrefix(project) != null) {
                 shadowJar.dependencies(dependenciesSpec -> {
                     try {
                         // api 설정 Resolve (transitive=true, JAVA_RUNTIME)
@@ -3194,11 +3188,11 @@ public class S2BuildUtils {
 
             // 1. Relocation 대상 패키지 식별 (runtimeClasspath 스캔 - api 제외)
             // ext.shadedPackagePrefix 가 있고 비어있지 않을 때만 Relocate 진행
-            if (project.hasProperty("shadedPackagePrefix")) {
-                String prefix = project.findProperty("shadedPackagePrefix").toString();
+            if (setting(project, "shadedPackagePrefix") != null) {
+                String prefix = shadedPackagePrefix(project);
 
                 // 빈 문자열이면 relocation 수행 안 함
-                if (prefix != null && !prefix.isEmpty()) {
+                if (prefix != null) {
                     Set<String> packagesToRelocate = extractPackagesToRelocate(project);
 
                     for (String pkg : packagesToRelocate) {
@@ -3537,6 +3531,7 @@ public class S2BuildUtils {
 
         try {
             String content = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            String original = content;
             String currentVersion = project.getVersion().toString();
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
@@ -3679,7 +3674,10 @@ public class S2BuildUtils {
                 }
             }
 
-            Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
+            // Written only when something changed, so files and editors are not touched on every build | 바뀐 경우에만 씀
+            if (!content.equals(original)) {
+                Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
+            }
         } catch (IOException e) {
             warn(project, "⚠️ [README 업데이트] " + file.getName() + " 업데이트 실패: " + e.getMessage(),
                     "⚠️ [README Update] Failed to update " + file.getName() + ": " + e.getMessage());
@@ -3985,10 +3983,7 @@ public class S2BuildUtils {
 
         try {
             String content = new String(Files.readAllBytes(sourceFile.toPath()), StandardCharsets.UTF_8);
-            Object activeFeaturesObj = project.findProperty("activeFeatures");
-            if (activeFeaturesObj == null) {
-                activeFeaturesObj = project.getRootProject().findProperty("activeFeatures");
-            }
+            Object activeFeaturesObj = setting(project, "activeFeatures");
 
             Set<String> activeFeatures = new HashSet<>();
             if (activeFeaturesObj instanceof Collection) {
@@ -4296,6 +4291,84 @@ public class S2BuildUtils {
     // ========================================================================
 
     /**
+     * Copies the files of one publication into {@code bundleDir} under their Maven names, with signatures and MD5/SHA-1
+     * checksums: every registered artifact ({@code artifactId-version[-classifier].ext}) and the POM. Only what the
+     * publication declares is taken, so other files in {@code build/libs} never slip in.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * Publication 하나의 파일을 Maven 이름으로 {@code bundleDir}에 복사하고 서명과 MD5/SHA-1 체크섬을 함께 둡니다: 등록된 모든
+     * 아티팩트({@code artifactId-version[-classifier].ext})와 POM. Publication 이 선언한 것만 담으므로 {@code build/libs}의 다른 파일이
+     * 섞이지 않습니다.
+     *
+     * @param publication The publication | Publication
+     * @param buildDir    The project build directory | 프로젝트 build 폴더
+     * @param bundleDir   Where the bundle files go | 번들 파일을 둘 폴더
+     * @return The files to put in the Zip bundle | Zip 번들에 넣을 파일
+     * @throws IOException when an artifact, the POM or a signature is missing, or copying fails | 아티팩트·POM·서명이 없거나 복사 실패 시
+     */
+    static List<File> centralBundleFiles(MavenPublication publication, File buildDir, File bundleDir) throws IOException {
+        String base = publication.getArtifactId() + "-" + publication.getVersion();
+        List<File> files = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+
+        for (org.gradle.api.publish.maven.MavenArtifact artifact : publication.getArtifacts()) {
+            String classifier = artifact.getClassifier();
+            String name = base + (classifier == null || classifier.isBlank() ? "" : "-" + classifier) + "."
+                    + artifact.getExtension();
+            bundleWithSignature(artifact.getFile(), name, bundleDir, files, missing);
+        }
+        File pomDir = new File(buildDir, "publications/" + publication.getName());
+        bundleWithSignature(new File(pomDir, "pom-default.xml"), base + ".pom", bundleDir, files, missing);
+
+        if (!missing.isEmpty()) {
+            throw new IOException((isKorean() ? "파일 또는 서명(.asc)이 없습니다 (Maven Central 은 모든 파일에 서명이 필요): "
+                    : "Missing files or signatures (.asc); Maven Central requires every file to be signed: ") + missing);
+        }
+
+        List<File> checksums = new ArrayList<>();
+        for (File file : files) {
+            if (file.getName().endsWith(".asc")) {
+                continue;
+            }
+            byte[] content = Files.readAllBytes(file.toPath());
+            for (String[] algorithm : new String[][] { { "MD5", "md5", "%032x" }, { "SHA-1", "sha1", "%040x" } }) {
+                try {
+                    String hash = String.format(algorithm[2], new java.math.BigInteger(1,
+                            java.security.MessageDigest.getInstance(algorithm[0]).digest(content)));
+                    File checksum = new File(bundleDir, file.getName() + "." + algorithm[1]);
+                    Files.write(checksum.toPath(), hash.getBytes(StandardCharsets.UTF_8));
+                    checksums.add(checksum);
+                } catch (java.security.NoSuchAlgorithmException e) {
+                    throw new IOException(e);
+                }
+            }
+        }
+        files.addAll(checksums);
+        return files;
+    }
+
+    /** Copies a file and its {@code .asc} signature under {@code name}; records what is missing | 파일과 서명을 복사, 없는 것은 기록 */
+    private static void bundleWithSignature(File file, String name, File bundleDir, List<File> files, List<String> missing)
+            throws IOException {
+        File signature = new File(file.getPath() + ".asc");
+        if (!file.isFile()) {
+            missing.add(name);
+            return;
+        }
+        if (!signature.isFile()) {
+            missing.add(name + ".asc");
+            return;
+        }
+        File target = new File(bundleDir, name);
+        File targetSignature = new File(bundleDir, name + ".asc");
+        Files.copy(file.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(signature.toPath(), targetSignature.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        files.add(target);
+        files.add(targetSignature);
+    }
+
+    /**
      * Detects Central Portal publishing task and replaces it with Zip bundle upload.
      * <p>
      * <b>[한국어 설명]</b>
@@ -4344,7 +4417,6 @@ public class S2BuildUtils {
                                         "🚀 [Central Portal] Starting Zip bundle upload [" + publicationName
                                                 + "] - artifactId: " + artifactId);
 
-                                // 필요한 파일 수집
                                 File buildDir = project.getLayout().getBuildDirectory().getAsFile().get();
 
                                 // Publication별 독립적인 번들 디렉토리
@@ -4353,164 +4425,15 @@ public class S2BuildUtils {
                                     project.delete(bundleDir);
                                 bundleDir.mkdirs();
 
-                                List<File> filesToBundle = new ArrayList<>();
-
-                                // 1) JARs & Signatures (libs 폴더) - mavenJava publication만 JAR 포함
-                                File libsDir = new File(buildDir, "libs");
-                                final boolean isSnapshotVersion = version.contains("SNAPSHOT");
-                                if (libsDir.exists() && ("mavenJava".equals(publicationName)
-                                        || "pluginMaven".equals(publicationName))) {
-                                    // 넓은 의미의 매칭: 파일 이름에 '-<version>' 패턴이 포함된 아티팩트는 모두 포함
-                                    File[] files = libsDir.listFiles((dir, name) -> {
-                                        if (!(name.endsWith(".jar") || name.endsWith(".asc") || name.endsWith(".pom")))
-                                            return false;
-                                        if (!isSnapshotVersion && name.contains("SNAPSHOT")) {
-                                            project.getLogger().debug(
-                                                    "         - Skipping SNAPSHOT file for non-SNAPSHOT release: "
-                                                            + name);
-                                            return false;
-                                        }
-                                        // 일반적으로 아티팩트명은 '<artifactId>-<version>...' 형태이므로 '-<version>' 포함 여부로 필터링
-                                        return name.contains("-" + version + ".") || name.contains("-" + version + "-")
-                                                || name.endsWith("-" + version + ".jar")
-                                                || name.endsWith("-" + version + ".pom");
-                                    });
-
-                                    if (files != null)
-                                        filesToBundle.addAll(Arrays.asList(files));
-                                }
-
-                                // 1-1) publications 폴더 내 다른 Publication들(예: pluginMaven 등)에 생성된 아티팩트도 포함
-                                File publicationsRoot = new File(buildDir, "publications");
-                                if (publicationsRoot.exists()) {
-                                    File[] pubDirs = publicationsRoot.listFiles(file -> file.isDirectory());
-                                    if (pubDirs != null) {
-                                        for (File pubDir : pubDirs) {
-                                            File[] pubFiles = pubDir.listFiles((dir, name) -> {
-                                                if (!(name.endsWith(".jar") || name.endsWith(".asc")
-                                                        || name.endsWith(".pom") || (name.equals("module.json")
-                                                                && pubDir.getName().equals("pluginMaven"))))
-                                                    return false;
-                                                if (!isSnapshotVersion && name.contains("SNAPSHOT"))
-                                                    return false;
-                                                return name.contains("-" + version + ".")
-                                                        || name.contains("-" + version + "-")
-                                                        || name.endsWith("-" + version + ".jar")
-                                                        || name.endsWith("-" + version + ".pom")
-                                                        || (name.equals("module.json")
-                                                                && pubDir.getName().equals("pluginMaven"));
-                                            });
-                                            if (pubFiles != null) {
-                                                for (File pubFile : pubFiles) {
-                                                    try {
-                                                        File renamedPubFile = new File(bundleDir, pubFile.getName());
-                                                        Files.copy(pubFile.toPath(), renamedPubFile.toPath(),
-                                                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                                        filesToBundle.add(renamedPubFile);
-                                                    } catch (IOException e) {
-                                                        error(project,
-                                                                "❌ [중앙 포털] Publication 파일 처리 실패: " + pubFile.getName()
-                                                                        + " - " + e.getMessage(),
-                                                                "❌ [Central Portal] Publication file processing failed: "
-                                                                        + pubFile.getName() + " - " + e.getMessage());
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 2) POM & Signature (publications/[publicationName] 폴더)
-                                File pomDir = new File(buildDir, "publications/" + publicationName);
-                                if (pomDir.exists()) {
-                                    File[] poms = pomDir.listFiles((dir, name) -> name.equals("pom-default.xml"));
-                                    if (poms != null) {
-                                        for (File pom : poms) {
-                                            // POM 이름 변경 (artifactId-version.pom)
-                                            File renamedPom = new File(bundleDir, artifactId + "-" + version + ".pom");
-                                            try {
-                                                Files.copy(pom.toPath(), renamedPom.toPath(),
-                                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                                filesToBundle.add(renamedPom);
-
-                                                // POM 서명 파일 찾기 (.asc)
-                                                File pomAsc = new File(pomDir, "pom-default.xml.asc");
-                                                if (pomAsc.exists()) {
-                                                    File renamedPomAsc = new File(bundleDir,
-                                                            artifactId + "-" + version + ".pom.asc");
-                                                    Files.copy(pomAsc.toPath(), renamedPomAsc.toPath(),
-                                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                                    filesToBundle.add(renamedPomAsc);
-                                                }
-                                            } catch (IOException e) {
-                                                error(project, "❌ [중앙 포털] POM 파일 처리 실패: " + e.getMessage(),
-                                                        "❌ [Central Portal] POM file processing failed: "
-                                                                + e.getMessage());
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 2-1) 서명(.asc) 없는 파일 제외 & Checksum 생성
-                                List<File> validatedFiles = new ArrayList<>();
-                                // 서명 파일 존재 여부를 위한 Set
-                                Set<String> fileNames = filesToBundle.stream().map(file -> file.getName())
-                                        .collect(java.util.stream.Collectors.toSet());
-
-                                // Checksum 파일 리스트
-                                List<File> checksumFiles = new ArrayList<>();
-
-                                for (File f : filesToBundle) {
-                                    // 서명/체크섬 파일 자체는 검증 대상에서 제외하고 그대로 포함
-                                    if (f.getName().endsWith(".asc") || f.getName().endsWith(".md5")
-                                            || f.getName().endsWith(".sha1")) {
-                                        validatedFiles.add(f);
-                                        continue;
-                                    }
-
-                                    // 아티팩트(.jar, .pom, module.json)인 경우 서명 파일 존재 여부 확인 (module.json은 서명 제외)
-                                    String ascName = f.getName() + ".asc";
-                                    if (!fileNames.contains(ascName) && !f.getName().equals("module.json")) {
-                                        warn(project, "⚠️ [중앙 포털] 서명(.asc) 파일이 없어 건너뜁니다: " + f.getName(),
-                                                "⚠️ [Central Portal] Missing signature (.asc), skipping: "
-                                                        + f.getName());
-                                        continue;
-                                    }
-                                    validatedFiles.add(f);
-
-                                    // Checksum (MD5, SHA1) 생성
-                                    try {
-                                        byte[] content = Files.readAllBytes(f.toPath());
-
-                                        java.security.MessageDigest md5Digest = java.security.MessageDigest
-                                                .getInstance("MD5");
-                                        String md5 = String.format("%032x",
-                                                new java.math.BigInteger(1, md5Digest.digest(content)));
-
-                                        java.security.MessageDigest sha1Digest = java.security.MessageDigest
-                                                .getInstance("SHA-1");
-                                        String sha1 = String.format("%040x",
-                                                new java.math.BigInteger(1, sha1Digest.digest(content)));
-
-                                        File md5File = new File(bundleDir, f.getName() + ".md5");
-                                        File sha1File = new File(bundleDir, f.getName() + ".sha1");
-
-                                        Files.write(md5File.toPath(), md5.getBytes(StandardCharsets.UTF_8));
-                                        Files.write(sha1File.toPath(), sha1.getBytes(StandardCharsets.UTF_8));
-
-                                        checksumFiles.add(md5File);
-                                        checksumFiles.add(sha1File);
-                                    } catch (Exception e) {
-                                        warn(project, "⚠️ [중앙 포털] 체크섬 생성 실패: " + f.getName(),
-                                                "⚠️ [Central Portal] Checksum generation failed: " + f.getName());
-                                    }
-                                }
-                                filesToBundle = validatedFiles;
-                                filesToBundle.addAll(checksumFiles);
-
-                                if (filesToBundle.isEmpty()) {
-                                    throw new org.gradle.api.GradleException(
-                                            "❌ [Central Portal] 번들링할 파일이 없습니다. (서명 파일 누락 등 확인 필요)");
+                                // 등록된 아티팩트·POM 과 서명, 체크섬 (서명이 하나라도 없으면 실패)
+                                // | Registered artifacts and POM with signatures and checksums; fails on any missing signature
+                                List<File> filesToBundle;
+                                try {
+                                    filesToBundle = centralBundleFiles(publication, buildDir, bundleDir);
+                                } catch (IOException e) {
+                                    throw new org.gradle.api.GradleException(isKorean()
+                                            ? "❌ [중앙 포털] 번들 파일 준비 실패: " + e.getMessage()
+                                            : "❌ [Central Portal] Failed to prepare bundle files: " + e.getMessage(), e);
                                 }
 
                                 // 3. Zip 번들 생성 (Maven Layout 적용)
@@ -4562,11 +4485,13 @@ public class S2BuildUtils {
                                 String username = (String) project.findProperty("centralUsername");
                                 String password = (String) project.findProperty("centralPassword");
 
-                                if (username == null || password == null) {
-                                    warn(project,
-                                            "⚠️ [중앙 포털] 업로드를 위한 인증 정보(centralUsername, centralPassword)가 없습니다. Zip 파일 생성까지만 진행되었습니다.",
-                                            "⚠️ [Central Portal] Missing authentication (centralUsername, centralPassword). Zip creation completed, but upload skipped.");
-                                    return;
+                                if (username == null || password == null || username.isBlank() || password.isBlank()) {
+                                    // A publish task that uploads nothing must not look successful | 업로드하지 않은 배포가 성공으로 보이지 않게 실패시킴
+                                    throw new org.gradle.api.GradleException(isKorean()
+                                            ? "❌ [중앙 포털] 인증 정보(centralUsername, centralPassword)가 없어 업로드하지 못했습니다. Zip 번들은 만들어졌습니다: "
+                                                    + zipFile.getAbsolutePath()
+                                            : "❌ [Central Portal] No credentials (centralUsername, centralPassword); nothing was uploaded. The Zip bundle was created: "
+                                                    + zipFile.getAbsolutePath());
                                 }
 
                                 // 공백 및 따옴표 제거 (사용자 실수 방지)

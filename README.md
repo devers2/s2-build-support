@@ -34,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.5"
+    id("io.github.devers2.buildsupport") version "1.0.0"
 }
 ```
 
@@ -52,7 +52,7 @@ Everything else is opt-in, provided as **static methods on `S2BuildUtils`** that
 
 **General-purpose** (any Gradle Java project, publishing or not)
 
-- `S2BuildUtils.configureJavaCompatibility(project)` — sets up the toolchain and source/target compatibility from the `javaVersion` / `releaseCompatibility` extra properties (`releaseCompatibility` is optional; if unset it defaults to `javaVersion`, so a single-version project doesn't need to set it at all)
+- `S2BuildUtils.configureJavaCompatibility(project)` — sets up the toolchain and source/target compatibility from the `javaVersion` / `releaseCompatibility` extra properties (`releaseCompatibility` is optional; if unset it defaults to `javaVersion`, so a single-version project doesn't need to set it at all). It compiles with `--release`, so a JDK API missing from `releaseCompatibility` (for example `List.getFirst()` when targeting Java 17) is a compile error
 - `S2BuildUtils.configureTestDefaults(project)` — JUnit Platform + extra console/IO encoding hardening, for projects that run JUnit 5 tests
 
 **Library publishing** (a JAR library publishing to Maven Central via Central Portal)
@@ -67,7 +67,7 @@ A typical library that publishes a single artifact to Maven Central:
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.5"
+    id("io.github.devers2.buildsupport") version "1.0.0"
     `java-library`
     `maven-publish`
     signing
@@ -90,6 +90,12 @@ S2BuildUtils.configureTestDefaults(project)
 ```
 
 Other standalone utilities (`updateVersionInFile`, `updateServletImports`, `updateCopyright`, etc.) can be called the same way wherever needed. See the Javadoc on `S2BuildUtils` for the full list and their configuration options.
+
+---
+
+## 🧭 Version Policy
+
+The API is fixed from 1.0.0. Later releases only fix bugs and keep up with new Gradle versions; any change in behavior is listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -118,4 +124,4 @@ This module utilizes the following high-quality open-source library:
 
 ---
 
-s2-build-support Version: 0.2.5 (2026-09-29)
+s2-build-support Version: 1.0.0 (unreleased)
