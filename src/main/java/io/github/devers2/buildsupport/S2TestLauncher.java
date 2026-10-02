@@ -98,8 +98,9 @@ public class S2TestLauncher {
             }
 
             Method junitMain = consoleLauncher.getMethod("main", String[].class);
-            String[] junitArgs = { "--select-class", targetClassName, "--reports-dir",
-                    "build/test-results/testArtifact" };
+            String[] junitArgs = consoleLauncherArgs(
+                    consoleLauncher.getPackage() != null ? consoleLauncher.getPackage().getImplementationVersion() : null,
+                    targetClassName);
 
             junitMain.invoke(null, (Object) junitArgs);
             return; // 성공적으로 JUnit 실행 시 종료
@@ -157,4 +158,41 @@ public class S2TestLauncher {
         System.exit(1);
     }
 
+    /**
+     * Arguments for JUnit's {@code ConsoleLauncher}: the {@code execute} subcommand from JUnit Platform 1.10 (JUnit 5.10)
+     * and 6.x, where the old form without it is deprecated or gone; the old form for earlier or unknown versions.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * JUnit {@code ConsoleLauncher} 인자. JUnit Platform 1.10(JUnit 5.10) 이상과 6.x 는 {@code execute} 하위 명령을 쓰고(이전 형식은
+     * 권장하지 않거나 제거됨), 그보다 낮거나 알 수 없는 버전은 이전 형식을 씁니다.
+     *
+     * @param platformVersion The launcher's Implementation-Version, or null | 런처의 Implementation-Version (모르면 null)
+     * @param targetClassName The class to run | 실행할 클래스
+     * @return The arguments | 인자
+     */
+    static String[] consoleLauncherArgs(String platformVersion, String targetClassName) {
+        String[] selection = { "--select-class", targetClassName, "--reports-dir", "build/test-results/testArtifact" };
+        if (!supportsExecuteCommand(platformVersion)) {
+            return selection;
+        }
+        String[] args = new String[selection.length + 1];
+        args[0] = "execute";
+        System.arraycopy(selection, 0, args, 1, selection.length);
+        return args;
+    }
+
+    private static boolean supportsExecuteCommand(String version) {
+        if (version == null) {
+            return false;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d+)\\.(\\d+)").matcher(version.trim());
+        if (!m.find()) {
+            return false;
+        }
+        int major = Integer.parseInt(m.group(1));
+        int minor = Integer.parseInt(m.group(2));
+        // Platform 1.x went with JUnit 5; from JUnit 6 the platform shares the major version | 1.x 는 JUnit 5, 6 부터 같은 주 버전
+        return major >= 6 || (major == 1 && minor >= 10);
+    }
 }

@@ -34,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.5"
+    id("io.github.devers2.buildsupport") version "1.0.0"
 }
 ```
 
@@ -52,7 +52,7 @@ plugins {
 
 **범용** (배포 여부와 무관하게 어떤 Gradle Java 프로젝트에도 사용 가능)
 
-- `S2BuildUtils.configureJavaCompatibility(project)` — `javaVersion`/`releaseCompatibility` extra 프로퍼티를 기반으로 툴체인과 source/target 호환성을 설정합니다 (`releaseCompatibility`는 선택 사항이며, 설정하지 않으면 `javaVersion`과 동일하게 처리되므로 단일 버전만 쓰는 프로젝트는 아예 설정할 필요가 없습니다)
+- `S2BuildUtils.configureJavaCompatibility(project)` — `javaVersion`/`releaseCompatibility` extra 프로퍼티를 기반으로 툴체인과 source/target 호환성을 설정합니다 (`releaseCompatibility`는 선택 사항이며, 설정하지 않으면 `javaVersion`과 동일하게 처리되므로 단일 버전만 쓰는 프로젝트는 아예 설정할 필요가 없습니다). `--release`로 컴파일하므로 `releaseCompatibility`에 없는 JDK API(예: Java 17 대상에서 `List.getFirst()`)는 컴파일 오류가 됩니다
 - `S2BuildUtils.configureTestDefaults(project)` — JUnit 5 테스트를 쓰는 프로젝트를 위한 JUnit Platform 설정 + 추가 콘솔/IO 인코딩 강화
 
 **라이브러리 배포** (Central Portal로 Maven Central에 배포하는 JAR 라이브러리)
@@ -67,7 +67,7 @@ Maven Central에 아티팩트 하나를 배포하는 일반적인 라이브러�
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "0.2.5"
+    id("io.github.devers2.buildsupport") version "1.0.0"
     `java-library`
     `maven-publish`
     signing
@@ -90,6 +90,12 @@ S2BuildUtils.configureTestDefaults(project)
 ```
 
 그 외 개별 유틸리티(`updateVersionInFile`, `updateServletImports`, `updateCopyright` 등)도 필요한 위치에서 동일한 방식으로 호출하면 됩니다. 전체 목록과 설정 옵션은 `S2BuildUtils`의 Javadoc을 참고하세요.
+
+---
+
+## 🧭 버전 정책
+
+1.0.0 부터 API 를 고정합니다. 이후에는 오류 수정과 Gradle 새 버전 대응만 하며, 동작이 바뀌는 변경은 [CHANGELOG](./CHANGELOG.ko.md)에 적습니다.
 
 ---
 
@@ -118,4 +124,4 @@ S2BuildUtils.configureTestDefaults(project)
 
 ---
 
-s2-build-support Version: 0.2.5 (2026-09-29)
+s2-build-support Version: 1.0.0 (미배포)

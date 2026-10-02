@@ -95,14 +95,14 @@ public class GitHubPackagesClient {
      */
     public static boolean checkArtifactExists(String urlString, String user, String token) {
         try {
-            URL url = new URL(urlString);
+            URL url = java.net.URI.create(urlString).toURL();
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             try {
                 connection.setRequestMethod("HEAD");
                 applyCommonSettings(connection);
 
-                // Basic 인증 설정 (필요한 경우)
-                if (user != null && token != null) {
+                // Basic 인증 설정 (값이 있을 때만) | Basic auth only with actual values
+                if (user != null && !user.isBlank() && token != null && !token.isBlank()) {
                     applyBasicAuth(connection, user, token);
                 }
 
@@ -112,7 +112,7 @@ public class GitHubPackagesClient {
             } finally {
                 connection.disconnect();
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             // 네트워크 오류 또는 URL 오류 시 존재하지 않는 것으로 처리
             if (S2BuildUtils.isKorean()) {
                 logger.debug("아티팩트 존재 확인 실패: {}", e.getMessage());
@@ -160,7 +160,7 @@ public class GitHubPackagesClient {
         try {
             // GitHub REST API v3 엔드포인트 구성
             String apiUrl = GITHUB_API_BASE_URL + repoOwner + "/" + repoName;
-            URL url = new URL(apiUrl);
+            URL url = java.net.URI.create(apiUrl).toURL();
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             try {
                 connection.setRequestMethod("GET");
@@ -168,7 +168,7 @@ public class GitHubPackagesClient {
                 applyCommonSettings(connection);
 
                 // 인증 토큰 설정 (Private 리포지토리 접근 시 필요)
-                if (githubToken != null) {
+                if (githubToken != null && !githubToken.isBlank()) {
                     connection.setRequestProperty("Authorization", "token " + githubToken);
                 }
 
@@ -202,7 +202,7 @@ public class GitHubPackagesClient {
             } finally {
                 connection.disconnect();
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             if (S2BuildUtils.isKorean()) {
                 logger.warn("⚠️  리포지토리 공개 상태 확인 실패: {}. 공개 리포지토리로 간주합니다.", e.getMessage());
             } else {

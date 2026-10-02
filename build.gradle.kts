@@ -124,7 +124,7 @@ tasks.jar {
  *
  * 2. build.gradle.kts에 플러그인 적용:
  *    plugins {
- *        id("io.github.devers2.buildsupport") version "0.1.0"
+ *        id("io.github.devers2.buildsupport") version "1.0.0"
  *    }
  */
 gradlePlugin {
@@ -133,7 +133,7 @@ gradlePlugin {
             id = "io.github.devers2.buildsupport"
             implementationClass = "io.github.devers2.buildsupport.S2BuildSupportPlugin"
             displayName = "S2 Build Support"
-            description = "S2 project build utilities"
+            description = "Shared build conventions and publishing helpers for S2 projects"
         }
     }
 }
@@ -144,7 +144,7 @@ publishing {
         withType<MavenPublication>().configureEach {
             pom {
                 name = project.name
-                description = "S2BuildSupport Plugin - A comprehensive utility library for Java"
+                description = "S2 Build Support - Gradle plugin with shared build conventions and publishing helpers for S2 projects"
                 url = "https://github.com/devers2/s2-build-support"
                 licenses {
                     license {
@@ -277,12 +277,14 @@ afterEvaluate {
                 }
             }
 
+            // A publish that uploads nothing must fail, not look successful | 아무것도 올리지 않은 배포는 성공으로 보이지 않게 실패
+            fun fail(ko: String, en: String): Nothing = throw GradleException(if (isKo) ko else en)
+
             if (filesToBundle.isEmpty()) {
-                say(
-                    "⚠️ [중앙 포털] 번들링할 파일을 찾지 못했습니다 [$pubName]. 구성을 건너뜁니다.",
-                    "⚠️ [Central Portal] No files found to bundle [$pubName]. Skipping."
+                fail(
+                    "❌ [중앙 포털] 번들링할 파일을 찾지 못했습니다 [$pubName].",
+                    "❌ [Central Portal] No files found to bundle [$pubName]."
                 )
-                return@doLast
             }
 
             // 3) Create Checksums & Verify Signatures
@@ -296,11 +298,10 @@ afterEvaluate {
                 }
 
                 if (!fileNames.contains(f.name + ".asc")) {
-                    say(
-                        "⚠️ [중앙 포털] 서명(.asc) 파일이 없어 건너뜁니다: ${f.name}. Maven Central은 서명이 필수입니다.",
-                        "⚠️ [Central Portal] Missing signature (.asc), skipping: ${f.name}. Signatures are required for Maven Central."
+                    fail(
+                        "❌ [중앙 포털] 서명(.asc) 파일이 없습니다: ${f.name}. Maven Central은 서명이 필수입니다.",
+                        "❌ [Central Portal] Missing signature (.asc): ${f.name}. Signatures are required for Maven Central."
                     )
-                    return@forEach
                 }
                 authenticatedFiles += f
 
@@ -319,11 +320,10 @@ afterEvaluate {
                 !it.name.endsWith(".asc") && !it.name.endsWith(".md5") && !it.name.endsWith(".sha1")
             }
             if (!hasSignedArtifact) {
-                say(
-                    "⚠️ [중앙 포털] 서명된 아티팩트가 없어 업로드를 중단합니다 [$pubName].",
-                    "⚠️ [Central Portal] No signed artifacts found, aborting upload [$pubName]."
+                fail(
+                    "❌ [중앙 포털] 서명된 아티팩트가 없어 업로드를 중단합니다 [$pubName].",
+                    "❌ [Central Portal] No signed artifacts found, aborting upload [$pubName]."
                 )
-                return@doLast
             }
 
             // 4) Create Zip Bundle
@@ -348,11 +348,10 @@ afterEvaluate {
 
             // 5) Upload
             if (centralUser.isNullOrEmpty() || centralPass.isNullOrEmpty()) {
-                say(
-                    "⚠️ [중앙 포털] 인증 정보가 없어 업로드를 건너뜁니다.",
-                    "⚠️ [Central Portal] Missing credentials, skipping upload."
+                fail(
+                    "❌ [중앙 포털] 인증 정보(centralUsername, centralPassword)가 없어 업로드하지 못했습니다. Zip 번들: ${zipFile.absolutePath}",
+                    "❌ [Central Portal] No credentials (centralUsername, centralPassword); nothing was uploaded. Zip bundle: ${zipFile.absolutePath}"
                 )
-                return@doLast
             }
 
             val boundary = "Boundary-" + System.currentTimeMillis()
@@ -388,7 +387,7 @@ afterEvaluate {
                     "✅ [Central Portal] Upload successful! [$pubName]"
                 )
             } else {
-                say(
+                fail(
                     "❌ [중앙 포털] 업로드 실패 (HTTP ${response.statusCode()}): ${response.body()}",
                     "❌ [Central Portal] Upload failed (HTTP ${response.statusCode()}): ${response.body()}"
                 )
