@@ -869,6 +869,9 @@ public class S2BuildUtils {
      */
     public static void updateVersionInFile(Project project, String filePath, String versionTemplate,
             String newVersion) {
+        if (skipInIncludedBuild(project, filePath)) {
+            return;
+        }
         File targetFile = project.file(filePath);
         if (!targetFile.exists()) {
             error(project, "❌ [" + filePath + "] 프로젝트 루트에서 파일을 찾을 수 없습니다.",
@@ -3522,6 +3525,9 @@ public class S2BuildUtils {
     public static void updateReadmeWithVersionAndDependencies(Project project, File file) {
         if (!file.exists())
             return;
+        if (skipInIncludedBuild(project, file.getName())) {
+            return;
+        }
 
         // 모든 의존성(dependencies {}) 선언이 완료된 후 정확히 수집하기 위해 afterEvaluate로 지연 실행
         if (!project.getState().getExecuted()) {
@@ -3680,6 +3686,29 @@ public class S2BuildUtils {
         }
     }
 
+    /**
+     * Skips a version sync when this build runs inside another one (a composite build). Project properties such as
+     * {@code -Pversion=1.0.0} given to the outer build apply to every included build, so a sync there would write the
+     * outer build's version into this build's README, catalog and other files.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 다른 빌드에 포함되어(composite build) 실행 중이면 버전 동기화를 건너뜁니다. 바깥 빌드에 준 {@code -Pversion=1.0.0} 같은 프로젝트 속성은
+     * 포함된 모든 빌드에 적용되므로, 여기서 동기화하면 바깥 빌드의 버전이 이 빌드의 README·카탈로그 등에 기록됩니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     * @param target  What would have been updated, for the log | 갱신할 대상 (로그용)
+     * @return {@code true} when skipped | 건너뛰었으면 {@code true}
+     */
+    static boolean skipInIncludedBuild(Project project, String target) {
+        if (project.getGradle().getParent() == null) {
+            return false;
+        }
+        project.getLogger().info("ℹ️ [" + project.getName() + "] included in another build; not syncing the version into "
+                + target + " | 다른 빌드에 포함되어 실행 중이라 " + target + " 의 버전을 동기화하지 않습니다");
+        return true;
+    }
+
     private static boolean isValidVersion(String ver) {
         return ver != null && !ver.trim().isEmpty() && !"unspecified".equalsIgnoreCase(ver.trim());
     }
@@ -3836,6 +3865,9 @@ public class S2BuildUtils {
      * @param newVersion     New version string | 갱신할 새 버전 문자열
      */
     public static void syncVersionToCatalog(Project project, Object customTomlPath, String versionKey, String newVersion) {
+        if (skipInIncludedBuild(project, "libs.versions.toml")) {
+            return;
+        }
         if (!isValidVersion(newVersion) || versionKey == null || versionKey.trim().isEmpty()) {
             return;
         }

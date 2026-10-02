@@ -174,4 +174,46 @@ class S2BuildUtilsTest {
             assertTrue(result || !result);
         });
     }
+
+    // =========================================================================
+    // included builds (composite) | 다른 빌드에 포함된 경우
+    // =========================================================================
+
+    /** A project of a build included in another one, through proxies | 다른 빌드에 포함된 빌드의 프로젝트 (프록시) */
+    private Project includedProject(Path dir) {
+        var outer = ProjectBuilder.builder().build().getGradle();
+        var gradle = (org.gradle.api.invocation.Gradle) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] { org.gradle.api.invocation.Gradle.class },
+                (proxy, method, args) -> "getParent".equals(method.getName()) ? outer : method.invoke(project.getGradle(), args));
+        return (Project) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] { Project.class },
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getGradle" -> gradle;
+                    case "file" -> dir.resolve(String.valueOf(args[0])).toFile();
+                    default -> method.invoke(project, args);
+                });
+    }
+
+    @Nested
+    @DisplayName("다른 빌드에 포함된 경우")
+    class IncludedBuild {
+
+        @org.junit.jupiter.api.Test
+        @DisplayName("바깥 빌드의 -Pversion 이 이 빌드의 파일에 기록되지 않는다")
+        void versionSyncsLeaveFilesAlone(@TempDir Path tempDir) throws Exception {
+            var readme = tempDir.resolve("README.md");
+            Files.writeString(readme, "s2-core Version: 2.0.0 (2026-10-02)\n", StandardCharsets.UTF_8);
+            var included = includedProject(tempDir);
+
+            assertTrue(S2BuildUtils.skipInIncludedBuild(included, "README.md"));
+            S2BuildUtils.updateVersionInFile(included, "README.md", "s2-core Version: {{=version}}", "1.0.0");
+            S2BuildUtils.updateReadmeWithVersionAndDependencies(included, readme.toFile());
+            assertEquals("s2-core Version: 2.0.0 (2026-10-02)\n", Files.readString(readme, StandardCharsets.UTF_8));
+        }
+
+        @org.junit.jupiter.api.Test
+        @DisplayName("단독 빌드에서는 그대로 동기화한다")
+        void aStandaloneBuildStillSyncs() {
+            assertFalse(S2BuildUtils.skipInIncludedBuild(project, "README.md"));
+        }
+    }
 }
