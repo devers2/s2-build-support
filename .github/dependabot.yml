@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # --------------------------------------------------------------------------
+  # 1. Gradle 플러그인 및 의존성 관리
+  # --------------------------------------------------------------------------
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
+    # [메이저 업그레이드 제한 규칙]
+    # 플러그인 개발 프로젝트 특성상 Gradle API 및 플러그인 툴체인 호환성을 보호하기 위해
+    # Gradle Wrapper의 메이저 업그레이드만 차단하고 수동 검토하도록 설정합니다.
+    ignore:
+      - dependency-name: "gradle"
+        update-types: ["version-update:semver-major"]
+
+    # ※ shadow-gradle-plugin, junit 등은 메이저/마이너 모두 정상 수신됩니다.
+
+  # --------------------------------------------------------------------------
+  # 2. GitHub Actions 버전 관리 (setup-java, checkout 등)
+  # --------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # ※ CI 러너 환경(setup-java, checkout 등)의 최신 런타임 호환성과 보안 패치를 위해
+    #    공식 액션의 메이저 업그레이드를 항상 허용합니다.
