@@ -1,7 +1,7 @@
 [versions]
 java = "17"
 junit = "6.0.2"
-shadow = "9.3.0"
+shadow = "9.6.1"
 
 [libraries]
 shadow-gradle-plugin = { group = "com.gradleup.shadow", name = "shadow-gradle-plugin", version.ref = "shadow" }
