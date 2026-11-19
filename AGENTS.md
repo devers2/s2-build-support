@@ -27,7 +27,8 @@ Java 소스 코드, Gradle 설정, 문서를 수정한 후에는 **사용자에�
    - `S2BuildUtils`의 공개 API 시그니처나 기본 동작을 변경할 때는 연관 프로젝트들의 빌드 영향도를 반드시 함께 확인하십시오.
 3. **배포 안전성**:
    - 사용자가 명시적으로 배포를 요청하지 않는 한 임의로 배포 태스크(`publish`, `publishAllPublicationsToCentralPortalRepository` 등)를 실행하지 마십시오.
-   - 평상시에는 `git commit` 및 `git push`만 수행합니다.
+   - 평상시에는 `develop` 브랜치에서 `git commit` 및 `git push`만 수행합니다.
+   - `main` 은 Maven Central 배포본과 같아야 합니다. 사용자가 배포를 요청할 때만 `develop` 을 `main` 에 fast-forward 하고 버전 태그를 답니다.
 
 ---
 
