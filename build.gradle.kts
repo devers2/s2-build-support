@@ -124,7 +124,7 @@ tasks.jar {
  *
  * 2. build.gradle.kts에 플러그인 적용:
  *    plugins {
- *        id("io.github.devers2.buildsupport") version "1.0.0"
+ *        id("io.github.devers2.buildsupport") version "1.0.1"
  *    }
  */
 gradlePlugin {

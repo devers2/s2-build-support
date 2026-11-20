@@ -2,7 +2,19 @@
 
 **English** | [한국어](./CHANGELOG.ko.md)
 
-## [1.0.0] - Unreleased
+## [1.0.1] - Unreleased
+
+### Fixed
+
+- **`S2TestLauncher` (`testArtifact`)** failed at once with `NoClassDefFoundError: org/gradle/api/JavaVersion` on a
+  classpath without the Gradle API (it loaded `S2BuildUtils`). It now uses only the JDK.
+- **`LibrariesPublisher`** registered every file as `.jar` whatever the scanned extension. It now keeps the file's real
+  extension, and recognizes versions with a JDK update number (`1.8.0_422`, `1.8.0_422+8`) as documented.
+- **Central Portal upload** has a connect timeout (60 seconds).
+- **README example** had its `import` after `plugins {}`, which does not compile in the Kotlin DSL. It is now at the top.
+- `S2BuildUtils` Javadoc: the `configureProject` steps (a `copyDependencies` step it never ran) and the README sync description now match the code.
+
+## [1.0.0]
 
 The first stable release. The API is fixed from here; later releases only fix bugs and keep up with new Gradle versions.
 
@@ -39,8 +51,3 @@ The first stable release. The API is fixed from here; later releases only fix bu
 - **`S2TestLauncher`** uses the `execute` subcommand of JUnit's console launcher from JUnit Platform 1.10 / 6.x.
 - **`GitHubPackagesClient`** sends no empty `Authorization` header and no longer uses the deprecated `new URL(String)`.
 - Debug output ("[Packaging Debug] ...") moved to the debug log level.
-- **`S2TestLauncher` (`testArtifact`)** failed at once with `NoClassDefFoundError: org/gradle/api/JavaVersion` on a
-  classpath without the Gradle API (it loaded `S2BuildUtils`). It now uses only the JDK.
-- **`LibrariesPublisher`** registered every file as `.jar` whatever the scanned extension. It now keeps the file's real
-  extension, and recognizes versions with a JDK update number (`1.8.0_422`, `1.8.0_422+8`) as documented.
-- **Central Portal upload** has a connect timeout (60 seconds).

@@ -2,7 +2,19 @@
 
 [English](./CHANGELOG.md) | **한국어**
 
-## [1.0.0] - 미배포
+## [1.0.1] - 미배포
+
+### 수정
+
+- **`S2TestLauncher`(`testArtifact`)**가 Gradle API 없는 클래스패스에서 `NoClassDefFoundError: org/gradle/api/JavaVersion`으로
+  바로 실패했습니다(내부에서 `S2BuildUtils`를 불러옴). 이제 JDK 만 씁니다.
+- **`LibrariesPublisher`**가 스캔 확장자와 관계없이 모든 파일을 `.jar`로 등록했습니다. 이제 파일의 실제 확장자로 등록합니다.
+  JDK 업데이트 번호가 붙은 버전(`1.8.0_422`, `1.8.0_422+8`)도 문서대로 버전으로 인식합니다.
+- **Central Portal 업로드**에 연결 시간 제한(60초)을 둡니다.
+- **README 예시**의 `import`가 `plugins {}` 뒤에 있어 그대로 쓰면 Kotlin DSL 컴파일 오류가 났습니다. 맨 위로 옮겼습니다.
+- `S2BuildUtils` Javadoc 의 `configureProject` 실행 순서(없는 `copyDependencies` 단계)와 README 동기화 설명을 실제 동작에 맞췄습니다.
+
+## [1.0.0]
 
 첫 안정 버전입니다. 이후 API 를 고정하고, 오류 수정과 Gradle 새 버전 대응만 합니다.
 
@@ -33,8 +45,3 @@
 - **`S2TestLauncher`**가 JUnit Platform 1.10 / 6.x 에서 콘솔 런처의 `execute` 하위 명령을 씁니다.
 - **`GitHubPackagesClient`**가 빈 `Authorization` 헤더를 보내지 않고, 비권장 `new URL(String)`을 쓰지 않습니다.
 - 디버그 출력("[패키징 디버그] ...")을 debug 로그 수준으로 옮겼습니다.
-- **`S2TestLauncher`(`testArtifact`)**가 Gradle API 없는 클래스패스에서 `NoClassDefFoundError: org/gradle/api/JavaVersion`으로
-  바로 실패했습니다(내부에서 `S2BuildUtils`를 불러옴). 이제 JDK 만 씁니다.
-- **`LibrariesPublisher`**가 스캔 확장자와 관계없이 모든 파일을 `.jar`로 등록했습니다. 이제 파일의 실제 확장자로 등록합니다.
-  JDK 업데이트 번호가 붙은 버전(`1.8.0_422`, `1.8.0_422+8`)도 문서대로 버전으로 인식합니다.
-- **Central Portal 업로드**에 연결 시간 제한(60초)을 둡니다.
