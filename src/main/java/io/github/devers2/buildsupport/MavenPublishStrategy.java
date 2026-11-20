@@ -110,6 +110,8 @@ public class MavenPublishStrategy {
      * @param user       GitHub username | GitHub 사용자명 (인증용)
      * @param token      GitHub token | GitHub 토큰 (인증용)
      * @return {@link PublishDecision} object | 배포 결정 결과 객체 (배포 여부, 이유, 누락 아티팩트 포함)
+     * @throws org.gradle.api.GradleException when existence cannot be checked (a response other than 200/404, or a
+     *                                        network error) | 존재 여부를 확인할 수 없을 때 (200·404 가 아닌 응답, 네트워크 오류)
      */
     public static PublishDecision shouldPublish(
             String baseUrl,
@@ -121,7 +123,7 @@ public class MavenPublishStrategy {
 
         // 1. POM 존재 여부 확인
         String pomUrl = baseUrl + "/" + artifactId + "-" + version + ".pom";
-        boolean pomExists = GitHubPackagesClient.checkArtifactExists(pomUrl, user, token);
+        boolean pomExists = exists(pomUrl, user, token);
 
         if (!pomExists) {
             // POM이 없으면 전체 배포
@@ -141,7 +143,7 @@ public class MavenPublishStrategy {
             }
 
             String artifactUrl = baseUrl + "/" + artifactName;
-            boolean exists = GitHubPackagesClient.checkArtifactExists(artifactUrl, user, token);
+            boolean exists = exists(artifactUrl, user, token);
 
             if (!exists) {
                 missingArtifacts.add(artifactName);
@@ -154,6 +156,21 @@ public class MavenPublishStrategy {
         } else {
             // 일부 아티팩트 누락 -&gt; 배포 진행
             return new PublishDecision(true, "누락된 아티팩트 배포", missingArtifacts);
+        }
+    }
+
+    // 확인할 수 없으면(인증 실패·서버 오류·네트워크 오류) "없음"으로 보고 배포를 시도하지 않고 원인과 함께 실패시킨다
+    // (예전에는 "없음"으로 처리해 이미 있는 버전을 다시 올리다 409 Conflict 로 실패하거나, 원인이 가려졌음)
+    private static boolean exists(String url, String user, String token) {
+        try {
+            return GitHubPackagesClient.artifactExists(url, user, token);
+        } catch (java.io.IOException | IllegalArgumentException e) {
+            throw new org.gradle.api.GradleException(S2BuildUtils.isKorean()
+                    ? "❌ [GitHub Packages] 아티팩트가 이미 있는지 확인하지 못해 배포를 중단합니다 (" + e.getMessage()
+                            + "). GITHUB_USER·GITHUB_TOKEN(gpr.user·gpr.key)과 네트워크를 확인하세요."
+                    : "❌ [GitHub Packages] Could not check whether the artifact already exists, so the publish stops ("
+                            + e.getMessage() + "). Check GITHUB_USER/GITHUB_TOKEN (gpr.user/gpr.key) and the network.",
+                    e);
         }
     }
 

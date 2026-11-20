@@ -95,23 +95,7 @@ public class GitHubPackagesClient {
      */
     public static boolean checkArtifactExists(String urlString, String user, String token) {
         try {
-            URL url = java.net.URI.create(urlString).toURL();
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            try {
-                connection.setRequestMethod("HEAD");
-                applyCommonSettings(connection);
-
-                // Basic 인증 설정 (값이 있을 때만) | Basic auth only with actual values
-                if (user != null && !user.isBlank() && token != null && !token.isBlank()) {
-                    applyBasicAuth(connection, user, token);
-                }
-
-                int responseCode = connection.getResponseCode();
-                return responseCode == 200;
-
-            } finally {
-                connection.disconnect();
-            }
+            return artifactExists(urlString, user, token);
         } catch (IOException | IllegalArgumentException e) {
             // 네트워크 오류 또는 URL 오류 시 존재하지 않는 것으로 처리
             if (S2BuildUtils.isKorean()) {
@@ -120,6 +104,45 @@ public class GitHubPackagesClient {
                 logger.debug("Failed to verify artifact existence: {}", e.getMessage());
             }
             return false;
+        }
+    }
+
+    /**
+     * Checks if an artifact exists, telling "missing" (404) apart from "could not check" (any other response or a
+     * network error).
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 아티팩트 존재 여부를 확인하되, "없음"(404)과 "확인 불가"(그 밖의 응답·네트워크 오류)를 구분합니다.
+     *
+     * @param urlString The URL of the artifact to check | 확인할 아티팩트의 URL
+     * @param user      GitHub username for authentication | GitHub 사용자명 (인증용)
+     * @param token     GitHub token for authentication | GitHub 토큰 (인증용)
+     * @return {@code true} on 200, {@code false} on 404 | 200 이면 true, 404 이면 false
+     * @throws IOException on any other response code or a network error | 그 밖의 응답 코드나 네트워크 오류 시
+     */
+    static boolean artifactExists(String urlString, String user, String token) throws IOException {
+        URL url = java.net.URI.create(urlString).toURL();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        try {
+            connection.setRequestMethod("HEAD");
+            applyCommonSettings(connection);
+
+            // Basic 인증 설정 (값이 있을 때만) | Basic auth only with actual values
+            if (user != null && !user.isBlank() && token != null && !token.isBlank()) {
+                applyBasicAuth(connection, user, token);
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                return true;
+            }
+            if (responseCode == 404) {
+                return false;
+            }
+            throw new IOException("HTTP " + responseCode + " for " + urlString);
+        } finally {
+            connection.disconnect();
         }
     }
 

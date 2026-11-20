@@ -23,11 +23,15 @@ package io.github.devers2.buildsupport;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.publish.PublishingExtension;
 import org.gradle.api.publish.maven.MavenArtifact;
@@ -36,6 +40,8 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import com.sun.net.httpserver.HttpServer;
 
 /**
  * Fixes from the full code review: the artifact launcher without the Gradle API, real file extensions for libs
@@ -106,5 +112,34 @@ class ReviewFixesTest {
         // 기존 동작 유지
         assertEquals("1.78", LibrariesPublisher.extractVersion("bcprov-jdk18on-1.78").version);
         assertFalse(LibrariesPublisher.extractVersion("lib-1.0-hello").hasVersion);
+    }
+
+    @Test
+    @DisplayName("GitHub Packages 존재 확인: 404 만 '없음', 그 밖의 응답은 배포를 시도하지 않고 실패")
+    void unknownExistenceStopsThePublish() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            int code = path.startsWith("/ok/") ? 200 : path.startsWith("/missing/") ? 404 : 500;
+            exchange.sendResponseHeaders(code, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String base = "http://127.0.0.1:" + server.getAddress().getPort();
+            assertTrue(GitHubPackagesClient.artifactExists(base + "/ok/a.pom", null, null));
+            assertFalse(GitHubPackagesClient.artifactExists(base + "/missing/a.pom", null, null));
+            assertThrows(IOException.class, () -> GitHubPackagesClient.artifactExists(base + "/error/a.pom", null, null));
+            assertFalse(GitHubPackagesClient.checkArtifactExists(base + "/error/a.pom", null, null), "공개 메서드는 기존 동작 유지");
+
+            List<MavenPublishStrategy.ArtifactInfo> jar = List.of(new MavenPublishStrategy.ArtifactInfo(null, "jar"));
+            assertTrue(MavenPublishStrategy.shouldPublish(base + "/missing", "a", "1.0", jar, null, null).shouldPublish);
+            assertFalse(MavenPublishStrategy.shouldPublish(base + "/ok", "a", "1.0", jar, null, null).shouldPublish);
+            // 예전에는 500 도 "POM 없음 → 전체 배포"로 판단했다
+            assertThrows(GradleException.class,
+                    () -> MavenPublishStrategy.shouldPublish(base + "/error", "a", "1.0", jar, null, null));
+        } finally {
+            server.stop(0);
+        }
     }
 }
