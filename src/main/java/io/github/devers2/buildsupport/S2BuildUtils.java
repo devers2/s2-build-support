@@ -2370,16 +2370,8 @@ public class S2BuildUtils {
 
                 // 빌드 모드: relocation 하지 않음 (prefix가 명시적으로 전달되지 않은 경우)
                 if (hasExplicitPrefix && prefix != null && !prefix.isEmpty()) {
-                    Set<String> packagesToRelocate = extractPackagesToRelocate(project);
-
                     // Relocate 설정
-                    for (String pkg : packagesToRelocate) {
-                        String fromPackage = pkg;
-                        String toPackage = prefix + "." + pkg;
-                        shadowJar.relocate(fromPackage, toPackage);
-                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage,
-                                "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
-                    }
+                    applyRelocations(project, shadowJar, prefix);
                 } else {
                     info(project, "ℹ️ [Shadow] 빌드 모드: 패키지 재배치(Relocation)를 건너뜁니다.",
                             "ℹ️ [Shadow] Build Mode: Skipping package relocation.");
@@ -3196,15 +3188,7 @@ public class S2BuildUtils {
 
                 // 빈 문자열이면 relocation 수행 안 함
                 if (prefix != null) {
-                    Set<String> packagesToRelocate = extractPackagesToRelocate(project);
-
-                    for (String pkg : packagesToRelocate) {
-                        String fromPackage = pkg;
-                        String toPackage = prefix + "." + pkg;
-                        shadowJar.relocate(fromPackage, toPackage);
-                        info(project, "✅ [Shadow] 패키지 재배치: " + fromPackage + " -> " + toPackage,
-                                "✅ [Shadow] Relocate Package: " + fromPackage + " -> " + toPackage);
-                    }
+                    applyRelocations(project, shadowJar, prefix);
                 } else {
                     info(project, "ℹ️ [Shadow] 'shadedPackagePrefix' 속성이 비어있어 재배치를 건너뜁니다.",
                             "ℹ️ [Shadow] 'shadedPackagePrefix' property is empty, skipping relocation.");
@@ -3247,6 +3231,10 @@ public class S2BuildUtils {
      * @param project The Gradle project instance | Gradle 프로젝트 객체
      */
     private static void configurePublishingForShadow(Project project) {
+        // 배포하지 않는 Shadow 프로젝트(maven-publish 없음)는 PublishingExtension 이 없어 설정 단계에서 실패하므로 건너뛴다
+        if (!project.getPluginManager().hasPlugin("maven-publish")) {
+            return;
+        }
         project.getExtensions().configure(org.gradle.api.publish.PublishingExtension.class, publishing -> {
             // "mavenJava" 명칭을 가진 Publication에 대해서만 Shadow 설정을 적용한다.
             // (java-gradle-plugin 등에서 자동 생성하는 "pluginMaven" 등과의 충돌 방지)
@@ -4136,6 +4124,74 @@ public class S2BuildUtils {
     }
 
     /**
+     * Relocates the packages of the relocatable dependencies under {@code prefix}, excluding the packages of
+     * {@code api} dependencies that fall under the same prefix (for example {@code org.apache} of an implementation
+     * dependency and {@code org.apache.commons.lang3} of an api dependency).
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * 재배치 대상 의존성의 패키지를 {@code prefix} 아래로 옮기되, 같은 접두어 아래에 있는 {@code api} 의존성 패키지는 제외합니다
+     * (예: implementation 의존성의 {@code org.apache} 와 api 의존성의 {@code org.apache.commons.lang3}). 제외하지 않으면 공개 API 에
+     * 드러나는 api 클래스의 참조까지 바뀌어 사용하는 쪽에서 클래스를 찾지 못합니다.
+     *
+     * @param project   The Gradle project instance | Gradle 프로젝트 객체
+     * @param shadowJar Shadow JAR task | Shadow JAR 태스크
+     * @param prefix    Relocation package prefix | 재배치 패키지 접두어
+     */
+    private static void applyRelocations(Project project,
+            com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar shadowJar, String prefix) {
+        Set<String> apiPackages = extractApiPackages(project);
+        for (String pkg : extractPackagesToRelocate(project)) {
+            String toPackage = prefix + "." + pkg;
+            List<String> excludes = apiPackages.stream()
+                    .filter(apiPkg -> apiPkg.equals(pkg) || apiPkg.startsWith(pkg + "."))
+                    .sorted()
+                    .map(apiPkg -> apiPkg + ".*")
+                    .toList();
+            shadowJar.relocate(pkg, toPackage, relocator -> excludes.forEach(relocator::exclude));
+            info(project, "✅ [Shadow] 패키지 재배치: " + pkg + " -> " + toPackage,
+                    "✅ [Shadow] Relocate Package: " + pkg + " -> " + toPackage);
+            if (!excludes.isEmpty()) {
+                info(project, "   ↳ api 패키지 제외: " + excludes, "   ↳ Excluding api packages: " + excludes);
+            }
+        }
+    }
+
+    /**
+     * Returns every package (not just the top level) contained in the {@code api} dependency JARs.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code api} 의존성 JAR 에 들어 있는 모든 패키지(최상위만이 아닌 전체 이름)를 반환합니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     * @return Set of api package names | api 패키지 이름 집합
+     */
+    private static Set<String> extractApiPackages(Project project) {
+        Set<String> packages = new java.util.HashSet<>();
+        Set<String> apiIds = getApiArtifactIDs(project);
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                .findByName("runtimeClasspath");
+        if (apiIds.isEmpty() || runtimeConfig == null || !runtimeConfig.isCanBeResolved()) {
+            return packages;
+        }
+        try {
+            for (ResolvedArtifact artifact : runtimeConfig.getResolvedConfiguration().getResolvedArtifacts()) {
+                String id = artifact.getModuleVersion().getId().getGroup() + ":"
+                        + artifact.getModuleVersion().getId().getName();
+                File file = artifact.getFile();
+                if (apiIds.contains(id) && file != null && file.getName().toLowerCase().endsWith(".jar")) {
+                    scanJarForPackages(project, file, packages, false);
+                }
+            }
+        } catch (Exception e) {
+            warn(project, "⚠️ [Shadow] api 패키지 스캔 중 오류: " + e.getMessage(),
+                    "⚠️ [Shadow] Error while scanning api packages: " + e.getMessage());
+        }
+        return packages;
+    }
+
+    /**
      * Extracts the list of packages to relocate.
      * <p>
      * <b>[한국어 설명]</b>
@@ -4171,7 +4227,7 @@ public class S2BuildUtils {
 
                     info(project, "📦 [Shadow] JAR 스캔 중: " + file.getName() + " (" + id + ")",
                             "📦 [Shadow] Scanning JAR: " + file.getName() + " (" + id + ")");
-                    scanJarForPackages(project, file, packagesToRelocate);
+                    scanJarForPackages(project, file, packagesToRelocate, true);
                 }
             } catch (Exception ignored) {
             }
@@ -4191,6 +4247,42 @@ public class S2BuildUtils {
      */
     private static Set<String> getRelocatableArtifactIDs(Project project) {
         Set<String> relocatableIds = new java.util.HashSet<>();
+        Set<String> apiDependencyIds = getApiArtifactIDs(project);
+
+        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
+                .findByName("runtimeClasspath");
+        if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
+            try {
+                Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
+                for (ResolvedArtifact artifact : artifacts) {
+                    String id = artifact.getModuleVersion().getId().getGroup() + ":"
+                            + artifact.getModuleVersion().getId().getName();
+                    if (apiDependencyIds.contains(id))
+                        continue;
+                    if (artifact.getId()
+                            .getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier)
+                        continue;
+                    relocatableIds.add(id);
+                }
+            } catch (Exception e) {
+                warn(project, "⚠️ [Shadow] runtimeClasspath 분석 중 오류: " + e.getMessage(),
+                        "⚠️ [Shadow] Error during runtimeClasspath analysis: " + e.getMessage());
+            }
+        }
+        return relocatableIds;
+    }
+
+    /**
+     * Returns the IDs (Group:Name) of the {@code api} dependencies, transitive ones included.
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code api} 의존성(전이 포함)의 아티팩트 ID(Group:Name) 집합을 반환합니다.
+     *
+     * @param project The Gradle project instance | Gradle 프로젝트 객체
+     * @return Set of api artifact IDs | api 아티팩트 ID 집합
+     */
+    private static Set<String> getApiArtifactIDs(Project project) {
         Set<String> apiDependencyIds = new java.util.HashSet<>();
         try {
             org.gradle.api.artifacts.Configuration apiConfig = project.getConfigurations().findByName("api");
@@ -4219,42 +4311,22 @@ public class S2BuildUtils {
                 }
             }
         }
-
-        org.gradle.api.artifacts.Configuration runtimeConfig = project.getConfigurations()
-                .findByName("runtimeClasspath");
-        if (runtimeConfig != null && runtimeConfig.isCanBeResolved()) {
-            try {
-                Set<ResolvedArtifact> artifacts = runtimeConfig.getResolvedConfiguration().getResolvedArtifacts();
-                for (ResolvedArtifact artifact : artifacts) {
-                    String id = artifact.getModuleVersion().getId().getGroup() + ":"
-                            + artifact.getModuleVersion().getId().getName();
-                    if (apiDependencyIds.contains(id))
-                        continue;
-                    if (artifact.getId()
-                            .getComponentIdentifier() instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier)
-                        continue;
-                    relocatableIds.add(id);
-                }
-            } catch (Exception e) {
-                warn(project, "⚠️ [Shadow] runtimeClasspath 분석 중 오류: " + e.getMessage(),
-                        "⚠️ [Shadow] Error during runtimeClasspath analysis: " + e.getMessage());
-            }
-        }
-        return relocatableIds;
+        return apiDependencyIds;
     }
 
     /**
-     * Scans a JAR file and extracts all top-level package names.
+     * Scans a JAR file and extracts its package names: the top-level ones, or every full name.
      * <p>
      * <b>[한국어 설명]</b>
      * </p>
-     * JAR 파일을 스캔하여 포함된 모든 최상위 패키지명을 추출합니다.
+     * JAR 파일을 스캔하여 패키지명을 추출합니다: 최상위 패키지명, 또는 전체 패키지명.
      *
      * @param project  The Gradle project instance | Gradle 프로젝트 객체
      * @param jarFile  The JAR file to scan | 스캔할 JAR 파일
      * @param packages Set to store extracted packages | 추출된 패키지를 저장할 집합
+     * @param topLevel {@code true} for top-level packages only | 최상위 패키지만 담으면 {@code true}
      */
-    private static void scanJarForPackages(Project project, File jarFile, Set<String> packages) {
+    private static void scanJarForPackages(Project project, File jarFile, Set<String> packages, boolean topLevel) {
         try (JarFile jar = new JarFile(jarFile)) {
             Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
@@ -4266,9 +4338,9 @@ public class S2BuildUtils {
                 if (lastSlash > 0) {
                     String path = name.substring(0, lastSlash);
                     String packageName = path.replace('/', '.');
-                    String topLevel = getTopLevelPackage(packageName);
-                    if (isValidPackage(topLevel))
-                        packages.add(topLevel);
+                    String candidate = topLevel ? getTopLevelPackage(packageName) : packageName;
+                    if (isValidPackage(candidate))
+                        packages.add(candidate);
                 }
             }
         } catch (IOException e) {
