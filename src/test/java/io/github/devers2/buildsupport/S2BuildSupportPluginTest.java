@@ -67,9 +67,14 @@ class S2BuildSupportPluginTest {
     }
 
     @Test
-    @DisplayName("compileOnlyInternal Configuration이 생성되고 compileOnly를 확장한다")
+    @DisplayName("compileOnlyInternal Configuration이 생성되고 compileClasspath·testCompileClasspath 가 이를 확장한다")
     void compileOnlyInternalConfigurationCreated() {
         var configuration = project.getConfigurations().findByName("compileOnlyInternal");
         assertNotNull(configuration, "compileOnlyInternal configuration이 생성되어야 한다");
+        for (String name : new String[] { "compileClasspath", "testCompileClasspath" }) {
+            assertTrue(project.getConfigurations().getByName(name).getExtendsFrom().contains(configuration), name);
+        }
+        assertFalse(project.getConfigurations().getByName("runtimeClasspath").getHierarchy().contains(configuration),
+                "런타임 클래스패스에는 들어가지 않아야 한다");
     }
 }

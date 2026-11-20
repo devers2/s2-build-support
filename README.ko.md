@@ -34,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "1.0.0"
+    id("io.github.devers2.buildsupport") version "1.0.1"
 }
 ```
 
@@ -66,14 +66,14 @@ plugins {
 Maven Central에 아티팩트 하나를 배포하는 일반적인 라이브러리 예시:
 
 ```kotlin
+import io.github.devers2.buildsupport.S2BuildUtils
+
 plugins {
-    id("io.github.devers2.buildsupport") version "1.0.0"
+    id("io.github.devers2.buildsupport") version "1.0.1"
     `java-library`
     `maven-publish`
     signing
 }
-
-import io.github.devers2.buildsupport.S2BuildUtils
 
 extra["javaVersion"] = JavaVersion.VERSION_21
 // 선택 사항: 최신 JDK로 컴파일하면서 이전 Java 버전과 호환되는 바이트코드를 생성
@@ -124,4 +124,4 @@ S2BuildUtils.configureTestDefaults(project)
 
 ---
 
-s2-build-support Version: 1.0.0 (미배포)
+s2-build-support Version: 1.0.1 (미배포)

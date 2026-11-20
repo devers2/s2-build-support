@@ -34,7 +34,7 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.github.devers2.buildsupport") version "1.0.0"
+    id("io.github.devers2.buildsupport") version "1.0.1"
 }
 ```
 
@@ -66,14 +66,14 @@ Everything else is opt-in, provided as **static methods on `S2BuildUtils`** that
 A typical library that publishes a single artifact to Maven Central:
 
 ```kotlin
+import io.github.devers2.buildsupport.S2BuildUtils
+
 plugins {
-    id("io.github.devers2.buildsupport") version "1.0.0"
+    id("io.github.devers2.buildsupport") version "1.0.1"
     `java-library`
     `maven-publish`
     signing
 }
-
-import io.github.devers2.buildsupport.S2BuildUtils
 
 extra["javaVersion"] = JavaVersion.VERSION_21
 // Optional: compile with a newer JDK while targeting an older bytecode release.
@@ -124,4 +124,4 @@ This module utilizes the following high-quality open-source library:
 
 ---
 
-s2-build-support Version: 1.0.0 (unreleased)
+s2-build-support Version: 1.0.1 (unreleased)

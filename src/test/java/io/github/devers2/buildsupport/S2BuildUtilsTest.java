@@ -167,12 +167,17 @@ class S2BuildUtilsTest {
     // =========================================================================
 
     @org.junit.jupiter.api.Test
-    @DisplayName("isKorean 호출 시 예외 없이 불리언을 반환한다")
+    @DisplayName("isKorean 은 기본 로케일의 언어가 한국어인지 따른다")
     void isKoreanDoesNotThrow() {
-        assertDoesNotThrow(() -> {
-            boolean result = S2BuildUtils.isKorean();
-            assertTrue(result || !result);
-        });
+        java.util.Locale original = java.util.Locale.getDefault();
+        try {
+            java.util.Locale.setDefault(java.util.Locale.KOREA);
+            assertTrue(S2BuildUtils.isKorean());
+            java.util.Locale.setDefault(java.util.Locale.US);
+            assertFalse(S2BuildUtils.isKorean());
+        } finally {
+            java.util.Locale.setDefault(original);
+        }
     }
 
     // =========================================================================

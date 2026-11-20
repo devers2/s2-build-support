@@ -268,11 +268,13 @@ public class S2BuildUtils {
      * <p>
      * Execution Order:
      * <ol>
-     * <li><b>Dynamic Dependency Injection:</b> Adds compileOnly dependencies based on active features.</li>
+     * <li><b>Dynamic Dependency Injection:</b> Adds the dependencies of active features (to their {@code configuration},
+     * {@code implementation} by default).</li>
      * <li><b>Source File Toggling:</b> Switches between {@code .java} and {@code .java.txt} based on feature flags.</li>
      * <li><b>Packaging Setup:</b> Configures JAR and Shadow JAR tasks.</li>
-     * <li><b>Dependency Copying:</b> Registers the {@code copyDependencies} task.</li>
      * <li><b>README Update:</b> Synchronizes version and dependency documentation.</li>
+     * <li><b>Central Portal Publishing:</b> Replaces the upload to the {@code CentralPortal} repository with a Zip
+     * bundle upload ({@link #configureCentralPortalPublishing(Project)}).</li>
      * </ol>
      *
      * <p>
@@ -282,11 +284,12 @@ public class S2BuildUtils {
      * <p>
      * 실행 순서:
      * <ol>
-     * <li><b>동적 의존성 주입:</b> 활성화된 기능에 따라 compileOnly 의존성을 추가합니다.</li>
+     * <li><b>동적 의존성 주입:</b> 활성화된 기능의 의존성을 추가합니다({@code configuration} 지정값, 기본 {@code implementation}).</li>
      * <li><b>소스 파일 토글:</b> 기능 플래그에 따라 {@code .java}와 {@code .java.txt} 파일을 전환합니다.</li>
      * <li><b>패키징 설정:</b> JAR 및 Shadow JAR 태스크를 구성합니다.</li>
-     * <li><b>의존성 복사:</b> {@code copyDependencies} 태스크를 등록합니다.</li>
      * <li><b>README 업데이트:</b> 버전 및 의존성 가이드를 동기화합니다.</li>
+     * <li><b>Central Portal 배포:</b> {@code CentralPortal} 리포지토리 업로드를 Zip 번들 업로드로 바꿉니다
+     * ({@link #configureCentralPortalPublishing(Project)}).</li>
      * </ol>
      *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
@@ -592,8 +595,8 @@ public class S2BuildUtils {
          * 2. Standard JAR 태스크 등록 (배포 전용)
          * ========================================================================
          * [목적]
-         * - Maven 배포 시 사용할 Standard JAR (의존성 분리) 태스크를 등록
-         * - publishing 블록에서 이 태스크를 참조하므로 가장 먼저 등록해야 함
+         * - Standard JAR (의존성 분리) 태스크를 등록 — 실제 배포 아티팩트는 아니고, fixMetadataGeneration 이
+         *   메타데이터 생성 순서 보장용으로 참조함 (registerStandardJarTask Javadoc 참고)
          * - registerStandardJarTask 헬퍼 메서드 재사용
          */
         registerStandardJarTask(project, archiveBaseName, version, extraLicenses);
@@ -1061,7 +1064,7 @@ public class S2BuildUtils {
     /**
      * 재귀적으로 디렉토리의 모든 파일을 순회하며 처리
      *
-     * @param directory     처리할 디렉토리
+     * @param file          처리할 파일 또는 디렉토리
      * @param fileProcessor 각 파일에 적용할 처리 로직
      */
     private static void processFiles(File file, java.util.function.Consumer<File> fileProcessor) {
@@ -3509,7 +3512,8 @@ public class S2BuildUtils {
      * README 파일의 버전 정보를 업데이트하고, 필요한 경우 런타임 의존성 가이드를 추가합니다.
      * 파일명이 {@code *.ko.md}인 경우 한국어 가이드 문구를 주입하고, 그 외에는 영문 가이드 문구를 주입합니다.
      * <p>
-     * 1. 버전 업데이트: {@code Implementation-Version} 패턴 등을 찾아 현재 프로젝트 버전으로 교체합니다.
+     * 1. 버전 업데이트: S2 아티팩트 의존성 표기(Gradle·Maven·인라인 코드), 플러그인 {@code id(...) version},
+     * {@code <아티팩트> Version: x.y.z (YYYY-MM-DD)} 줄을 현재 버전(및 버전 카탈로그 값)으로 교체합니다.
      * 2. 의존성 가이드: {@code compileOnly}로 선언된 라이브러리가 있다면, 소비자가 런타임에 추가해야 함을 README에 삽입합니다.
      * </p>
      *
