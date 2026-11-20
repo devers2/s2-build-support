@@ -4,8 +4,21 @@
 
 ## [1.0.1] - Unreleased
 
+### ⚠️ Changes in behavior
+
+- **GitHub Packages smart publishing** (`MavenPublishStrategy`) stops the publish and reports why when it cannot check
+  whether an artifact exists (a response other than 200/404, or a network error). Before, it took that as "missing" and
+  tried to publish, failing with 409 Conflict or hiding the cause. `GitHubPackagesClient.checkArtifactExists` is unchanged.
+
 ### Fixed
 
+- **Package relocation** also moved the packages of `api` dependencies sharing the first two segments with an
+  `implementation` dependency (for example `org.apache.commons.lang3` under `org.apache`), so the api classes in the
+  public API were renamed and broke consumers. Api packages are now excluded from relocation.
+- A project with `shadedPackagePrefix` and the Shadow plugin but without `maven-publish` failed at configuration
+  (no `PublishingExtension`).
+- GitHub Packages smart publishing built the existence-check path from the project's groupId instead of the publication's.
+- Dependencies: Shadow plugin 9.6.1, Gradle Wrapper 9.9.1.
 - **`S2TestLauncher` (`testArtifact`)** failed at once with `NoClassDefFoundError: org/gradle/api/JavaVersion` on a
   classpath without the Gradle API (it loaded `S2BuildUtils`). It now uses only the JDK.
 - **`LibrariesPublisher`** registered every file as `.jar` whatever the scanned extension. It now keeps the file's real

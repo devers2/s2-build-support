@@ -4,8 +4,19 @@
 
 ## [1.0.1] - 미배포
 
+### ⚠️ 동작 변경
+
+- **GitHub Packages 스마트 배포**(`MavenPublishStrategy`)가 아티팩트 존재 여부를 확인하지 못하면(200·404 가 아닌 응답, 네트워크 오류)
+  배포를 중단하고 원인을 알립니다. 이전에는 "없음"으로 보고 배포를 시도해 409 Conflict 등으로 실패하거나 원인이 가려졌습니다.
+  `GitHubPackagesClient.checkArtifactExists`는 그대로입니다.
+
 ### 수정
 
+- **패키지 재배치**가 `implementation` 의존성과 앞 두 단계가 같은 `api` 의존성 패키지(예: `org.apache` 아래 `org.apache.commons.lang3`)까지
+  옮겨, 공개 API 의 api 클래스 참조가 바뀌어 사용하는 쪽에서 깨졌습니다. 이제 api 패키지는 재배치에서 제외합니다.
+- `shadedPackagePrefix`와 Shadow 플러그인을 쓰면서 `maven-publish`가 없는 프로젝트가 설정 단계에서 실패했습니다(`PublishingExtension` 없음).
+- GitHub Packages 스마트 배포가 존재 확인 경로를 Publication 이 아닌 프로젝트의 groupId 로 만들었습니다.
+- 의존성: Shadow 플러그인 9.6.1, Gradle Wrapper 9.9.1.
 - **`S2TestLauncher`(`testArtifact`)**가 Gradle API 없는 클래스패스에서 `NoClassDefFoundError: org/gradle/api/JavaVersion`으로
   바로 실패했습니다(내부에서 `S2BuildUtils`를 불러옴). 이제 JDK 만 씁니다.
 - **`LibrariesPublisher`**가 스캔 확장자와 관계없이 모든 파일을 `.jar`로 등록했습니다. 이제 파일의 실제 확장자로 등록합니다.
