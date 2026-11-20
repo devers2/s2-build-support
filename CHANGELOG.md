@@ -14,7 +14,7 @@
 - **README example** had its `import` after `plugins {}`, which does not compile in the Kotlin DSL. It is now at the top.
 - `S2BuildUtils` Javadoc: the `configureProject` steps (a `copyDependencies` step it never ran) and the README sync description now match the code.
 
-## [1.0.0]
+## [1.0.0] - 2026-10-27
 
 The first stable release. The API is fixed from here; later releases only fix bugs and keep up with new Gradle versions.
 

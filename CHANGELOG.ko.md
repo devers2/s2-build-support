@@ -14,7 +14,7 @@
 - **README 예시**의 `import`가 `plugins {}` 뒤에 있어 그대로 쓰면 Kotlin DSL 컴파일 오류가 났습니다. 맨 위로 옮겼습니다.
 - `S2BuildUtils` Javadoc 의 `configureProject` 실행 순서(없는 `copyDependencies` 단계)와 README 동기화 설명을 실제 동작에 맞췄습니다.
 
-## [1.0.0]
+## [1.0.0] - 2026-10-27
 
 첫 안정 버전입니다. 이후 API 를 고정하고, 오류 수정과 Gradle 새 버전 대응만 합니다.
 
