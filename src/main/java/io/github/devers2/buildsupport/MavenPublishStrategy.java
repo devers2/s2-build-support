@@ -240,7 +240,8 @@ public class MavenPublishStrategy {
      */
     private static boolean evaluatePublishDecision(Project project, PublishToMavenRepository pubTask) {
         MavenPublication pub = pubTask.getPublication();
-        String groupPath = project.getGroup().toString().replace('.', '/');
+        // Publication 에 groupId 를 따로 지정한 경우도 실제 배포 경로를 확인하도록 Publication 기준으로 쓴다
+        String groupPath = pub.getGroupId().replace('.', '/');
         String artifactId = pub.getArtifactId();
         String version = pub.getVersion();
 
