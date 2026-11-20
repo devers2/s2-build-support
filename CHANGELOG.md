@@ -39,3 +39,8 @@ The first stable release. The API is fixed from here; later releases only fix bu
 - **`S2TestLauncher`** uses the `execute` subcommand of JUnit's console launcher from JUnit Platform 1.10 / 6.x.
 - **`GitHubPackagesClient`** sends no empty `Authorization` header and no longer uses the deprecated `new URL(String)`.
 - Debug output ("[Packaging Debug] ...") moved to the debug log level.
+- **`S2TestLauncher` (`testArtifact`)** failed at once with `NoClassDefFoundError: org/gradle/api/JavaVersion` on a
+  classpath without the Gradle API (it loaded `S2BuildUtils`). It now uses only the JDK.
+- **`LibrariesPublisher`** registered every file as `.jar` whatever the scanned extension. It now keeps the file's real
+  extension, and recognizes versions with a JDK update number (`1.8.0_422`, `1.8.0_422+8`) as documented.
+- **Central Portal upload** has a connect timeout (60 seconds).

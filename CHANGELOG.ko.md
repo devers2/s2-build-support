@@ -33,3 +33,8 @@
 - **`S2TestLauncher`**가 JUnit Platform 1.10 / 6.x 에서 콘솔 런처의 `execute` 하위 명령을 씁니다.
 - **`GitHubPackagesClient`**가 빈 `Authorization` 헤더를 보내지 않고, 비권장 `new URL(String)`을 쓰지 않습니다.
 - 디버그 출력("[패키징 디버그] ...")을 debug 로그 수준으로 옮겼습니다.
+- **`S2TestLauncher`(`testArtifact`)**가 Gradle API 없는 클래스패스에서 `NoClassDefFoundError: org/gradle/api/JavaVersion`으로
+  바로 실패했습니다(내부에서 `S2BuildUtils`를 불러옴). 이제 JDK 만 씁니다.
+- **`LibrariesPublisher`**가 스캔 확장자와 관계없이 모든 파일을 `.jar`로 등록했습니다. 이제 파일의 실제 확장자로 등록합니다.
+  JDK 업데이트 번호가 붙은 버전(`1.8.0_422`, `1.8.0_422+8`)도 문서대로 버전으로 인식합니다.
+- **Central Portal 업로드**에 연결 시간 제한(60초)을 둡니다.

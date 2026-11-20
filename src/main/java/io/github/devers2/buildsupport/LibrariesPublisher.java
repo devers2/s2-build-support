@@ -221,8 +221,12 @@ public class LibrariesPublisher {
 
                 // 동일 그룹의 모든 아티팩트 추가 (classifier 포함)
                 for (ArtifactItem item : items) {
+                    // 스캔 규칙의 확장자(zip 등)를 그대로 쓴다 — jar 로 고정하면 다른 확장자 파일이 .jar 로 배포됨
+                    String itemName = item.file.getName();
+                    int extDot = itemName.lastIndexOf('.');
+                    String itemExtension = extDot > 0 ? itemName.substring(extDot + 1) : "jar";
                     publication.artifact(item.file, artifact -> {
-                        artifact.setExtension("jar");
+                        artifact.setExtension(itemExtension);
                         if (item.classifier != null) {
                             artifact.setClassifier(item.classifier);
                         }
@@ -314,6 +318,9 @@ public class LibrariesPublisher {
 
             // 2. 숫자.숫자 필수 (1.0 이상)
                     "\\d+(?:\\.\\d+)+" +
+
+                    // 2-1. 선택적 JDK 업데이트 번호 (예: 1.8.0_422)
+                    "(?:_\\d+)?" +
 
                     // 3. 선택적 프리릴리스 태그 (-로 시작)
                     "(?:-" +
