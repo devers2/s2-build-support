@@ -25,12 +25,7 @@ jobs:
           java-version: ${{ matrix.java }}
           distribution: "temurin"
           cache: "gradle"
-      - name: Set up JDK 21 for Gradle Toolchain (if matrix is 17)
-        if: matrix.java == '17'
-        uses: actions/setup-java@v6
-        with:
-          java-version: "21"
-          distribution: "temurin"
+      # 이 뒤에 setup-java 를 더 두지 않는다: 마지막 것이 JAVA_HOME 이 되어 17 작업도 그 JDK 로 Gradle 을 실행하게 됨 (툴체인 17 은 행렬 JDK·foojay 가 제공)
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Build and Test
