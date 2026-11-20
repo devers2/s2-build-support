@@ -235,76 +235,47 @@ afterEvaluate {
             val pubVersion = publication.version
             val pubArtifactId = publication.artifactId
             val pubGroupId = publication.groupId
-            // S2BuildUtils.configureCentralPortalPublishing()과 동일하게, 릴리즈 배포 시에는
-            // 이전 SNAPSHOT 빌드 산출물이 libs 폴더에 잔존해 있어도 번들에 섞여 들어가지 않도록 걸러낸다.
-            val isSnapshotVersion = pubVersion.contains("SNAPSHOT")
-
-            val filesToBundle = mutableListOf<File>()
-
-            // 1) JARs & Signatures (Only for publications that have JARs)
-            if (pubName == "mavenJava" || pubName == "pluginMaven") {
-                val libsDir = File(buildDirFile, "libs")
-                if (libsDir.exists()) {
-                    // Find main JAR, sources, javadoc and their signatures
-                    val baseName = "$pubArtifactId-$pubVersion"
-                    libsDir.listFiles()?.forEach { f ->
-                        if (!isSnapshotVersion && f.name.contains("SNAPSHOT")) {
-                            return@forEach
-                        }
-                        if (f.name.startsWith(baseName) && (f.name.endsWith(".jar") || f.name.endsWith(".asc"))) {
-                            filesToBundle += f
-                        }
-                    }
-                }
-            }
-
-            // 2) POM & Signature
-            val pomDir = File(buildDirFile, "publications/$pubName")
-            if (pomDir.exists()) {
-                val pomFile = File(pomDir, "pom-default.xml")
-                if (pomFile.exists()) {
-                    val renamedPom = File(bundleDir, "$pubArtifactId-$pubVersion.pom")
-                    Files.copy(pomFile.toPath(), renamedPom.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                    filesToBundle += renamedPom
-
-                    // Also look for signed POM
-                    val pomAsc = File(pomDir, "pom-default.xml.asc")
-                    if (pomAsc.exists()) {
-                        val renamedPomAsc = File(bundleDir, "$pubArtifactId-$pubVersion.pom.asc")
-                        Files.copy(pomAsc.toPath(), renamedPomAsc.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                        filesToBundle += renamedPomAsc
-                    }
-                }
-            }
 
             // A publish that uploads nothing must fail, not look successful | 아무것도 올리지 않은 배포는 성공으로 보이지 않게 실패
             fun fail(ko: String, en: String): Nothing = throw GradleException(if (isKo) ko else en)
 
-            if (filesToBundle.isEmpty()) {
+            // 1)~2) S2BuildUtils.centralBundleFiles()와 동일: Publication 에 등록된 아티팩트와 POM 만 각 서명과 함께 담는다.
+            // (libs 폴더를 이름으로 훑으면 빠진 아티팩트를 알아채지 못하고, 상관없는 파일이 섞일 수 있음)
+            val baseName = "$pubArtifactId-$pubVersion"
+            val filesToBundle = mutableListOf<File>()
+            val missing = mutableListOf<String>()
+            fun bundleWithSignature(file: File, name: String) {
+                val signature = File(file.path + ".asc")
+                when {
+                    !file.isFile -> missing += name
+                    !signature.isFile -> missing += "$name.asc"
+                    else -> {
+                        val target = File(bundleDir, name)
+                        val targetSignature = File(bundleDir, "$name.asc")
+                        Files.copy(file.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                        Files.copy(signature.toPath(), targetSignature.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                        filesToBundle += target
+                        filesToBundle += targetSignature
+                    }
+                }
+            }
+            publication.artifacts.forEach { artifact ->
+                val classifier = artifact.classifier
+                val name = baseName + (if (classifier.isNullOrBlank()) "" else "-$classifier") + "." + artifact.extension
+                bundleWithSignature(artifact.file, name)
+            }
+            bundleWithSignature(File(buildDirFile, "publications/$pubName/pom-default.xml"), "$baseName.pom")
+
+            if (missing.isNotEmpty()) {
                 fail(
-                    "❌ [중앙 포털] 번들링할 파일을 찾지 못했습니다 [$pubName].",
-                    "❌ [Central Portal] No files found to bundle [$pubName]."
+                    "❌ [중앙 포털] 파일 또는 서명(.asc)이 없습니다 (Maven Central 은 모든 파일에 서명이 필요): $missing",
+                    "❌ [Central Portal] Missing files or signatures (.asc); Maven Central requires every file to be signed: $missing"
                 )
             }
 
-            // 3) Create Checksums & Verify Signatures
-            val authenticatedFiles = mutableListOf<File>()
-            val fileNames = filesToBundle.map { it.name }.toSet()
-
-            filesToBundle.forEach { f ->
-                if (f.name.endsWith(".asc")) {
-                    authenticatedFiles += f
-                    return@forEach
-                }
-
-                if (!fileNames.contains(f.name + ".asc")) {
-                    fail(
-                        "❌ [중앙 포털] 서명(.asc) 파일이 없습니다: ${f.name}. Maven Central은 서명이 필수입니다.",
-                        "❌ [Central Portal] Missing signature (.asc): ${f.name}. Signatures are required for Maven Central."
-                    )
-                }
-                authenticatedFiles += f
-
+            // 3) Create Checksums
+            val authenticatedFiles = filesToBundle.toMutableList()
+            filesToBundle.filter { !it.name.endsWith(".asc") }.forEach { f ->
                 // Generate MD5 & SHA1 (Recommended/Required for Maven Central layout)
                 val content = f.readBytes()
                 mapOf("MD5" to 32, "SHA-1" to 40).forEach { (algo, len) ->
@@ -314,16 +285,6 @@ afterEvaluate {
                     hashFile.writeText(hash)
                     authenticatedFiles += hashFile
                 }
-            }
-
-            val hasSignedArtifact = authenticatedFiles.any {
-                !it.name.endsWith(".asc") && !it.name.endsWith(".md5") && !it.name.endsWith(".sha1")
-            }
-            if (!hasSignedArtifact) {
-                fail(
-                    "❌ [중앙 포털] 서명된 아티팩트가 없어 업로드를 중단합니다 [$pubName].",
-                    "❌ [Central Portal] No signed artifacts found, aborting upload [$pubName]."
-                )
             }
 
             // 4) Create Zip Bundle
@@ -356,6 +317,7 @@ afterEvaluate {
 
             val boundary = "Boundary-" + System.currentTimeMillis()
             val client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1) // S2BuildUtils 와 동일
                 .connectTimeout(Duration.ofSeconds(60))
                 .build()
 

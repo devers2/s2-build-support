@@ -4517,7 +4517,9 @@ public class S2BuildUtils {
 
                                         byte[] bodyBytes = bodyOs.toByteArray();
 
+                                        // 연결 시간 제한은 build.gradle.kts 인라인 구현과 같게 (없으면 응답 없는 서버에서 무한 대기)
                                         HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                                                .connectTimeout(java.time.Duration.ofSeconds(60))
                                                 .build();
 
                                         String auth = Base64.getEncoder().encodeToString(
