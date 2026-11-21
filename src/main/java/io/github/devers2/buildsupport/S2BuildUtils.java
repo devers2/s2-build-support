@@ -719,6 +719,68 @@ public class S2BuildUtils {
     }
 
     /**
+     * Rewrites the Servlet imports of the Java sources under {@code javaSourceRoot} to the given namespace:
+     * {@code javax.servlet} to {@code jakarta.servlet} when {@code toJakarta} is {@code true}, the other way round
+     * otherwise. Only {@code import} and {@code import static} lines change; fully qualified names in code are left as
+     * they are. Files without a change are not written, and line endings are kept.
+     * <p>
+     * The direction is given by the caller because it cannot be told from the Java version: a {@code javax} project
+     * can run on Java 17, and {@code jakarta.servlet} works on Java 8.
+     * </p>
+     * <p>
+     * <b>[한국어 설명]</b>
+     * </p>
+     * {@code javaSourceRoot} 아래 Java 소스의 Servlet import 를 지정한 쪽으로 바꿉니다: {@code toJakarta} 가 {@code true} 면
+     * {@code javax.servlet} → {@code jakarta.servlet}, 아니면 반대로. {@code import}·{@code import static} 줄만 바꾸고 코드 안의 전체
+     * 이름 참조는 그대로 둡니다. 바뀌지 않은 파일은 쓰지 않으며 줄바꿈을 유지합니다.
+     * <p>
+     * 방향은 호출하는 쪽이 정합니다. Java 버전으로는 알 수 없기 때문입니다({@code javax} 프로젝트도 Java 17 에서 돌고,
+     * {@code jakarta.servlet} 은 Java 8 에서도 씀).
+     * </p>
+     *
+     * @param project        The Gradle project instance | Gradle 프로젝트 객체
+     * @param javaSourceRoot Java source root path | Java 소스 루트 경로
+     * @param toJakarta      {@code true} for {@code jakarta.servlet}, {@code false} for {@code javax.servlet} | {@code true} 면
+     *                       {@code jakarta.servlet}, {@code false} 면 {@code javax.servlet} 으로
+     */
+    public static void updateServletImports(Project project, String javaSourceRoot, boolean toJakarta) {
+        File sourceDir = project.file(javaSourceRoot);
+        if (!sourceDir.exists()) {
+            return;
+        }
+
+        String fromPackage = toJakarta ? "javax.servlet" : "jakarta.servlet";
+        String toPackage = toJakarta ? "jakarta.servlet" : "javax.servlet";
+        // 줄 맨 앞의 import / import static 만 대상으로 한다 (코드·주석 안의 같은 문자열은 건드리지 않음)
+        Pattern importPattern = Pattern.compile("(?m)^([ \\t]*import[ \\t]+(?:static[ \\t]+)?)" + Pattern.quote(fromPackage) + "\\.");
+
+        processFiles(sourceDir, file -> {
+            if (!file.getName().endsWith(".java")) {
+                return;
+            }
+
+            try {
+                java.nio.file.Path path = file.toPath();
+                String content = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+                if (!content.contains(fromPackage)) {
+                    return;
+                }
+
+                String updated = importPattern.matcher(content).replaceAll("$1" + toPackage + ".");
+                if (!content.equals(updated)) {
+                    Files.write(path, updated.getBytes(StandardCharsets.UTF_8));
+                    info(project,
+                            "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage + ")",
+                            "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage + ")");
+                }
+            } catch (IOException e) {
+                error(project, "❌ [서블릿 임포트] " + file.getName() + " 업데이트 실패: " + e.getMessage(),
+                        "❌ [Servlet Import] Failed to update " + file.getName() + ": " + e.getMessage());
+            }
+        });
+    }
+
+    /**
      * Updates the copyright year in source files.
      * <p>
      * <b>[한국어 설명]</b>

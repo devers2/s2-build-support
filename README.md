@@ -89,7 +89,7 @@ S2BuildUtils.configureLibraryPublishing(
 S2BuildUtils.configureTestDefaults(project)
 ```
 
-Other standalone utilities (`updateVersionInFile`, `updateCopyright`, etc.) can be called the same way wherever needed. See the Javadoc on `S2BuildUtils` for the full list and their configuration options.
+Other standalone utilities (`updateVersionInFile`, `updateServletImports`, `updateCopyright`, etc.) can be called the same way wherever needed. See the Javadoc on `S2BuildUtils` for the full list and their configuration options.
 
 ---
 

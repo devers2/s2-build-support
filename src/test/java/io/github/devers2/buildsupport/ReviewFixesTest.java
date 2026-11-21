@@ -168,4 +168,31 @@ class ReviewFixesTest {
         project.getExtensions().getExtraProperties().set("GITHUB_TOKEN", new StringBuilder("token"));
         assertFalse(S2BuildUtils.determineSourceJarStatus(project), "GitHub 주소가 아니면 공개로 보고 소스 JAR 를 만들지 않음");
     }
+
+    @Test
+    @DisplayName("updateServletImports 는 지정한 방향으로 import·import static 만 바꾸고 줄바꿈을 유지한다")
+    void servletImportsFollowTheGivenDirection() throws Exception {
+        Project project = ProjectBuilder.builder().withProjectDir(dir.toFile()).build();
+        Path src = Files.createDirectories(dir.resolve("src/main/java/demo"));
+        Path a = src.resolve("A.java");
+        Files.writeString(a, "package demo;\r\n"
+                + "import javax.servlet.http.HttpServletRequest;\r\n"
+                + "import static javax.servlet.http.HttpServletResponse.SC_OK;\r\n"
+                + "public class A { String note = \"javax.servlet.x\"; javax.servlet.Filter f; }\r\n");
+        Path b = Files.writeString(src.resolve("B.java"), "package demo;\nimport java.util.List;\nclass B {}\n");
+        long bModified = Files.getLastModifiedTime(b).toMillis();
+
+        S2BuildUtils.updateServletImports(project, "src/main/java", true);
+        String converted = Files.readString(a);
+        assertEquals("package demo;\r\n"
+                + "import jakarta.servlet.http.HttpServletRequest;\r\n"
+                + "import static jakarta.servlet.http.HttpServletResponse.SC_OK;\r\n"
+                + "public class A { String note = \"javax.servlet.x\"; javax.servlet.Filter f; }\r\n", converted,
+                "import 줄만 바뀌고 CRLF 는 그대로");
+        assertEquals(bModified, Files.getLastModifiedTime(b).toMillis(), "바뀔 것이 없는 파일은 쓰지 않는다");
+
+        S2BuildUtils.updateServletImports(project, "src/main/java", false);
+        assertTrue(Files.readString(a).contains("import javax.servlet.http.HttpServletRequest;\r\n"), "반대 방향도 동작");
+        assertTrue(Files.readString(a).contains("import static javax.servlet.http.HttpServletResponse.SC_OK;"));
+    }
 }

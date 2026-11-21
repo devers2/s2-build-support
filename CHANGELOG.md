@@ -6,8 +6,10 @@
 
 ### ⚠️ Changes in behavior
 
-- **`updateServletImports` removed.** Its rule "Java 11 or later means jakarta" was wrong (a javax project on Java 17,
-  for example), so it could rewrite the imports of source files incorrectly. No S2 project used it, so it is removed rather than fixed.
+- **`updateServletImports(project, javaSourceRoot, JavaVersion)` → `updateServletImports(project, javaSourceRoot, boolean toJakarta)`.**
+  Its rule "Java 11 or later means jakarta" was wrong (a javax project on Java 17, for example), so it could rewrite
+  imports incorrectly. The caller now gives the direction. `import static` lines change too; fully qualified names in
+  code, comments and strings are left alone.
 - **GitHub Packages smart publishing** (`MavenPublishStrategy`) stops the publish and reports why when it cannot check
   whether an artifact exists (a response other than 200/404, or a network error). Before, it took that as "missing" and
   tried to publish, failing with 409 Conflict or hiding the cause. `GitHubPackagesClient.checkArtifactExists` is unchanged.

@@ -6,8 +6,9 @@
 
 ### ⚠️ 동작 변경
 
-- **`updateServletImports` 삭제.** "Java 11 이상이면 jakarta"라는 기준이 틀려(Java 17 의 javax 프로젝트 등) 소스 파일의 import 를
-  잘못 바꿀 수 있었습니다. s2 프로젝트에서 쓰는 곳이 없어 고치지 않고 지웠습니다.
+- **`updateServletImports(project, javaSourceRoot, JavaVersion)` → `updateServletImports(project, javaSourceRoot, boolean toJakarta)`.**
+  "Java 11 이상이면 jakarta"라는 기준이 틀려(Java 17 의 javax 프로젝트 등) import 를 잘못 바꿀 수 있었습니다. 이제 방향을 호출하는 쪽이
+  정합니다. `import static`도 바꾸고, 코드 안의 전체 이름 참조와 주석·문자열은 건드리지 않습니다.
 - **GitHub Packages 스마트 배포**(`MavenPublishStrategy`)가 아티팩트 존재 여부를 확인하지 못하면(200·404 가 아닌 응답, 네트워크 오류)
   배포를 중단하고 원인을 알립니다. 이전에는 "없음"으로 보고 배포를 시도해 409 Conflict 등으로 실패하거나 원인이 가려졌습니다.
   `GitHubPackagesClient.checkArtifactExists`는 그대로입니다.
