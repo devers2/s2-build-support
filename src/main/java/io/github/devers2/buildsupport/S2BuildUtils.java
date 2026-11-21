@@ -474,7 +474,7 @@ public class S2BuildUtils {
             return;
         }
 
-        String javaSourceRoot = (String) project.getRootProject().findProperty("JAVA_SRC_ROOT");
+        String javaSourceRoot = java.util.Objects.toString(project.getRootProject().findProperty("JAVA_SRC_ROOT"), null);
         if (javaSourceRoot == null || javaSourceRoot.isBlank()) {
             warn(
                     project,
@@ -1666,8 +1666,9 @@ public class S2BuildUtils {
 
         if (isRemotePublish) {
             // GitHub Packages 등의 원격 배포
-            String repoBaseUrl = (String) rootProject.findProperty("REPO_BASE_URL");
-            String githubToken = (String) rootProject.findProperty("GITHUB_TOKEN");
+            // 문자열이 아닌 값(-P 가 아닌 ext 로 넣은 URI 등)도 읽도록 캐스팅하지 않고 문자열로 바꾼다
+            String repoBaseUrl = java.util.Objects.toString(rootProject.findProperty("REPO_BASE_URL"), null);
+            String githubToken = java.util.Objects.toString(rootProject.findProperty("GITHUB_TOKEN"), null);
 
             if (repoBaseUrl != null && githubToken != null) {
                 boolean isPrivate = GitHubPackagesClient.isRepoPrivate(repoBaseUrl, githubToken);
@@ -2435,8 +2436,13 @@ public class S2BuildUtils {
                 rootTask.setGroup("verification");
                 rootTask.setDescription("Minimize가 적용된 Shadow JAR를 기반으로 등록된 모든 검증 클래스를 실행합니다.");
 
+                // 단순 이름이 겹치는 클래스(a.Smoke, b.Smoke)는 전체 이름으로 태스크를 만든다 (같은 이름 등록 시 DuplicateTaskException)
+                Map<String, Long> simpleNameCounts = verifyClasses.stream().collect(java.util.stream.Collectors
+                        .groupingBy(c -> c.substring(c.lastIndexOf('.') + 1), java.util.stream.Collectors.counting()));
                 for (String cls : verifyClasses) {
-                    String subTaskName = "testArtifact_" + cls.substring(cls.lastIndexOf('.') + 1);
+                    String simpleName = cls.substring(cls.lastIndexOf('.') + 1);
+                    String subTaskName = "testArtifact_"
+                            + (simpleNameCounts.get(simpleName) > 1 ? cls.replaceAll("[^A-Za-z0-9]", "_") : simpleName);
                     registerTestArtifactJavaExecTask(project, shadowJar, subTaskName, cls);
                     rootTask.dependsOn(subTaskName);
                 }
@@ -4527,8 +4533,8 @@ public class S2BuildUtils {
                                 }
 
                                 // 4. 업로드 (HttpClient)
-                                String username = (String) project.findProperty("centralUsername");
-                                String password = (String) project.findProperty("centralPassword");
+                                String username = java.util.Objects.toString(project.findProperty("centralUsername"), null);
+                                String password = java.util.Objects.toString(project.findProperty("centralPassword"), null);
 
                                 if (username == null || password == null || username.isBlank() || password.isBlank()) {
                                     // A publish task that uploads nothing must not look successful | 업로드하지 않은 배포가 성공으로 보이지 않게 실패시킴

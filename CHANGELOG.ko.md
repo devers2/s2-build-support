@@ -19,6 +19,10 @@
   아티팩트를 바꾸지 못하던 `from components.java` 금지 검사(실제로는 동작하지 않던 코드)는 지웠습니다.
 - `shadedPackagePrefix`와 Shadow 플러그인을 쓰면서 `maven-publish`가 없는 프로젝트가 설정 단계에서 실패했습니다(`PublishingExtension` 없음).
 - GitHub Packages 스마트 배포가 존재 확인 경로를 Publication 이 아닌 프로젝트의 groupId 로 만들었습니다.
+- `artifactTestClassNames`에 단순 이름이 같은 클래스(`a.Smoke`, `b.Smoke`)가 있으면 같은 이름의 태스크를 두 번 등록하다 실패했습니다.
+  겹칠 때만 전체 이름으로 태스크를 만듭니다(`testArtifact_a_Smoke`).
+- `REPO_BASE_URL`·`GITHUB_TOKEN`·`centralUsername`·`centralPassword`·`JAVA_SRC_ROOT`가 문자열이 아닌 값이면 `ClassCastException`이 났습니다.
+- 이 플러그인 자체의 Central Portal 배포도 인증 정보의 따옴표를 지웁니다(`S2BuildUtils`와 동일).
 - 의존성: Shadow 플러그인 9.6.1, Gradle Wrapper 9.9.1.
 - **`S2TestLauncher`(`testArtifact`)**가 Gradle API 없는 클래스패스에서 `NoClassDefFoundError: org/gradle/api/JavaVersion`으로
   바로 실패했습니다(내부에서 `S2BuildUtils`를 불러옴). 이제 JDK 만 씁니다.

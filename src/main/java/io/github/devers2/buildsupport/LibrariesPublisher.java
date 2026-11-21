@@ -77,7 +77,7 @@ public class LibrariesPublisher {
      * @param fileScanRules       Array of scan rules [Directory, Extension] | 스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
      * @param allowedClassifiers  Array of allowed classifier rules [Classifier, Separator] | 허용된 classifier 규칙 배열
      * @param exceptionalVersions Array of non-standard version strings | 예외적인 버전 형태 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
-     *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
+     *                            - 일반 패턴 (예: "1.78", "2.0.1", "1.0-RC1", "1.0+20251201" — 허용 형식은 {@link #extractVersion(String, String[])} 참고)
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      */
     public static void registerPublications(Project project, Object[][] fileScanRules, String[][] allowedClassifiers,
@@ -111,7 +111,7 @@ public class LibrariesPublisher {
      * @param fileScanRules       Array of scan rules | 스캔 규칙 배열 → 각 항목은 [디렉토리 경로(File 객체), 확장자(String)] 형태, 예: [[project.file('libs'), 'jar']]
      * @param allowedClassifiers  Array of allowed classifiers | 허용된 classifier 규칙 배열 (각 항목은 [classifier명, 구분자] 형태, 예: {{"for_bcprov", "_"}} → 파일명이 _for_bcprov로 끝나는 경우 classifier로 인식)
      * @param exceptionalVersions Array of non-standard version strings | 예외적인 버전 형태 배열
-     *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
+     *                            - 일반 패턴 (예: "1.78", "2.0.1", "1.0-RC1", "1.0+20251201" — 허용 형식은 {@link #extractVersion(String, String[])} 참고)
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      */
     private static void registerPublicationsInternal(Project project, Object[][] fileScanRules,
@@ -399,7 +399,7 @@ public class LibrariesPublisher {
      *
      * @param fileName            The filename without extension | 확장자를 제외한 파일명 (.jar 확장자 제외)
      * @param exceptionalVersions Non-standard version strings | 예외적인 버전 형태 배열
-     *                            - 일반 패턴 (숫자, 점, 대시, 플러스만 포함, 예: "1.78", "2.0.1", "3.5-1", "1.0+20251201")
+     *                            - 일반 패턴 (예: "1.78", "2.0.1", "1.0-RC1", "1.0+20251201" — 허용 형식은 {@link #extractVersion(String, String[])} 참고)
      *                            - 예외 패턴 (일반 패턴이 아닌 버전 문자열, 예: {"jdk18on", "jdk15on"})
      * @return {@link VersionInfo} object | 버전 정보 객체 (baseName, version, hasVersion 포함)
      */

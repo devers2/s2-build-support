@@ -21,6 +21,11 @@
 - A project with `shadedPackagePrefix` and the Shadow plugin but without `maven-publish` failed at configuration
   (no `PublishingExtension`).
 - GitHub Packages smart publishing built the existence-check path from the project's groupId instead of the publication's.
+- `artifactTestClassNames` with classes sharing a simple name (`a.Smoke`, `b.Smoke`) failed by registering the same
+  task twice. Only when names collide, the task takes the full name (`testArtifact_a_Smoke`).
+- `REPO_BASE_URL`, `GITHUB_TOKEN`, `centralUsername`, `centralPassword` and `JAVA_SRC_ROOT` threw `ClassCastException`
+  when not a string.
+- This plugin's own Central Portal publishing strips quotes from the credentials too (as `S2BuildUtils` does).
 - Dependencies: Shadow plugin 9.6.1, Gradle Wrapper 9.9.1.
 - **`S2TestLauncher` (`testArtifact`)** failed at once with `NoClassDefFoundError: org/gradle/api/JavaVersion` on a
   classpath without the Gradle API (it loaded `S2BuildUtils`). It now uses only the JDK.

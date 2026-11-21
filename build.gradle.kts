@@ -214,8 +214,9 @@ afterEvaluate {
         // 실행 시점이 아닌 구성 시점에 값을 확보한다. (Kotlin DSL에서의 지연 평가 회피)
         val centralUploadUrl = repository!!.url.toString()
         val buildDirFile = project.layout.buildDirectory.asFile.get()
-        val centralUser = project.findProperty("centralUsername")?.toString()?.trim()
-        val centralPass = project.findProperty("centralPassword")?.toString()?.trim()
+        // 공백·따옴표 제거 (사용자 실수 방지) — S2BuildUtils.configureCentralPortalPublishing() 과 동일
+        val centralUser = project.findProperty("centralUsername")?.toString()?.trim()?.replace("\"", "")?.replace("'", "")
+        val centralPass = project.findProperty("centralPassword")?.toString()?.trim()?.replace("\"", "")?.replace("'", "")
 
         doLast {
             val isKo = Locale.getDefault().language == "ko"

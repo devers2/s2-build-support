@@ -142,4 +142,30 @@ class ReviewFixesTest {
             server.stop(0);
         }
     }
+
+    @Test
+    @DisplayName("artifactTestClassNames 에 단순 이름이 같은 클래스가 있어도 태스크 이름이 겹치지 않는다")
+    void sameSimpleNamesGetDistinctTasks() throws Exception {
+        Project project = ProjectBuilder.builder().withProjectDir(dir.toFile()).build();
+        project.getPluginManager().apply("java");
+        project.getExtensions().getExtraProperties().set("artifactTestClassNames", List.of("a.Smoke", "b.Smoke", "c.Other"));
+        org.gradle.api.Task shadow = project.getTasks().create("fakeShadowJar");
+        java.lang.reflect.Method register = S2BuildUtils.class.getDeclaredMethod("registerTestArtifactTask", Project.class,
+                org.gradle.api.Task.class);
+        register.setAccessible(true);
+        register.invoke(null, project, shadow);
+        assertNotNull(project.getTasks().findByName("testArtifact_a_Smoke"));
+        assertNotNull(project.getTasks().findByName("testArtifact_b_Smoke"));
+        assertNotNull(project.getTasks().findByName("testArtifact_Other"), "겹치지 않는 이름은 그대로");
+    }
+
+    @Test
+    @DisplayName("문자열이 아닌 프로젝트 속성(REPO_BASE_URL 등)도 ClassCastException 없이 읽는다")
+    void nonStringPropertiesAreRead() {
+        Project project = ProjectBuilder.builder().withProjectDir(dir.toFile()).build();
+        project.getGradle().getStartParameter().setTaskNames(List.of("publish"));
+        project.getExtensions().getExtraProperties().set("REPO_BASE_URL", java.net.URI.create("https://example.invalid/x"));
+        project.getExtensions().getExtraProperties().set("GITHUB_TOKEN", new StringBuilder("token"));
+        assertFalse(S2BuildUtils.determineSourceJarStatus(project), "GitHub 주소가 아니면 공개로 보고 소스 JAR 를 만들지 않음");
+    }
 }
