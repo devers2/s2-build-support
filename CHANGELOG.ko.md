@@ -6,6 +6,8 @@
 
 ### ⚠️ 동작 변경
 
+- **`updateServletImports` 삭제.** "Java 11 이상이면 jakarta"라는 기준이 틀려(Java 17 의 javax 프로젝트 등) 소스 파일의 import 를
+  잘못 바꿀 수 있었습니다. s2 프로젝트에서 쓰는 곳이 없어 고치지 않고 지웠습니다.
 - **GitHub Packages 스마트 배포**(`MavenPublishStrategy`)가 아티팩트 존재 여부를 확인하지 못하면(200·404 가 아닌 응답, 네트워크 오류)
   배포를 중단하고 원인을 알립니다. 이전에는 "없음"으로 보고 배포를 시도해 409 Conflict 등으로 실패하거나 원인이 가려졌습니다.
   `GitHubPackagesClient.checkArtifactExists`는 그대로입니다.
@@ -23,6 +25,9 @@
   겹칠 때만 전체 이름으로 태스크를 만듭니다(`testArtifact_a_Smoke`).
 - `REPO_BASE_URL`·`GITHUB_TOKEN`·`centralUsername`·`centralPassword`·`JAVA_SRC_ROOT`가 문자열이 아닌 값이면 `ClassCastException`이 났습니다.
 - 이 플러그인 자체의 Central Portal 배포도 인증 정보의 따옴표를 지웁니다(`S2BuildUtils`와 동일).
+- **패키지 재배치**가 한 단계짜리 패키지(예: `org`)의 의존성이면 하위 패키지 전체를 옮겨 JDK 의 `org.w3c`·`org.xml` 참조까지 바꿨습니다.
+  이제 그 패키지에 바로 있는 클래스만 옮깁니다.
+- UTF-8 강제가 javac fork JVM 인자를 `-Dfile.encoding=UTF-8` 하나로 덮어썼습니다. 이제 기존 인자를 두고 없을 때만 더합니다.
 - 의존성: Shadow 플러그인 9.6.1, Gradle Wrapper 9.9.1.
 - **`S2TestLauncher`(`testArtifact`)**가 Gradle API 없는 클래스패스에서 `NoClassDefFoundError: org/gradle/api/JavaVersion`으로
   바로 실패했습니다(내부에서 `S2BuildUtils`를 불러옴). 이제 JDK 만 씁니다.

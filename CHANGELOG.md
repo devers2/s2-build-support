@@ -6,6 +6,8 @@
 
 ### ⚠️ Changes in behavior
 
+- **`updateServletImports` removed.** Its rule "Java 11 or later means jakarta" was wrong (a javax project on Java 17,
+  for example), so it could rewrite the imports of source files incorrectly. No S2 project used it, so it is removed rather than fixed.
 - **GitHub Packages smart publishing** (`MavenPublishStrategy`) stops the publish and reports why when it cannot check
   whether an artifact exists (a response other than 200/404, or a network error). Before, it took that as "missing" and
   tried to publish, failing with 409 Conflict or hiding the cause. `GitHubPackagesClient.checkArtifactExists` is unchanged.
@@ -26,6 +28,9 @@
 - `REPO_BASE_URL`, `GITHUB_TOKEN`, `centralUsername`, `centralPassword` and `JAVA_SRC_ROOT` threw `ClassCastException`
   when not a string.
 - This plugin's own Central Portal publishing strips quotes from the credentials too (as `S2BuildUtils` does).
+- **Package relocation** of a dependency in a single-segment package (such as `org`) moved every subpackage too, including
+  JDK references such as `org.w3c` and `org.xml`. Only the classes directly in that package are moved now.
+- UTF-8 enforcement replaced the javac fork JVM arguments with `-Dfile.encoding=UTF-8` alone. It now keeps them and adds it only when missing.
 - Dependencies: Shadow plugin 9.6.1, Gradle Wrapper 9.9.1.
 - **`S2TestLauncher` (`testArtifact`)** failed at once with `NoClassDefFoundError: org/gradle/api/JavaVersion` on a
   classpath without the Gradle API (it loaded `S2BuildUtils`). It now uses only the JDK.

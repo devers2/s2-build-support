@@ -89,7 +89,7 @@ S2BuildUtils.configureLibraryPublishing(
 S2BuildUtils.configureTestDefaults(project)
 ```
 
-그 외 개별 유틸리티(`updateVersionInFile`, `updateServletImports`, `updateCopyright` 등)도 필요한 위치에서 동일한 방식으로 호출하면 됩니다. 전체 목록과 설정 옵션은 `S2BuildUtils`의 Javadoc을 참고하세요.
+그 외 개별 유틸리티(`updateVersionInFile`, `updateCopyright` 등)도 필요한 위치에서 동일한 방식으로 호출하면 됩니다. 전체 목록과 설정 옵션은 `S2BuildUtils`의 Javadoc을 참고하세요.
 
 ---
 

@@ -77,4 +77,17 @@ class S2BuildSupportPluginTest {
         assertFalse(project.getConfigurations().getByName("runtimeClasspath").getHierarchy().contains(configuration),
                 "런타임 클래스패스에는 들어가지 않아야 한다");
     }
+
+    @Test
+    @DisplayName("javac fork JVM 인자를 덮어쓰지 않고 -Dfile.encoding=UTF-8 만 더한다")
+    void forkJvmArgsAreKept() {
+        Project other = ProjectBuilder.builder().build();
+        other.getPlugins().apply("java");
+        JavaCompile compileJava = (JavaCompile) other.getTasks().getByName("compileJava");
+        compileJava.getOptions().getForkOptions().setJvmArgs(new java.util.ArrayList<>(java.util.List.of("-Xmx512m")));
+        other.getPlugins().apply(S2BuildSupportPlugin.class);
+        java.util.List<String> args = compileJava.getOptions().getForkOptions().getJvmArgs();
+        assertTrue(args.contains("-Xmx512m"), "사용자 인자 유지: " + args);
+        assertEquals(1, args.stream().filter("-Dfile.encoding=UTF-8"::equals).count(), args.toString());
+    }
 }

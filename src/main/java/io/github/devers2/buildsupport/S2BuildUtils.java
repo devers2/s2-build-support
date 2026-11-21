@@ -719,97 +719,6 @@ public class S2BuildUtils {
     }
 
     /**
-     * Updates Servlet import statements based on Java version.
-     * <p>
-     * <b>[한국어 설명]</b>
-     * </p>
-     * Java 버전에 따라 Servlet 관련 import 구문을 자동으로 업데이트합니다.
-     * <p>
-     * 1. Java 11 이상: {@code javax.servlet} -> {@code jakarta.servlet}
-     * 2. Java 11 미만: {@code jakarta.servlet} -> {@code javax.servlet}
-     * </p>
-     *
-     * @param project        The Gradle project instance | Gradle 프로젝트 객체
-     * @param javaSourceRoot Java source root path | Java 소스 루트 경로
-     * @param javaVersion    Target Java version | 대상 Java 버전
-     */
-    public static void updateServletImports(Project project, String javaSourceRoot, JavaVersion javaVersion) {
-        File sourceDir = project.file(javaSourceRoot);
-        if (!sourceDir.exists()) {
-            return;
-        }
-
-        // Java 11 이상 여부 확인
-        boolean java11OrAbove = false;
-        try {
-            java11OrAbove = javaVersion.isJava11Compatible();
-        } catch (Exception ignored) {
-            // API 차이 대비: 비교로 대체
-            java11OrAbove = javaVersion.compareTo(JavaVersion.VERSION_11) >= 0;
-        }
-
-        String fromPackage = java11OrAbove ? "javax.servlet" : "jakarta.servlet";
-        String toPackage = java11OrAbove ? "jakarta.servlet" : "javax.servlet";
-
-        processFiles(sourceDir, file -> {
-            if (!file.getName().endsWith(".java")) {
-                return;
-            }
-
-            try {
-                java.nio.file.Path path = file.toPath();
-                String content = new String(java.nio.file.Files.readAllBytes(path),
-                        java.nio.charset.StandardCharsets.UTF_8);
-
-                // servlet 관련 import가 없으면 건너뛰기
-                if (!content.contains("javax.servlet") && !content.contains("jakarta.servlet")) {
-                    return;
-                }
-
-                // 클래스 선언(public class) 이전 부분만 변경
-                int classIndex = content.indexOf("public class");
-                if (classIndex == -1) {
-                    // public class가 없다면 전체 파일에서 import 교체 시도
-                    if (content.contains(fromPackage)) {
-                        String updated = content.replaceAll(
-                                "import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.",
-                                "import " + toPackage + ".");
-                        if (!content.equals(updated)) {
-                            java.nio.file.Files.write(path, updated.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            info(project,
-                                    "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage
-                                            + ")",
-                                    "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → "
-                                            + toPackage + ")");
-                        }
-                    }
-                    return;
-                }
-
-                String beforeClass = content.substring(0, classIndex);
-                String afterClass = content.substring(classIndex);
-
-                if (beforeClass.contains(fromPackage)) {
-                    String updatedBefore = beforeClass.replaceAll(
-                            "import\\s+" + java.util.regex.Pattern.quote(fromPackage) + "\\.",
-                            "import " + toPackage + ".");
-                    String newContent = updatedBefore + afterClass;
-                    if (!content.equals(newContent)) {
-                        java.nio.file.Files.write(path, newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        info(project,
-                                "🔄 [서블릿 임포트] " + file.getName() + " 업데이트 완료 (" + fromPackage + " → " + toPackage + ")",
-                                "🔄 [Servlet Import] Updated " + file.getName() + " (" + fromPackage + " → " + toPackage
-                                        + ")");
-                    }
-                }
-            } catch (java.io.IOException e) {
-                error(project, "❌ [서블릿 임포트] " + file.getName() + " 업데이트 실패: " + e.getMessage(),
-                        "❌ [Servlet Import] Failed to update " + file.getName() + ": " + e.getMessage());
-            }
-        });
-    }
-
-    /**
      * Updates the copyright year in source files.
      * <p>
      * <b>[한국어 설명]</b>
@@ -1781,7 +1690,13 @@ public class S2BuildUtils {
             task.getOptions().setEncoding("UTF-8");
 
             // 컴파일러(javac)가 실행되는 JVM에 인코딩 인자를 전달하여 콘솔 깨짐을 방지한다.
-            task.getOptions().getForkOptions().setJvmArgs(java.util.Arrays.asList("-Dfile.encoding=UTF-8"));
+            // 사용자가 먼저 지정한 fork JVM 인자(-Xmx 등)를 지우지 않도록 없을 때만 더한다
+            List<String> forkJvmArgs = new ArrayList<>(
+                    Optional.ofNullable(task.getOptions().getForkOptions().getJvmArgs()).orElse(List.of()));
+            if (!forkJvmArgs.contains("-Dfile.encoding=UTF-8")) {
+                forkJvmArgs.add("-Dfile.encoding=UTF-8");
+            }
+            task.getOptions().getForkOptions().setJvmArgs(forkJvmArgs);
         });
 
         /*
@@ -4123,7 +4038,15 @@ public class S2BuildUtils {
                     .sorted()
                     .map(apiPkg -> apiPkg + ".*")
                     .toList();
-            shadowJar.relocate(pkg, toPackage, relocator -> excludes.forEach(relocator::exclude));
+            // 한 단계짜리 패키지(예: org)는 그 패키지에 바로 있는 클래스만 옮긴다
+            // (하위 패키지까지 옮기면 org.w3c·org.xml 같은 JDK 패키지 참조까지 바뀌어 실행 중에 깨짐)
+            boolean singleSegment = pkg.indexOf('.') < 0;
+            shadowJar.relocate(pkg, toPackage, relocator -> {
+                if (singleSegment) {
+                    relocator.include(pkg + ".*");
+                }
+                excludes.forEach(relocator::exclude);
+            });
             info(project, "✅ [Shadow] 패키지 재배치: " + pkg + " -> " + toPackage,
                     "✅ [Shadow] Relocate Package: " + pkg + " -> " + toPackage);
             if (!excludes.isEmpty()) {

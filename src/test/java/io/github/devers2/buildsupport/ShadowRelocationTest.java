@@ -148,6 +148,44 @@ class ShadowRelocationTest {
         assertFalse(Files.exists(published.resolve("demo-1.0.module")), "component 기준 메타데이터는 배포하지 않는다");
     }
 
+    @Test
+    @DisplayName("한 단계짜리 패키지(org)의 의존성은 그 패키지 클래스만 재배치한다 (JDK 의 org.w3c 참조는 그대로)")
+    void singleSegmentPackagesRelocateOnlyTheirOwnClasses() throws Exception {
+        Path repo = dir.resolve("repo");
+        module(repo, "flat", "org", "Top");
+
+        Path project = Files.createDirectories(dir.resolve("demo"));
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'demo'\n");
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins {
+                    id 'java-library'
+                    id 'com.gradleup.shadow'
+                    id 'io.github.devers2.buildsupport'
+                }
+                group = 'demo'
+                version = '1.0'
+                repositories { maven { url = uri('%s') } }
+                ext.shadedPackagePrefix = 'x.shaded'
+                dependencies { implementation 'test:flat:1.0' }
+                io.github.devers2.buildsupport.S2BuildUtils.configureProject(project)
+                """.formatted(repo.toUri()));
+        Path src = Files.createDirectories(project.resolve("src/main/java/demo"));
+        Files.writeString(src.resolve("Use.java"),
+                "package demo; public class Use { org.Top top; public org.w3c.dom.Node node; }");
+
+        BuildResult result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("shadowJar", "--stacktrace").build();
+
+        try (JarFile zip = new JarFile(project.resolve("build/libs/demo-1.0.jar").toFile())) {
+            assertNotNull(zip.getEntry("x/shaded/org/Top.class"), result.getOutput());
+            String use = new String(zip.getInputStream(zip.getEntry("demo/Use.class")).readAllBytes(),
+                    StandardCharsets.ISO_8859_1);
+            assertTrue(use.contains("x/shaded/org/Top"), "의존성 클래스는 재배치");
+            assertTrue(use.contains("org/w3c/dom/Node") && !use.contains("x/shaded/org/w3c"),
+                    "JDK 의 org.w3c 참조까지 옮기면 실행 중에 클래스를 찾지 못한다");
+        }
+    }
+
     /** 클래스 하나를 담은 jar 와 pom 을 Maven 형식 저장소에 만든다 */
     private void module(Path repo, String name, String pkg, String cls) throws Exception {
         Path src = Files.createDirectories(dir.resolve("src-" + name + "/" + pkg.replace('.', '/')));
