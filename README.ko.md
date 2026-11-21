@@ -124,4 +124,4 @@ S2BuildUtils.configureTestDefaults(project)
 
 ---
 
-s2-build-support Version: 1.0.1 (미배포)
+s2-build-support Version: 1.0.1 (2026-11-21)

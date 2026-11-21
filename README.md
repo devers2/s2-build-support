@@ -124,4 +124,4 @@ This module utilizes the following high-quality open-source library:
 
 ---
 
-s2-build-support Version: 1.0.1 (unreleased)
+s2-build-support Version: 1.0.1 (2026-11-21)

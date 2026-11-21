@@ -2,7 +2,7 @@
 
 **English** | [한국어](./CHANGELOG.ko.md)
 
-## [1.0.1] - Unreleased
+## [1.0.1] - 2026-11-21
 
 ### ⚠️ Changes in behavior
 
