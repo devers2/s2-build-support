@@ -98,6 +98,56 @@ class ShadowRelocationTest {
         }
     }
 
+    @Test
+    @DisplayName("from(components.java) Publication 도 Shadow 배포 모드로 배포된다 (재배치 jar, api 만 담은 POM, module metadata 없음)")
+    void shadedPublicationFromTheJavaComponentPublishes() throws Exception {
+        Path repo = dir.resolve("repo");
+        module(repo, "api", "a.b.api", "Bar");
+        module(repo, "impl", "a.b.impl", "Foo");
+        Path out = dir.resolve("out");
+
+        Path project = Files.createDirectories(dir.resolve("demo"));
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'demo'\n");
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins {
+                    id 'java-library'
+                    id 'maven-publish'
+                    id 'com.gradleup.shadow'
+                    id 'io.github.devers2.buildsupport'
+                }
+                group = 'demo'
+                version = '1.0'
+                repositories { maven { url = uri('%s') } }
+                ext.shadedPackagePrefix = 'x.shaded'
+                dependencies {
+                    api 'test:api:1.0'
+                    implementation 'test:impl:1.0'
+                }
+                java { withSourcesJar(); withJavadocJar() } // s2-util(configureLibraryPublishing)과 같은 구성
+                publishing {
+                    publications { mavenJava(MavenPublication) { from components.java } }
+                    repositories { maven { name = 'out'; url = uri('%s') } }
+                }
+                io.github.devers2.buildsupport.S2BuildUtils.configureProject(project)
+                """.formatted(repo.toUri(), out.toUri()));
+        Path src = Files.createDirectories(project.resolve("src/main/java/demo"));
+        Files.writeString(src.resolve("Use.java"),
+                "package demo; public class Use { public a.b.api.Bar bar; a.b.impl.Foo foo; }");
+
+        BuildResult result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("publishMavenJavaPublicationToOutRepository", "--stacktrace").build();
+
+        Path published = out.resolve("demo/demo/1.0");
+        try (JarFile zip = new JarFile(published.resolve("demo-1.0.jar").toFile())) {
+            assertNotNull(zip.getEntry("x/shaded/a/b/impl/Foo.class"), result.getOutput());
+            assertNull(zip.getEntry("a/b/api/Bar.class"), "배포 모드에서 api 는 jar 에 넣지 않는다");
+        }
+        String pom = Files.readString(published.resolve("demo-1.0.pom"));
+        assertTrue(pom.contains("<artifactId>api</artifactId>"), pom);
+        assertFalse(pom.contains("<artifactId>impl</artifactId>"), "재배치되어 들어간 impl 은 POM 에 없어야 한다: " + pom);
+        assertFalse(Files.exists(published.resolve("demo-1.0.module")), "component 기준 메타데이터는 배포하지 않는다");
+    }
+
     /** 클래스 하나를 담은 jar 와 pom 을 Maven 형식 저장소에 만든다 */
     private void module(Path repo, String name, String pkg, String cls) throws Exception {
         Path src = Files.createDirectories(dir.resolve("src-" + name + "/" + pkg.replace('.', '/')));

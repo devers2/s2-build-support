@@ -14,6 +14,9 @@
 
 - **패키지 재배치**가 `implementation` 의존성과 앞 두 단계가 같은 `api` 의존성 패키지(예: `org.apache` 아래 `org.apache.commons.lang3`)까지
   옮겨, 공개 API 의 api 클래스 참조가 바뀌어 사용하는 쪽에서 깨졌습니다. 이제 api 패키지는 재배치에서 제외합니다.
+- **Shadow 배포 모드**가 `from(components.java)` Publication(`configureLibraryPublishing` 포함)에서 `Cannot publish module metadata`로
+  실패했습니다(sources·javadoc jar 가 있을 때). 이제 그 Publication 은 Gradle Module Metadata 를 만들지 않고 POM(api 만 compile)으로 배포합니다.
+  아티팩트를 바꾸지 못하던 `from components.java` 금지 검사(실제로는 동작하지 않던 코드)는 지웠습니다.
 - `shadedPackagePrefix`와 Shadow 플러그인을 쓰면서 `maven-publish`가 없는 프로젝트가 설정 단계에서 실패했습니다(`PublishingExtension` 없음).
 - GitHub Packages 스마트 배포가 존재 확인 경로를 Publication 이 아닌 프로젝트의 groupId 로 만들었습니다.
 - 의존성: Shadow 플러그인 9.6.1, Gradle Wrapper 9.9.1.

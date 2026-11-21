@@ -3226,6 +3226,7 @@ public class S2BuildUtils {
      * 1. Shadow JAR를 메인 아티팩트로 사용합니다 (-all 접미사 제거).
      * 2. {@code implementation}/{@code runtimeOnly} 의존성은 POM에서 제외합니다.
      * 3. {@code api} 의존성은 POM에 수동으로 추가합니다.
+     * 4. Gradle Module Metadata(.module)는 만들지 않습니다 ({@code java} component 기준이라 위 아티팩트·의존성과 맞지 않음).
      * </p>
      *
      * @param project The Gradle project instance | Gradle 프로젝트 객체
@@ -3244,48 +3245,16 @@ public class S2BuildUtils {
                             return;
                         }
 
-                        // Shadow 플러그인 사용 시 from components.java를 사용하면 Gradle Module Metadata 수정 불가 오류 발생
-                        // from components.java가 설정되어 있는지 확인 (기존 리플렉션 로직 유지하되 안전하게 처리)
-                        boolean hasFromComponents = false;
-                        try {
-                            java.lang.reflect.Method getFromMethod = publication.getClass().getMethod("getFrom");
-                            Object fromComponent = getFromMethod.invoke(publication);
-                            hasFromComponents = fromComponent != null;
-                        } catch (Exception e) {
-                            // getFrom 메서드가 없거나 오류 발생 시 무시
-                        }
-
-                        if (hasFromComponents) {
-                            // from components.java가 설정되어 있으면 오류 메시지 출력
-                            String msgKo = "❌ [Shadow] 오류: Shadow 플러그인 사용 시 'from components.java'를 사용할 수 없습니다.\n" +
-                                    "❌ [Shadow] build.gradle의 publishing 블록에서 'from components.java'를 제거하고\n" +
-                                    "❌ [Shadow] 아티팩트를 직접 추가하세요. 예:\n" +
-                                    "❌ [Shadow]   mavenJava(MavenPublication) {\n" +
-                                    "❌ [Shadow]       // from components.java  <- 이 줄 제거\n" +
-                                    "❌ [Shadow]       artifactId = base.archivesName.get()\n" +
-                                    "❌ [Shadow]       artifact(tasks.named('shadowJar'))\n" +
-                                    "❌ [Shadow]       // ... 기타 아티팩트\n" +
-                                    "❌ [Shadow]   }";
-                            String msgEn = "❌ [Shadow] Error: 'from components.java' cannot be used with Shadow plugin.\n"
-                                    +
-                                    "❌ [Shadow] Please remove 'from components.java' from publishing block and add artifacts manually. Example:\n"
-                                    +
-                                    "❌ [Shadow]   mavenJava(MavenPublication) {\n" +
-                                    "❌ [Shadow]       // from components.java  <- remove this line\n" +
-                                    "❌ [Shadow]       artifactId = base.archivesName.get()\n" +
-                                    "❌ [Shadow]       artifact(tasks.named('shadowJar'))\n" +
-                                    "❌ [Shadow]       // ... other artifacts\n" +
-                                    "❌ [Shadow]   }";
-
-                            if (isKorean()) {
-                                project.getLogger().error(msgKo);
-                            } else {
-                                project.getLogger().error(msgEn);
-                            }
-                            throw new IllegalStateException(
-                                    isKorean() ? "Shadow 플러그인 사용 시 'from components.java'를 사용할 수 없습니다."
-                                            : "'from components.java' cannot be used with Shadow plugin.");
-                        }
+                        // from(components.java) 로 만든 Publication(configureLibraryPublishing 등)의 아티팩트를 shadowJar 로 바꾸면
+                        // Gradle Module Metadata 생성이 "an artifact from the 'java' component has been removed" 로 실패한다.
+                        // 의존성 정보는 아래 POM 재작성(api 만 compile 로)이 담당하므로, 이 Publication 은 module metadata 를 만들지 않는다
+                        // (메타데이터가 남으면 Gradle 소비자는 POM 대신 component 의 원래 의존성·아티팩트를 보게 됨)
+                        project.getTasks().withType(org.gradle.api.publish.tasks.GenerateModuleMetadata.class)
+                                .configureEach(task -> {
+                                    if (task.getPublication().getOrNull() == publication) {
+                                        task.setEnabled(false);
+                                    }
+                                });
 
                         // 기존 아티팩트 제거
                         publication.getArtifacts().clear();

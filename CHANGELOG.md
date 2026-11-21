@@ -15,6 +15,9 @@
 - **Package relocation** also moved the packages of `api` dependencies sharing the first two segments with an
   `implementation` dependency (for example `org.apache.commons.lang3` under `org.apache`), so the api classes in the
   public API were renamed and broke consumers. Api packages are now excluded from relocation.
+- **Shadow publishing mode** failed with `Cannot publish module metadata` for a `from(components.java)` publication
+  (including `configureLibraryPublishing`) when sources/javadoc JARs exist. That publication now ships no Gradle Module
+  Metadata, only the POM (api dependencies as compile). The check forbidding `from components.java`, which never actually ran, is removed.
 - A project with `shadedPackagePrefix` and the Shadow plugin but without `maven-publish` failed at configuration
   (no `PublishingExtension`).
 - GitHub Packages smart publishing built the existence-check path from the project's groupId instead of the publication's.
